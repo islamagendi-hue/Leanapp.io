@@ -42,6 +42,12 @@ export async function verifyPassword(password: string, stored: string): Promise<
   return actual.length === expected.length && timingSafeEqual(actual, expected);
 }
 
+/** True when a stored hash uses weaker parameters than the current ones and should be replaced on next login. */
+export function needsRehash(stored: string): boolean {
+  const [alg, n, r, p] = stored.split("$");
+  return alg !== "scrypt" || Number(n) < N || Number(r) < R || Number(p) < P;
+}
+
 /** A dummy hash so login spends the same time whether or not the email exists. */
 export const DUMMY_PASSWORD_HASH =
   "scrypt$32768$8$1$AAAAAAAAAAAAAAAAAAAAAA==$" + Buffer.alloc(64).toString("base64");

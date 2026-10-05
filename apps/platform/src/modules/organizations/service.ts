@@ -5,9 +5,12 @@ import { isUniqueViolation, withSystem } from "@/lib/db";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify } from "@/lib/slug";
 import { audit } from "@/modules/audit/service";
+import { sendEmail, type SendResult } from "@/modules/email/service";
+import { invitationMessage } from "@/modules/email/templates";
 import { assertCan, canAssignRole, canManageMember } from "@/modules/rbac/authorize";
-import { isRole, type Role } from "@/modules/rbac/permissions";
+import { isRole, ROLE_INFO, type Role } from "@/modules/rbac/permissions";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
+import { publicAppUrl } from "@/server/env";
 
 export const INDUSTRIES = [
   "ecommerce", "marketplace", "delivery", "subscription", "fintech", "edtech", "healthcare",
@@ -142,18 +145,18 @@ const inviteSchema = z.object({
 });
 
 /**
- * Creates an invitation and returns the one-time token. Email delivery is not
- * wired yet (no email provider configured for the platform), so the inviter
- * shares the link; the token is stored only as a hash.
+ * Creates an invitation, emails the one-time link and returns the token so the
+ * inviter can share the link themselves when delivery fails or no provider is
+ * configured. The token is stored only as a hash.
  */
-export async function inviteMember(ctx: TenantContext, input: unknown): Promise<{ token: string; invitationId: string }> {
+export async function inviteMember(ctx: TenantContext, input: unknown): Promise<{ token: string; invitationId: string; link: string; delivery: SendResult }> {
   const r = inviteSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
   const role = r.data.role as Role;
   assertCan(ctx.role, "members.invite");
   if (!canAssignRole(ctx.role, role)) throw new ForbiddenError("You can't invite someone with a higher role than yours.");
   const token = randomToken(24);
-  const id = await tenantTx(ctx, "members.invite", async (db) => {
+  const { id, inviter } = await tenantTx(ctx, "members.invite", async (db) => {
     const existing = await db.one(
       `select 1 from platform.organization_members m join platform.users u on u.id = m.user_id where lower(u.email) = $1`,
       [r.data.email],
@@ -165,9 +168,12 @@ export async function inviteMember(ctx: TenantContext, input: unknown): Promise<
       [ctx.organizationId, r.data.email, role, sha256(token), ctx.userId],
     );
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "member.invited", targetType: "invitation", targetId: row!.id, metadata: { email: r.data.email, role } });
-    return row!.id;
+    const me = await db.one<{ name: string }>("select name from platform.users where id = $1", [ctx.userId]);
+    return { id: row!.id, inviter: me?.name ?? "A teammate" };
   });
-  return { token, invitationId: id };
+  const link = `${publicAppUrl()}/invite/${token}`;
+  const delivery = await sendEmail(invitationMessage(r.data.email, inviter, ctx.organizationName, ROLE_INFO[role].name, link));
+  return { token, invitationId: id, link, delivery };
 }
 
 export async function revokeInvitation(ctx: TenantContext, invitationId: string): Promise<void> {

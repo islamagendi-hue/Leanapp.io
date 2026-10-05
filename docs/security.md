@@ -4,12 +4,15 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 
 ## Authentication
 
-- ✓ Passwords hashed with scrypt (N=2^15, r=8, p=1, 16-byte salt), stored as `scrypt$N$r$p$salt$hash` so the cost can be raised later without invalidating existing hashes (re-hashing on login is not built yet). Minimum length 10. NFKC-normalized.
+- ✓ Passwords hashed with scrypt (N=2^15, r=8, p=1, 16-byte salt), stored as `scrypt$N$r$p$salt$hash` so the cost can be raised later without invalidating existing hashes and older hashes are upgraded on the next successful sign-in. Minimum length 10. NFKC-normalized.
 - ✓ Unknown emails still run a hash against a dummy value, so response time doesn't reveal which emails exist.
 - ✓ Sessions: 32-byte random token in an `httpOnly`, `Secure` (production), `SameSite=Lax` cookie `la_session` for 30 days. Only the SHA-256 of the token is stored. Sign-out deletes the row; "sign out everywhere" deletes all of a user's sessions.
 - ✓ Throttling: sign-up 10/hour per IP; login 10 per 15 min per email and 50 per 15 min per IP.
 - ○ OAuth (Google, Apple) and MFA (TOTP): `user_identities` and the `users.mfa_*` columns are ready, flows are not built.
-- ○ Email verification and password reset need an email provider (not connected).
+- ✓ Email verification and password reset use one-time tokens: 32 random bytes, stored only as SHA-256 in `auth_tokens` (no grant to the app role), single use, 24h (verify) or 1h (reset), and a new token invalidates older ones. Links open a page that confirms with a POST, so mail scanners that prefetch links can't consume them.
+- ✓ Password reset answers the same whether or not the account exists, is throttled 3/hour per email and 20/hour per IP, signs out every session, marks the email verified and sends a "password changed" email.
+- ✓ Changing the password re-checks the current one and signs out every other session. The account page lists active sessions and can sign out the others.
+- ✓ Email goes through Resend when `RESEND_API_KEY` and `EMAIL_FROM` are set. Without them, development logs the email; production sends nothing and the UI says so (invitations still show the link to share by hand).
 
 ## Authorization
 

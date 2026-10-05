@@ -18,7 +18,7 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
             <Link href="/onboarding" className="hover:text-ink">Switch organization</Link>
           </nav>
           <div className="ms-auto flex items-center gap-3 text-sm text-ink-3">
-            <span className="hidden sm:inline">{user?.email}</span>
+            <Link href="/account" className="hidden hover:text-ink sm:inline">{user?.email}</Link>
             <span className="pill border-line">{ROLE_INFO[ctx.role].name}</span>
             <form action={signOutAction}>
               <button className="underline hover:text-ink" type="submit">Sign out</button>
@@ -26,6 +26,12 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
           </div>
         </div>
       </header>
+      {user && !user.emailVerified && (
+        <div className="border-b border-line bg-warn-soft px-4 py-2 text-center text-sm text-warn">
+          Please confirm your email address ({user.email}).{" "}
+          <Link href="/account" className="underline">Resend the link</Link>
+        </div>
+      )}
       {props.children}
     </div>
   );

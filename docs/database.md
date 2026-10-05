@@ -21,7 +21,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | Domain | Tables |
 | --- | --- |
 | Commercial | `plans`, `plan_features`, `subscriptions`, `usage_meters`, `usage_records` (daily rollup), `invoices` |
-| Identity | `users`, `user_identities` (OAuth-ready), `auth_sessions` |
+| Identity | `users`, `user_identities` (OAuth-ready), `auth_sessions`, `auth_tokens` (verify email, password reset) |
 | Tenancy | `organizations`, `organization_members`, `organization_invitations`, `roles`, `permissions`, `role_permissions` |
 | Apps | `apps`, `app_platforms`, `environments` (one per type per app), `sdk_keys`, `api_keys` |
 | Data plane | `event_batches` (idempotency + request stats), `events`, `anonymous_users`, `app_users`, `identity_links`, `sessions`, `push_tokens` |
@@ -47,7 +47,7 @@ Tables for attribution, engagement, integrations and privacy exist so the data m
 | Role | Used by | Rights |
 | --- | --- | --- |
 | owner (the migration user) | migrations, `withSystem` (auth, key lookup, processing) | Bypasses RLS |
-| `platform_app` (`NOBYPASSRLS`) | every tenant request via `SET LOCAL ROLE` inside `withTenant` | DML on tenant tables under RLS; no access to `auth_sessions`, `user_identities`, `rate_limit_buckets`, `users.password_hash` |
+| `platform_app` (`NOBYPASSRLS`) | every tenant request via `SET LOCAL ROLE` inside `withTenant` | DML on tenant tables under RLS; no access to `auth_sessions`, `auth_tokens`, `user_identities`, `rate_limit_buckets`, `users.password_hash` |
 
 ## Retention
 

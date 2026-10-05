@@ -1,6 +1,6 @@
 import "server-only";
 import { z } from "zod";
-import { DUMMY_PASSWORD_HASH, hashPassword, randomToken, sha256, verifyPassword } from "@/lib/crypto";
+import { DUMMY_PASSWORD_HASH, hashPassword, needsRehash, randomToken, sha256, verifyPassword } from "@/lib/crypto";
 import { isUniqueViolation, withSystem } from "@/lib/db";
 import { ConflictError, RateLimitError, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { consumeRateLimit } from "@/lib/rate-limit";
@@ -13,6 +13,7 @@ export interface AuthUser {
   email: string;
   name: string;
   isPlatformAdmin: boolean;
+  emailVerified: boolean;
 }
 
 export const signUpSchema = z.object({
@@ -25,6 +26,9 @@ export const signUpSchema = z.object({
     .refine((p) => /[a-zA-Z]/.test(p) && /[0-9]/.test(p), "Use letters and at least one number."),
 });
 
+/** Same rules as sign-up, for password changes and resets. */
+export const newPasswordSchema = signUpSchema.shape.password;
+
 export const signInSchema = z.object({
   email: z.string().trim().toLowerCase().email("Enter a valid email.").max(200),
   password: z.string().min(1, "Enter your password.").max(200),
@@ -36,13 +40,13 @@ export interface SessionResult {
   expiresAt: Date;
 }
 
-function parse<T>(schema: z.ZodType<T>, input: unknown): T {
+export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const r = schema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.", z.flattenError(r.error).fieldErrors);
   return r.data;
 }
 
-async function createSession(userId: string, userAgent: string | null) {
+export async function createSession(userId: string, userAgent: string | null) {
   const token = randomToken(32);
   const expiresAt = new Date(Date.now() + SESSION_TTL_DAYS * 86_400_000);
   await withSystem((db) =>
@@ -68,7 +72,7 @@ export async function signUp(input: unknown, meta: { userAgent?: string | null; 
         [data.email, data.name, passwordHash],
       );
       await audit(db, { organizationId: null, actorUserId: row!.id, action: "auth.signup" });
-      return { id: row!.id, email: data.email, name: data.name, isPlatformAdmin: false };
+      return { id: row!.id, email: data.email, name: data.name, isPlatformAdmin: false, emailVerified: false };
     });
   } catch (err) {
     if (isUniqueViolation(err)) throw new ConflictError("An account with this email already exists. Sign in instead.");
@@ -88,8 +92,8 @@ export async function signIn(input: unknown, meta: { userAgent?: string | null; 
   if (wait) throw new RateLimitError(wait);
 
   const row = await withSystem((db) =>
-    db.one<{ id: string; email: string; name: string; password_hash: string | null; status: string; is_platform_admin: boolean }>(
-      "select id, email, name, password_hash, status, is_platform_admin from platform.users where lower(email) = $1",
+    db.one<{ id: string; email: string; name: string; password_hash: string | null; status: string; is_platform_admin: boolean; email_verified_at: Date | null }>(
+      "select id, email, name, password_hash, status, is_platform_admin, email_verified_at from platform.users where lower(email) = $1",
       [data.email],
     ),
   );
@@ -98,20 +102,22 @@ export async function signIn(input: unknown, meta: { userAgent?: string | null; 
     if (row) await withSystem((db) => audit(db, { organizationId: null, actorUserId: row.id, action: "auth.login_failed" }));
     throw new UnauthorizedError("Email or password is incorrect.");
   }
+  // Upgrade hashes made with older scrypt parameters while we have the plaintext.
+  const rehash = needsRehash(row.password_hash) ? await hashPassword(data.password) : null;
   await withSystem(async (db) => {
-    await db.query("update platform.users set last_login_at = now() where id = $1", [row.id]);
+    await db.query("update platform.users set last_login_at = now(), password_hash = coalesce($2, password_hash) where id = $1", [row.id, rehash]);
     await audit(db, { organizationId: null, actorUserId: row.id, action: "auth.login" });
   });
   const session = await createSession(row.id, meta.userAgent ?? null);
-  return { user: { id: row.id, email: row.email, name: row.name, isPlatformAdmin: row.is_platform_admin }, ...session };
+  return { user: { id: row.id, email: row.email, name: row.name, isPlatformAdmin: row.is_platform_admin, emailVerified: !!row.email_verified_at }, ...session };
 }
 
 /** Resolves a session cookie token to its user. Returns null if missing, expired or revoked. */
 export async function getUserBySessionToken(token: string | undefined | null): Promise<AuthUser | null> {
   if (!token || token.length > 200) return null;
   const row = await withSystem((db) =>
-    db.one<{ id: string; email: string; name: string; is_platform_admin: boolean; session_id: string; last_seen_at: Date }>(
-      `select u.id, u.email, u.name, u.is_platform_admin, s.id as session_id, s.last_seen_at
+    db.one<{ id: string; email: string; name: string; is_platform_admin: boolean; email_verified_at: Date | null; session_id: string; last_seen_at: Date }>(
+      `select u.id, u.email, u.name, u.is_platform_admin, u.email_verified_at, s.id as session_id, s.last_seen_at
          from platform.auth_sessions s join platform.users u on u.id = s.user_id
         where s.token_hash = $1 and s.revoked_at is null and s.expires_at > now() and u.status = 'active'`,
       [sha256(token)],
@@ -122,7 +128,7 @@ export async function getUserBySessionToken(token: string | undefined | null): P
   if (Date.now() - new Date(row.last_seen_at).getTime() > 600_000) {
     await withSystem((db) => db.query("update platform.auth_sessions set last_seen_at = now() where id = $1", [row.session_id]));
   }
-  return { id: row.id, email: row.email, name: row.name, isPlatformAdmin: row.is_platform_admin };
+  return { id: row.id, email: row.email, name: row.name, isPlatformAdmin: row.is_platform_admin, emailVerified: !!row.email_verified_at };
 }
 
 export async function signOut(token: string | undefined | null): Promise<void> {
@@ -136,10 +142,13 @@ export async function signOut(token: string | undefined | null): Promise<void> {
   });
 }
 
-/** Revokes every session for a user (password change, compromise response). */
-export async function revokeAllSessions(userId: string): Promise<number> {
+/** Revokes every session for a user (password change, compromise response), optionally keeping the current one. */
+export async function revokeAllSessions(userId: string, keepToken?: string | null): Promise<number> {
   const rows = await withSystem((db) =>
-    db.query("update platform.auth_sessions set revoked_at = now() where user_id = $1 and revoked_at is null returning 1", [userId]),
+    db.query(
+      "update platform.auth_sessions set revoked_at = now() where user_id = $1 and revoked_at is null and ($2::text is null or token_hash <> $2) returning 1",
+      [userId, keepToken ? sha256(keepToken) : null],
+    ),
   );
   return rows.length;
 }

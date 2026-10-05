@@ -10,8 +10,9 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 
 | Area | Status |
 | --- | --- |
-| Multi-tenant Postgres schema with RLS, 63 tables covering all modules | ✓ |
+| Multi-tenant Postgres schema with RLS, 64 tables covering all modules | ✓ |
 | Auth (email/password, sessions), organizations, invitations, 5 roles, audit log | ✓ |
+| Email verification, password reset and change, session management, invitation emails | ✓ (sending needs `RESEND_API_KEY` and a verified domain) |
 | Apps with dev/staging/production environments, public and secret keys, rotation, revocation | ✓ |
 | Ingestion API (single + batch, idempotent, limits, rate limits, clock skew) | ✓ |
 | Processing (identity, sessions, push tokens, plan validation) | ✓ |
@@ -26,7 +27,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Gap | Phase | Notes |
 | --- | --- | --- |
 | Production deployment and monitoring (Sentry or similar, uptime) | 1.5 | Owner decisions in [deployment](deployment.md) |
-| Email delivery (verification, password reset, invitations) | 1.5 | Needs a provider (e.g. Resend) and the leanapp.io domain verified |
+| Email provider account | 1.5 | Code is built; needs a Resend API key and leanapp.io verified as a sending domain |
 | Native SDKs: Android, iOS, Flutter | 2 | API is specified in [SDK](sdk.md) |
 | Analytics: explorer, funnels, retention, revenue | 2 | [Analytics](analytics.md) |
 | ClickHouse event store, Redis | 2 | When volume requires ([ADR-002](adr/ADR-002-event-store.md)) |

@@ -61,7 +61,7 @@ export default async function MembersPage(props: PageProps<"/o/[org]/settings/me
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="card">
             <h2 className="h2">Invite someone</h2>
-            <p className="mb-4 text-sm text-ink-3">Invitations expire after 7 days. Email delivery isn&apos;t connected yet, so you&apos;ll get a link to send yourself.</p>
+            <p className="mb-4 text-sm text-ink-3">We email the invitation link, and you&apos;ll also see it here to share yourself. Invitations expire after 7 days.</p>
             <ActionForm action={inviteMemberAction.bind(null, org)} submitLabel="Create invitation">
               <label className="block"><span className="label">Email</span><input name="email" type="email" className="input" required /></label>
               <label className="block">

@@ -8,10 +8,12 @@ import { currentUser } from "@/server/session";
 export const metadata = { title: "Sign in" };
 
 export default async function LoginPage(props: PageProps<"/login">) {
-  const next = (await props.searchParams).next;
+  const sp = await props.searchParams;
+  const next = sp.next;
   if (await currentUser()) redirect(typeof next === "string" ? next : "/onboarding");
   return (
     <AuthShell title="Sign in" footer={<>New here? <Link className="underline" href={`/signup${typeof next === "string" ? `?next=${encodeURIComponent(next)}` : ""}`}>Create an account</Link></>}>
+      {sp.reset === "1" && <p className="mb-4 rounded-lg bg-accent-soft px-3 py-2 text-sm text-accent-ink">Password changed. Sign in with your new password.</p>}
       <ActionForm action={signInAction} submitLabel="Sign in" pendingLabel="Signing in…">
         {typeof next === "string" && <input type="hidden" name="next" value={next} />}
         <div>
@@ -21,6 +23,7 @@ export default async function LoginPage(props: PageProps<"/login">) {
         <div>
           <label className="label" htmlFor="password">Password</label>
           <input className="input" id="password" name="password" type="password" autoComplete="current-password" required />
+          <Link href="/forgot-password" className="mt-1 inline-block text-sm text-ink-3 underline">Forgot your password?</Link>
         </div>
       </ActionForm>
     </AuthShell>

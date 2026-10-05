@@ -14,7 +14,7 @@ Ingestion is scoped by the key: the key lookup returns organization, app and env
 ## Defence in depth
 
 - Composite foreign keys `(organization_id, parent_id)`: a child row can't reference another tenant's parent even through the owner role.
-- System-only tables (`auth_sessions`, `user_identities`, `rate_limit_buckets`) have no grant to `platform_app`.
+- System-only tables (`auth_sessions`, `auth_tokens`, `user_identities`, `rate_limit_buckets`) have no grant to `platform_app`.
 - `audit_logs` is append-only for tenants (no update/delete policy).
 - Environment isolation inside a tenant: every data-plane row carries `environment_id`; keys are environment-specific and tagged `dev`/`stg`/`live`; the SDK namespaces its local queue by key prefix.
 

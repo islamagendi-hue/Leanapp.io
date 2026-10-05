@@ -4,7 +4,6 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { acceptInvitation, changeMemberRole, createOrganization, inviteMember, removeMember, revokeInvitation } from "@/modules/organizations/service";
 import { toActionError, type ActionState } from "@/server/action-result";
-import { publicAppUrl } from "@/server/env";
 import { requireTenant, requireUser } from "@/server/session";
 
 export async function createOrganizationAction(_: ActionState, form: FormData): Promise<ActionState> {
@@ -28,9 +27,13 @@ export async function createOrganizationAction(_: ActionState, form: FormData): 
 export async function inviteMemberAction(orgSlug: string, _: ActionState, form: FormData): Promise<ActionState> {
   try {
     const ctx = await requireTenant(orgSlug);
-    const { token } = await inviteMember(ctx, { email: form.get("email"), role: form.get("role") });
+    const email = String(form.get("email") ?? "");
+    const { link, delivery } = await inviteMember(ctx, { email, role: form.get("role") });
     revalidatePath(`/o/${orgSlug}/settings/members`);
-    return { ok: true, message: "Invitation created. Email delivery isn't connected yet, so send this link yourself:", secret: `${publicAppUrl()}/invite/${token}` };
+    // The link is shown either way so the inviter can resend it through another channel.
+    return delivery.delivered
+      ? { ok: true, message: `Invitation emailed to ${email.trim().toLowerCase()}. You can also share this link:`, secret: link }
+      : { ok: true, message: "Invitation created, but the email couldn't be sent. Send this link yourself:", secret: link };
   } catch (err) {
     return toActionError(err);
   }

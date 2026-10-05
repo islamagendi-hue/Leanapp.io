@@ -143,6 +143,7 @@ describe("Org A → Org B at the database layer (RLS)", () => {
   it("cannot read system-only tables (sessions, auth)", async () => {
     await expect(withTenant(a(), (db) => db.query("select * from platform.auth_sessions"))).rejects.toMatchObject({ code: "42501" });
     await expect(withTenant(a(), (db) => db.query("select password_hash from platform.users"))).rejects.toMatchObject({ code: "42501" });
+    await expect(withTenant(a(), (db) => db.query("select * from platform.auth_tokens"))).rejects.toMatchObject({ code: "42501" });
   });
 
   it("cannot query anything without a tenant set", async () => {
