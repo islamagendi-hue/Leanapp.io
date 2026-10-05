@@ -16,7 +16,7 @@ export default async function MembersPage(props: PageProps<"/o/[org]/settings/me
   const assignable = ROLES.filter((r) => canAssignRole(ctx.role, r));
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 px-4 py-8">
+    <div className="space-y-6">
       <div>
         <h1 className="h1">Members</h1>
         <p className="mt-1 text-ink-2">Who can access {ctx.organizationName}, and what they can do.</p>

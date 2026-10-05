@@ -3,11 +3,11 @@
 | Suite | Command (in `apps/platform`) | What it covers |
 | --- | --- | --- |
 | Unit | `npm run test:unit` | Implementation engine (plan generation per business model, revenue rules, food renaming, mappings, scoring) and the JS SDK (`sdks/javascript`: batching, identity, sessions, offline retries, backoff, 401/400/413/429 handling, queue cap and TTL, attribution) |
-| Integration | `npm run test:integration` | Real Postgres. Drops and recreates the `platform` schema in `DATABASE_URL_TEST`, applies migrations, then: tenant isolation across every tenant table, RBAC enforcement, and the full first-event loop (auth → questionnaire → plan → approve → publish → ingest → dedupe → idempotent replay → process → debugger → score → mapping → key rotation and revocation), plus account flows (email verification, password reset and change, session sign-out, hash upgrades, invitation email) with emails captured from the in-memory outbox, end-user export and deletion (shared devices, other tenants untouched, job retry), and scheduled cleanup (plan retention in report and enforce modes, operational purges) |
+| Integration | `npm run test:integration` | Real Postgres. Drops and recreates the `platform` schema in `DATABASE_URL_TEST`, applies migrations, then: tenant isolation across every tenant table, RBAC enforcement, and the full first-event loop (auth → questionnaire → plan → approve → publish → ingest → dedupe → idempotent replay → process → debugger → score → mapping → key rotation and revocation), plus account flows (email verification, password reset and change, session sign-out, hash upgrades, invitation email) with emails captured from the in-memory outbox, end-user export and deletion (shared devices, other tenants untouched, job retry), scheduled cleanup (plan retention in report and enforce modes, operational purges), and organization settings, usage and audit log paging |
 | Static | `npm run lint`, `npm run typecheck` | ESLint (Next config), `next typegen` + `tsc` |
 | Build | `npm run build` | Production build |
 
-Current counts: 19 platform unit tests, 21 SDK tests, 47 integration tests. All green.
+Current counts: 19 platform unit tests, 21 SDK tests, 51 integration tests. All green.
 
 ## Browser run of the first-priority loop
 

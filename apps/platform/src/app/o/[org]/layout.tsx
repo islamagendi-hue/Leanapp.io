@@ -15,6 +15,7 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
           <nav className="flex flex-wrap gap-4 text-sm text-ink-2">
             <Link href={`/o/${org}`} className="hover:text-ink">Apps</Link>
             <Link href={`/o/${org}/settings/members`} className="hover:text-ink">Members</Link>
+            <Link href={`/o/${org}/settings`} className="hover:text-ink">Settings</Link>
             <Link href="/onboarding" className="hover:text-ink">Switch organization</Link>
           </nav>
           <div className="ms-auto flex items-center gap-3 text-sm text-ink-3">

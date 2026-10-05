@@ -1,5 +1,6 @@
 import "server-only";
 import type { Db } from "@/lib/db";
+import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 
 export type UsageMetric = "events" | "monthly_active_users" | "automation_runs" | "push_messages" | "api_requests" | "storage" | "seats";
 
@@ -27,4 +28,58 @@ export async function monthlyActiveUsers(db: Db, environmentIds: string[], month
     [environmentIds, monthStart],
   );
   return Number(row?.n ?? 0);
+}
+
+export interface UsageLine {
+  key: "events" | "apps" | "seats" | "monthly_active_users";
+  label: string;
+  used: number;
+  /** null = unlimited on this plan. */
+  limit: number | null;
+}
+
+export interface UsageSummary {
+  plan: { id: string; name: string; retentionDays: number | null };
+  periodStart: Date;
+  lines: UsageLine[];
+}
+
+/**
+ * This calendar month's usage (UTC) against the organization's plan. Limits are
+ * shown, not enforced: nothing is blocked when usage goes over.
+ */
+export function usageSummary(ctx: TenantContext, now = new Date()): Promise<UsageSummary> {
+  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  return tenantTx(ctx, "billing.read", async (db) => {
+    const plan = await db.one<{ id: string; name: string }>(
+      "select p.id, p.name from platform.organizations o join platform.plans p on p.id = o.plan_id where o.id = $1",
+      [ctx.organizationId],
+    );
+    const features = await db.query<{ feature: string; value: number | null }>(
+      "select feature, value from platform.plan_features where plan_id = $1",
+      [plan!.id],
+    );
+    const limit = (f: string) => {
+      const v = features.find((x) => x.feature === f)?.value;
+      return typeof v === "number" ? v : null;
+    };
+    const events = await db.one<{ n: string }>(
+      "select coalesce(sum(quantity), 0) as n from platform.usage_records where meter_id = 'events' and day >= $1::date",
+      [periodStart.toISOString().slice(0, 10)],
+    );
+    const apps = await db.one<{ n: string }>("select count(*) as n from platform.apps where status = 'active'");
+    const seats = await db.one<{ n: string }>("select count(*) as n from platform.organization_members");
+    const prodEnvs = await db.query<{ id: string }>("select id from platform.environments where type = 'production'");
+    const mau = prodEnvs.length ? await monthlyActiveUsers(db, prodEnvs.map((e) => e.id), periodStart) : 0;
+    return {
+      plan: { id: plan!.id, name: plan!.name, retentionDays: limit("retention.days") },
+      periodStart,
+      lines: [
+        { key: "events", label: "Events this month", used: Number(events!.n), limit: limit("limit.events_per_month") },
+        { key: "monthly_active_users", label: "Monthly active users (production)", used: mau, limit: null },
+        { key: "apps", label: "Apps", used: Number(apps!.n), limit: limit("limit.apps") },
+        { key: "seats", label: "Members", used: Number(seats!.n), limit: limit("limit.seats") },
+      ],
+    };
+  });
 }

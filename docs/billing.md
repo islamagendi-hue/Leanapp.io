@@ -1,6 +1,6 @@
 # Billing
 
-**Status: partial.** Built: plans and plan features as data (`plans`, `plan_features`: retention days, app, seat and monthly event limits), usage metering (`usage_meters`, `usage_records` daily rollups of ingested events, written on every ingestion request), and a monthly active users query. Retention is applied by the scheduled worker (report-only until `EVENT_RETENTION=enforce`, see [database](database.md)). Not built: enforcement of the other limits, a payment provider, invoices, the billing UI. Every organization is on `free` and nothing is charged.
+**Status: partial.** Built: plans and plan features as data (`plans`, `plan_features`: retention days, app, seat and monthly event limits), usage metering (`usage_meters`, `usage_records` daily rollups of ingested events, written on every ingestion request), a monthly active users query, and a Plan & usage page in organization settings that shows usage against plan limits. Retention is applied by the scheduled worker (report-only until `EVENT_RETENTION=enforce`, see [database](database.md)). Not built: enforcement of the other limits, a payment provider, invoices, the billing UI. Every organization is on `free` and nothing is charged.
 
 ## Pricing model (to be validated)
 

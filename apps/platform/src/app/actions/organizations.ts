@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { acceptInvitation, changeMemberRole, createOrganization, inviteMember, removeMember, revokeInvitation } from "@/modules/organizations/service";
+import { acceptInvitation, changeMemberRole, createOrganization, inviteMember, removeMember, revokeInvitation, updateOrganization } from "@/modules/organizations/service";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requireTenant, requireUser } from "@/server/session";
 
@@ -22,6 +22,22 @@ export async function createOrganizationAction(_: ActionState, form: FormData): 
     return toActionError(err);
   }
   redirect(`/o/${slug}/apps/new`);
+}
+
+export async function updateOrganizationAction(orgSlug: string, _: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    await updateOrganization(await requireTenant(orgSlug), {
+      name: form.get("name"),
+      country: form.get("country") ?? "",
+      timezone: form.get("timezone") || "UTC",
+      defaultCurrency: form.get("currency") || "USD",
+      industry: form.get("industry") ?? "",
+    });
+    revalidatePath(`/o/${orgSlug}`, "layout");
+    return { ok: true, message: "Saved." };
+  } catch (err) {
+    return toActionError(err);
+  }
 }
 
 export async function inviteMemberAction(orgSlug: string, _: ActionState, form: FormData): Promise<ActionState> {

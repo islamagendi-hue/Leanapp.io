@@ -104,6 +104,34 @@ export function getOrganization(ctx: TenantContext): Promise<OrganizationDetails
   });
 }
 
+/** Edits the organization profile. The slug (its URL) doesn't change. */
+export async function updateOrganization(ctx: TenantContext, input: unknown): Promise<void> {
+  const r = createOrganizationSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  const data = r.data;
+  if (!validTimezone(data.timezone)) throw new ValidationError("Unknown timezone.");
+  await tenantTx(ctx, "organization.update", async (db) => {
+    const before = await db.one<Record<string, string | null>>(
+      "select name, country, timezone, default_currency, industry from platform.organizations where id = $1",
+      [ctx.organizationId],
+    );
+    if (!before) throw new NotFoundError("Organization");
+    const after: Record<string, string | null> = {
+      name: data.name, country: data.country || null, timezone: data.timezone, default_currency: data.defaultCurrency, industry: data.industry || null,
+    };
+    const changed = Object.keys(after).filter((k) => after[k] !== before[k]);
+    if (!changed.length) return;
+    await db.query(
+      "update platform.organizations set name = $2, country = $3, timezone = $4, default_currency = $5, industry = $6 where id = $1",
+      [ctx.organizationId, after.name, after.country, after.timezone, after.default_currency, after.industry],
+    );
+    await audit(db, {
+      organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "organization.updated", targetType: "organization", targetId: ctx.organizationId,
+      metadata: { changed: Object.fromEntries(changed.map((k) => [k, { from: before[k], to: after[k] }])) },
+    });
+  });
+}
+
 // ── Members ─────────────────────────────────────────────────────────────────
 export interface Member {
   user_id: string;

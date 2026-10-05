@@ -1,5 +1,6 @@
 import "server-only";
 import type { Db } from "@/lib/db";
+import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 
 export type AuditAction =
   | "auth.signup"
@@ -62,4 +63,38 @@ export async function audit(db: Db, e: AuditEntry): Promise<void> {
       JSON.stringify(e.metadata ?? {}),
     ],
   );
+}
+
+export interface AuditLogRow {
+  id: string;
+  action: string;
+  actor_type: AuditEntry["actorType"];
+  actor_name: string | null;
+  actor_email: string | null;
+  target_type: string | null;
+  target_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: Date;
+}
+
+/** The organization's audit log, newest first. `before` is the last id of the previous page; `area` filters by action prefix (e.g. "member"). */
+export async function listAuditLogs(ctx: TenantContext, opts: { before?: string; area?: string; limit?: number } = {}): Promise<{ rows: AuditLogRow[]; next: string | null }> {
+  const limit = Math.min(opts.limit ?? 50, 200);
+  const before = opts.before && /^\d{1,18}$/.test(opts.before) ? opts.before : null;
+  const area = opts.area && /^[a-z_]{1,40}$/.test(opts.area) ? opts.area : null;
+  const rows = await tenantTx(ctx, "audit.read", (db) =>
+    db.query<AuditLogRow>(
+      `select l.id::text, l.action, l.actor_type, u.name as actor_name, u.email as actor_email, l.target_type, l.target_id, l.metadata, l.created_at
+         from platform.audit_logs l
+         left join platform.users u on u.id = l.actor_user_id
+        where l.organization_id = $1
+          and ($2::bigint is null or l.id < $2)
+          and ($3::text is null or l.action like $3 || '.%')
+        order by l.id desc limit $4`,
+      [ctx.organizationId, before, area, limit + 1],
+    ),
+  );
+  const more = rows.length > limit;
+  if (more) rows.length = limit;
+  return { rows, next: more ? rows[rows.length - 1].id : null };
 }

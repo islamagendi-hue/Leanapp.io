@@ -49,7 +49,7 @@ export interface RetentionResult {
  * Applies each organization's plan retention to events and sessions. In
  * "report" mode it counts what is past retention; in "enforce" mode it deletes
  * up to `batch` rows per table per organization per run (the next run continues).
- * Organizations without a subscription are on the free plan.
+ * Without an active subscription an organization is on its own plan_id (free by default).
  */
 export async function applyEventRetention(opts: { mode?: RetentionMode; batch?: number; organizationIds?: string[] } = {}): Promise<RetentionResult> {
   const mode = opts.mode ?? retentionMode();
@@ -62,7 +62,7 @@ export async function applyEventRetention(opts: { mode?: RetentionMode; batch?: 
            select plan_id from platform.subscriptions s
             where s.organization_id = o.id and s.status in ('trialing', 'active', 'past_due')
             order by s.created_at desc limit 1) s on true
-         join platform.plan_features pf on pf.plan_id = coalesce(s.plan_id, 'free') and pf.feature = 'retention.days'
+         join platform.plan_features pf on pf.plan_id = coalesce(s.plan_id, o.plan_id) and pf.feature = 'retention.days'
         where (pf.value #>> '{}') is not null
           and ($1::uuid[] is null or o.id = any($1))`,
       [opts.organizationIds ?? null],
