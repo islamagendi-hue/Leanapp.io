@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+/* Shares the Growx Era palette and Dubai font (Latin + Arabic) with the marketing site. */
+@theme {
+  --color-paper: #f4f2ec;
+  --color-paper-2: #ebe8e0;
+  --color-card: #fbfaf7;
+  --color-ink: #0e1311;
+  --color-ink-2: #3b413e;
+  --color-ink-3: #6a706c;
+  --color-line: #d8d4ca;
+  --color-line-strong: #b9b4a8;
+  --color-accent: #0f6b4f;
+  --color-accent-ink: #0a4c38;
+  --color-accent-soft: #dcebe3;
+  --color-alert: #a8492a;
+  --color-alert-soft: #f4e2da;
+  --color-warn: #8a6a12;
+  --color-warn-soft: #f5ecd2;
+
+  --font-sans: var(--font-dubai), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+}
+
+@layer base {
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    line-height: 1.55;
+  }
+  ::selection { background: var(--color-accent); color: var(--color-paper); }
+  :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+}
+
+@layer components {
+  .card { @apply rounded-xl border border-line bg-card p-5; }
+  .btn { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-ink px-4 text-sm font-medium text-paper transition hover:bg-ink-2 disabled:opacity-50; }
+  .btn-secondary { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line-strong bg-card px-4 text-sm font-medium text-ink transition hover:bg-paper-2 disabled:opacity-50; }
+  .btn-danger { @apply inline-flex min-h-9 items-center justify-center rounded-lg border border-alert/40 px-3 text-sm text-alert transition hover:bg-alert-soft; }
+  .input { @apply min-h-10 w-full rounded-lg border border-line-strong bg-white px-3 text-[15px] text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none; }
+  .label { @apply mb-1 block text-sm font-medium text-ink-2; }
+  .help { @apply mt-1 text-xs text-ink-3; }
+  .pill { @apply inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[11px] uppercase tracking-wide; }
+  .code { @apply overflow-x-auto rounded-lg bg-ink p-4 font-mono text-[12.5px] leading-relaxed text-paper; }
+  .table { @apply w-full border-collapse text-sm; }
+  .table th { @apply border-b border-line px-3 py-2 text-left font-mono text-[11px] font-medium uppercase tracking-wide text-ink-3; }
+  .table td { @apply border-b border-line/70 px-3 py-2 align-top; }
+  .h1 { @apply text-2xl font-bold tracking-tight sm:text-3xl; }
+  .h2 { @apply text-lg font-bold; }
+  .muted { @apply text-ink-3; }
+}

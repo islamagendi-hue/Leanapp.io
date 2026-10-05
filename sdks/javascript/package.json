@@ -1,0 +1,25 @@
+{
+  "name": "@leanapp/analytics",
+  "version": "0.1.0",
+  "description": "LeanApp analytics SDK for JavaScript, TypeScript and React Native: events, identity, sessions, attribution and an offline queue.",
+  "license": "UNLICENSED",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": ["dist"],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
