@@ -5,6 +5,7 @@ import { NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { assertCan } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
+import { log } from "@/lib/log";
 
 /**
  * End-user privacy requests (GDPR / PDPL style access and erasure) for one
@@ -343,7 +344,7 @@ export async function runDeletionJobs(opts: { limit?: number; jobIds?: string[] 
     } catch (err) {
       failed++;
       const message = err instanceof Error ? err.message : String(err);
-      console.error("[privacy] deletion job failed", job.id, message);
+      log.error("privacy.deletion_failed", { job_id: job.id, organization_id: job.organization_id, attempt: job.attempts, error: err });
       await withSystem((db) =>
         db.query("update platform.data_deletion_jobs set status = $2, error = $3, finished_at = case when $2 = 'failed' then now() end where id = $1", [
           job.id,

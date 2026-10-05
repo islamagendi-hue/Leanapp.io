@@ -3,6 +3,7 @@ import { consumeRateLimit } from "@/lib/rate-limit";
 import { RateLimitError } from "@/lib/errors";
 import { requestDeletion, runDeletionJobs } from "@/modules/privacy/service";
 import { apiError, apiSecretKey, jsonBody } from "@/server/api";
+import { log } from "@/lib/log";
 
 export const runtime = "nodejs";
 
@@ -22,7 +23,7 @@ export async function POST(req: Request) {
       key.environmentId,
       { userId: body.user_id ?? undefined, anonymousId: body.anonymous_id ?? undefined },
     );
-    after(() => runDeletionJobs({ jobIds: [jobId] }).catch((e) => console.error("[privacy]", e)));
+    after(() => runDeletionJobs({ jobIds: [jobId] }).catch((e) => log.error("privacy.deletion_failed", { error: e })));
     return Response.json({ id, status: "received" }, { status: 202, headers: { Location: `/v1/privacy/deletions/${id}` } });
   } catch (err) {
     return apiError(err);

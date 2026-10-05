@@ -7,7 +7,7 @@
 | Static | `npm run lint`, `npm run typecheck` | ESLint (Next config), `next typegen` + `tsc` |
 | Build | `npm run build` | Production build |
 
-Current counts: 19 platform unit tests, 21 SDK tests, 51 integration tests. All green.
+Current counts: 22 platform unit tests, 21 SDK tests, 51 integration tests. All green.
 
 ## Browser run of the first-priority loop
 

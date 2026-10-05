@@ -4,6 +4,7 @@ import { getUserBySessionToken } from "@/modules/auth/service";
 import { authenticateIngestionKey, type IngestionPrincipal } from "@/modules/credentials/service";
 import { resolveTenant, type TenantContext } from "@/modules/tenancy/context";
 import { SESSION_COOKIE } from "./session";
+import { log } from "@/lib/log";
 
 /** Session-authenticated management API helper: resolves the tenant from the session and the org slug. */
 export async function apiTenant(req: Request, orgSlug: string): Promise<TenantContext> {
@@ -52,7 +53,7 @@ export function apiError(err: unknown): Response {
     return Response.json({ error: err.code, message: err.message }, { status: 429, headers: { "Retry-After": String(err.retryAfterSeconds) } });
   }
   if (err instanceof AppError) return Response.json({ error: err.code, message: err.message }, { status: err.status });
-  console.error("[api]", err);
+  log.error("api.failed", { error: err });
   return Response.json({ error: "internal_error", message: "Unexpected error." }, { status: 500 });
 }
 

@@ -7,6 +7,7 @@ import { signIn, signOut, signUp } from "@/modules/auth/service";
 import { listOrganizationsForUser } from "@/modules/organizations/service";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { clearSessionCookie, requestMeta, sessionToken, setSessionCookie } from "@/server/session";
+import { log } from "@/lib/log";
 
 function safeNext(v: FormDataEntryValue | null): string | null {
   const s = typeof v === "string" ? v : "";
@@ -19,7 +20,7 @@ export async function signUpAction(_: ActionState, form: FormData): Promise<Acti
     const s = await signUp({ name: form.get("name"), email: form.get("email"), password: form.get("password") }, await requestMeta());
     await setSessionCookie(s.token, s.expiresAt);
     // Sent after the response so a slow or failing email provider never blocks sign-up.
-    after(() => sendVerificationEmail(s.user.id).catch((e) => console.error("[signup] verification email failed", e)));
+    after(() => sendVerificationEmail(s.user.id).catch((e) => log.error("email.verification_failed", { user_id: s.user.id, error: e })));
     next = safeNext(form.get("next")) ?? "/onboarding";
   } catch (err) {
     return toActionError(err);

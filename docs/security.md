@@ -48,7 +48,9 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 
 ## Web
 
-- ✓ Security headers: `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options: DENY`, `Permissions-Policy`. ○ A strict CSP.
+- ✓ Security headers: `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options: DENY`, `Permissions-Policy`.
+- ✓ Content-Security-Policy on every page (`src/proxy.ts`): scripts only with a per-request nonce (`'strict-dynamic'`), no framing, forms and connections to the same origin only, `upgrade-insecure-requests` over HTTPS. Inline style attributes are allowed because React renders them; there is no third-party script.
+- ✓ Every request gets an `x-request-id` (kept from the caller when well-formed, echoed in the response) that appears in the server logs.
 - ✓ Server actions are POST-only and origin-checked by Next.js.
 - ✓ All SQL is parameterized; there is no string-built SQL with user input.
 
@@ -57,7 +59,8 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 - ✓ No secrets in Git: configuration via environment variables (`.env.example` documents them, `.env*` is ignored).
 - ✓ Third-party credentials are referenced by `integrations.secret_ref` (a secret-manager key), never stored in rows.
 - ✓ `/api/internal/process-events` requires `Authorization: Bearer $CRON_SECRET`.
-- ✓ Audit log of security-relevant actions (sign-ups, organization and member changes, keys, plan approval and publish, mappings).
+- ✓ Audit log of security-relevant actions (sign-ups, organization and member changes, keys, plan approval and publish, mappings, privacy requests), viewable by owners and admins in organization settings.
+- ✓ Server logs are structured JSON lines (`level`, `event`, `request_id`, fields) from `src/lib/log.ts`, ready for a log drain. ○ Error tracking (Sentry or similar) and uptime checks need an owner account.
 - ○ Secret manager integration (Vercel / Doppler / AWS Secrets Manager) once there are third-party credentials to store.
 - ○ Dependency and secret scanning in CI, penetration test before the first paying customer.
 

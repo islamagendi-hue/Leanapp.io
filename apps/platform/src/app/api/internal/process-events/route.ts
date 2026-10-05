@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { log } from "@/lib/log";
 import { purgeRateLimitBuckets } from "@/lib/rate-limit";
 import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
 import { runDeletionJobs } from "@/modules/privacy/service";
@@ -32,5 +33,7 @@ export async function GET(req: Request) {
   const deletions = await runDeletionJobs({ limit: 20 });
   const purged = { rate_limit_buckets: await purgeRateLimitBuckets(), ...(await purgeOperationalData()) };
   const retention = await applyEventRetention();
+  const summary = { processed, failed, deletions, purged, retention: { mode: retention.mode, organizations: retention.organizations.length } };
+  log.info("cron.completed", summary);
   return Response.json({ processed, failed, deletions, purged, retention });
 }

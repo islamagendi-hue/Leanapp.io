@@ -1,4 +1,5 @@
 import "server-only";
+import { log } from "@/lib/log";
 
 /**
  * Transactional email. One transport is chosen from the environment:
@@ -47,7 +48,7 @@ export async function sendEmail(msg: EmailMessage): Promise<SendResult> {
     return { delivered: true, transport };
   }
   if (transport === "disabled") {
-    console.warn(`[email:${msg.kind}] not sent: no email provider configured (set RESEND_API_KEY and EMAIL_FROM)`);
+    log.warn("email.not_sent", { kind: msg.kind, reason: "no email provider configured (set RESEND_API_KEY and EMAIL_FROM)" });
     return { delivered: false, transport };
   }
   try {
@@ -66,14 +67,14 @@ export async function sendEmail(msg: EmailMessage): Promise<SendResult> {
     });
     if (!res.ok) {
       const error = `Resend ${res.status}: ${(await res.text().catch(() => "")).slice(0, 300)}`;
-      console.error(`[email:${msg.kind}] ${error}`);
+      log.error("email.failed", { kind: msg.kind, error });
       return { delivered: false, transport, error };
     }
     const body = (await res.json().catch(() => ({}))) as { id?: string };
     return { delivered: true, transport, id: body.id };
   } catch (err) {
     const error = err instanceof Error ? err.message : String(err);
-    console.error(`[email:${msg.kind}] ${error}`);
+    log.error("email.failed", { kind: msg.kind, error });
     return { delivered: false, transport, error };
   }
 }

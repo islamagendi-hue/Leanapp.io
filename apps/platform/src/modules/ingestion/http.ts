@@ -6,6 +6,7 @@ import { authenticateIngestionKey } from "@/modules/credentials/service";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { LIMITS } from "./schema";
 import { ingest } from "./service";
+import { log } from "@/lib/log";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -72,10 +73,10 @@ export async function handleIngest(req: Request, mode: "single" | "batch"): Prom
     }
     const result = await ingest(principal, payload, { mode, idempotencyKey: req.headers.get("idempotency-key") });
     status = result.status;
-    after(() => processPendingEvents({ environmentId: principal.environmentId, limit: 1000 }).catch((e) => console.error("[processing]", e)));
+    after(() => processPendingEvents({ environmentId: principal.environmentId, limit: 1000 }).catch((e) => log.error("processing.failed", { environment_id: principal.environmentId, error: e })));
     return json(result.status, result.body, result.replayed ? { "Idempotent-Replayed": "true" } : {});
   } catch (err) {
-    console.error("[ingest] failed", err);
+    log.error("ingest.failed", { environment_id: principal.environmentId, error: err });
     errorCode = "internal_error";
     return json(500, { error: errorCode, message: "Events were not stored. Retry with the same event_id / Idempotency-Key." });
   } finally {
