@@ -22,7 +22,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Implementation engine (questionnaire, classifier, generator, versioning, approval, codegen, validation, mappings, score) | ✓ |
 | Dashboard: onboarding, questionnaire, plan, SDK & keys, live debugger, validation & mapping, members | ✓ |
 | JavaScript / React Native SDK | ✓ (not published to npm) |
-| Docs, ADRs, OpenAPI, CI | ✓ |
+| Docs, ADRs, OpenAPI, CI (lint, types, unit, integration, migrations, build, browser end-to-end) | ✓ |
 | Production deployment | ✗ waits for owner (database, Vercel project, DNS) |
 
 ## Gaps to a sellable product

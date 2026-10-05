@@ -53,6 +53,19 @@ jobs:
           psql "$DATABASE_URL" -c "drop schema if exists platform cascade"
           npm run db:migrate
       - run: npm run build
+      - name: End-to-end tests in a browser
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+      - name: Keep the browser report when end-to-end tests fail
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            apps/platform/playwright-report
+            apps/platform/test-results
+          retention-days: 7
       - name: SDK typecheck and build
         working-directory: sdks/javascript
         run: |

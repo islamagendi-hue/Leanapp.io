@@ -6,12 +6,13 @@
 | Integration | `npm run test:integration` | Real Postgres. Drops and recreates the `platform` schema in `DATABASE_URL_TEST`, applies migrations, then: tenant isolation across every tenant table, RBAC enforcement, and the full first-event loop (auth → questionnaire → plan → approve → publish → ingest → dedupe → idempotent replay → process → debugger → score → mapping → key rotation and revocation), plus account flows (email verification, password reset and change, session sign-out, hash upgrades, invitation email) with emails captured from the in-memory outbox, end-user export and deletion (shared devices, other tenants untouched, job retry), scheduled cleanup (plan retention in report and enforce modes, operational purges), and organization settings, usage and audit log paging |
 | Static | `npm run lint`, `npm run typecheck` | ESLint (Next config), `next typegen` + `tsc` |
 | Build | `npm run build` | Production build |
+| End-to-end | `npm run test:e2e` | Real browser against the production build (below) |
 
-Current counts: 22 platform unit tests, 21 SDK tests, 51 integration tests. All green.
+Current counts: 22 platform unit tests, 21 SDK tests, 51 integration tests, 5 end-to-end tests. All green.
 
-## Browser run of the first-priority loop
+## End-to-end (browser)
 
-A Playwright script (kept out of the repo for now) drove a real browser against a production build: landing → sign up → create organization → create app → questionnaire → generate plan → approve → publish → SDK page → send events with the public key → events appear in the debugger with validation badges → validation page shows the score and a `purchase → order_completed` mapping suggestion → invite a member. It found and fixed two real bugs (optional questions blocking completion, SDK protocol events listed as unplanned). Adding it to CI as an end-to-end test is the next testing step.
+`npm run test:e2e` (in `apps/platform`, after `npm run build`, with `DATABASE_URL` pointing at a migrated database) starts the production server and drives Chromium through the first-priority loop: sign up → organization → app → questionnaire → generate, approve and publish the plan → send events with the public key → they appear in the event debugger → the validation page shows a score. It then covers the account page, organization settings and audit log, a privacy deletion, and checks that pages carry the CSP and load without console errors. CI runs it on every PR and keeps the Playwright report when it fails.
 
 ## Rules
 
