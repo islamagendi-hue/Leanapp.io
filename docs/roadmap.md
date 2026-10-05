@@ -14,6 +14,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Auth (email/password, sessions), organizations, invitations, 5 roles, audit log | ✓ |
 | Email verification, password reset and change, session management, invitation emails | ✓ (sending needs `RESEND_API_KEY` and a verified domain) |
 | End-user data export and deletion (dashboard and secret-key API) | ✓ |
+| Scheduled cleanup: plan retention (report by default, `EVENT_RETENTION=enforce` to delete) and operational purges | ✓ |
 | Apps with dev/staging/production environments, public and secret keys, rotation, revocation | ✓ |
 | Ingestion API (single + batch, idempotent, limits, rate limits, clock skew) | ✓ |
 | Processing (identity, sessions, push tokens, plan validation) | ✓ |

@@ -51,4 +51,6 @@ Tables for attribution, engagement and integrations exist so the data model is s
 
 ## Retention
 
-Plan features carry retention as data (`plan_features` row `retention.days`). Enforcing it with a deletion job is planned together with the move of events to ClickHouse (TTL per tenant tier).
+Plan features carry retention as data (`plan_features` row `retention.days`; organizations without a subscription are on `free`, 30 days). The scheduled worker applies it to `events` and `sessions` in batches of 10,000 per organization per run, but only deletes when `EVENT_RETENTION=enforce`; otherwise it reports what is past retention in its response. When events move to ClickHouse this becomes a TTL per tenant tier.
+
+The same worker purges operational rows nothing reads any more: used or expired one-time tokens after 1 day, revoked or expired sessions and unaccepted expired invitations after 30 days, `event_batches` and `api_request_logs` after 30 days, rate-limit windows after 1 hour.
