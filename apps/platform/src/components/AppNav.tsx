@@ -27,7 +27,15 @@ export function AppNav({ base, appName, privacy = false }: { base: string; appNa
         { label: "Webhooks", soon: true },
       ],
     },
-    { label: "Analytics", items: [{ label: "Events, funnels, retention", soon: true }, { label: "Users", soon: true }] },
+    {
+      label: "Analytics",
+      items: [
+        { label: "Events", href: `${base}/analytics/events` },
+        { label: "Funnels", href: `${base}/analytics/funnels` },
+        { label: "Retention", href: `${base}/analytics/retention` },
+        { label: "Users", soon: true },
+      ],
+    },
     { label: "Attribution", items: [{ label: "Campaigns & sources", soon: true }] },
     { label: "Engagement", items: [{ label: "Audiences", soon: true }, { label: "Automations", soon: true }, { label: "Integrations", soon: true }] },
     ...(privacy ? [{ label: "Data", items: [{ label: "Privacy requests", href: `${base}/privacy` }] }] : []),

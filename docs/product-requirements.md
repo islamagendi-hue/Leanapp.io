@@ -43,7 +43,7 @@ This loop works end to end today and is covered by integration tests and a brows
 | Debugger | Live event feed with payload and validation | Built |
 | SDK | JavaScript/TypeScript/React Native SDK with offline queue | Built. Android, iOS, Flutter SDKs planned. |
 | Attribution | Touchpoints, click ids, last-touch and windowed attribution, ad network postbacks | Click ids captured; engine planned |
-| Analytics | Event explorer, funnels, retention, cohorts, revenue | Planned |
+| Analytics | Event explorer, funnels, retention, cohorts, revenue | Events, funnels, retention built; cohorts and revenue planned |
 | Audiences | Behavioural and property segments, live membership | Schema only |
 | Automation | Triggered push / in-app / webhook journeys | Schema only |
 | Billing | Plans, metered usage (events, MTUs), invoices | Plans and usage metering built; payment provider planned |

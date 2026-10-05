@@ -14,4 +14,4 @@ Analytics at scale needs a columnar store (ClickHouse) and ingestion benefits fr
 ## Consequences
 - No new infrastructure or cost; transactional consistency between events, identities and plan status.
 - Not suitable beyond roughly tens of millions of events per month or for heavy analytical queries. Triggers to move are listed in [architecture](../architecture.md).
-- Retention must be enforced by a job (planned) until ClickHouse TTLs replace it.
+- Retention is enforced by the scheduled worker (report-only until `EVENT_RETENTION=enforce`) until ClickHouse TTLs replace it.
