@@ -39,6 +39,13 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 - ✓ Push tokens are moved out of event context into `push_tokens` after processing so raw tokens don't sit in the event log.
 - ✓ CORS open on ingestion only (public keys are meant for clients); management APIs are same-origin, cookie-authenticated.
 
+## End-user privacy
+
+- ✓ Export and deletion of an end user's data per environment, from the dashboard (owners and admins, `privacy.manage`) or from a server with a secret key. Public SDK keys are refused. See [API](api.md#privacy-requests) for which rows count as the user's, including shared devices.
+- ✓ Deletions run in one transaction under the organization's RLS scope, so a request can't reach another tenant's rows; interrupted jobs are retried by the scheduled worker.
+- ✓ Every export and deletion is recorded in `privacy_requests` and the audit log (who asked, rows deleted per table).
+- ○ Consent capture from the SDK, and suppressing events for users who asked to be forgotten.
+
 ## Web
 
 - ✓ Security headers: `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options: DENY`, `Permissions-Policy`. ○ A strict CSP.

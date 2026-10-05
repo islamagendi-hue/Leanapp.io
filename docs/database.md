@@ -32,7 +32,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | Operations | `audit_logs` (append-only for tenants), `api_request_logs`, `rate_limit_buckets` |
 | Privacy | `consent_records`, `privacy_requests`, `data_deletion_jobs` |
 
-Tables for attribution, engagement, integrations and privacy exist so the data model is settled early; the features that write to them are planned (see [roadmap](roadmap.md)).
+Tables for attribution, engagement and integrations exist so the data model is settled early; the features that write to them are planned (see [roadmap](roadmap.md)). Of the privacy tables, `privacy_requests` and `data_deletion_jobs` are in use; `consent_records` is not written yet.
 
 ## Key constraints
 

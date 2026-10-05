@@ -47,7 +47,7 @@ This loop works end to end today and is covered by integration tests and a brows
 | Audiences | Behavioural and property segments, live membership | Schema only |
 | Automation | Triggered push / in-app / webhook journeys | Schema only |
 | Billing | Plans, metered usage (events, MTUs), invoices | Plans and usage metering built; payment provider planned |
-| Privacy | Consent, export and deletion requests | Schema only |
+| Privacy | Consent, export and deletion requests | Export and deletion built; consent planned |
 
 ## Non-functional requirements
 

@@ -7,7 +7,7 @@ type Item = { label: string; href?: string; soon?: boolean };
 type Group = { label: string; items: Item[] };
 
 /** Product navigation. Sections not built yet are listed and labelled, never faked. */
-export function AppNav({ base, appName }: { base: string; appName: string }) {
+export function AppNav({ base, appName, privacy = false }: { base: string; appName: string; privacy?: boolean }) {
   const path = usePathname();
   const groups: Group[] = [
     { label: "Overview", items: [{ label: "Setup", href: base }] },
@@ -30,6 +30,7 @@ export function AppNav({ base, appName }: { base: string; appName: string }) {
     { label: "Analytics", items: [{ label: "Events, funnels, retention", soon: true }, { label: "Users", soon: true }] },
     { label: "Attribution", items: [{ label: "Campaigns & sources", soon: true }] },
     { label: "Engagement", items: [{ label: "Audiences", soon: true }, { label: "Automations", soon: true }, { label: "Integrations", soon: true }] },
+    ...(privacy ? [{ label: "Data", items: [{ label: "Privacy requests", href: `${base}/privacy` }] }] : []),
   ];
   return (
     <nav aria-label="App" className="text-sm">

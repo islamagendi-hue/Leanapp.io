@@ -15,6 +15,8 @@ tags:
     description: Events from apps (public key) and servers (secret key).
   - name: Management
     description: Dashboard-session API for organizations, apps and the debugger.
+  - name: Privacy
+    description: End-user data export and deletion (secret key).
   - name: System
     description: Health and operations.
 paths:
@@ -198,6 +200,76 @@ paths:
                   events: { type: array, items: { $ref: "#/components/schemas/DebugEvent" } }
                   health: { $ref: "#/components/schemas/ConnectionHealth" }
         "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/privacy/exports:
+    post:
+      operationId: exportSubjectData
+      tags: [Privacy]
+      summary: Export everything stored about an end user in the key's environment
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrivacySubject" }
+      responses:
+        "200":
+          description: The subject's data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubjectExport" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/privacy/deletions:
+    post:
+      operationId: requestDeletion
+      tags: [Privacy]
+      summary: Delete an end user's data in the key's environment
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrivacySubject" }
+      responses:
+        "202":
+          description: Queued; poll the Location for the result
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: { type: string, format: uuid }
+                  status: { type: string, enum: [received] }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/privacy/deletions/{id}:
+    get:
+      operationId: getDeletion
+      tags: [Privacy]
+      summary: Status of a deletion request
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Deletion status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionStatus" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
@@ -390,3 +462,48 @@ components:
         eventsToday: { type: integer }
         activeUsersToday: { type: integer }
         rejectedToday: { type: integer }
+    PrivacySubject:
+      type: object
+      description: At least one of user_id and anonymous_id.
+      properties:
+        user_id: { type: string, maxLength: 256 }
+        anonymous_id: { type: string, maxLength: 256 }
+    SubjectExport:
+      type: object
+      required: [request_id, generated_at, environment_id, subject, data, truncated]
+      properties:
+        request_id: { type: string, format: uuid }
+        generated_at: { type: string, format: date-time }
+        environment_id: { type: string, format: uuid }
+        subject:
+          type: object
+          properties:
+            user_id: { type: [string, "null"] }
+            anonymous_id: { type: [string, "null"] }
+            matched_anonymous_ids: { type: array, items: { type: string } }
+        data:
+          type: object
+          description: Rows per table (events, sessions, profiles, installs, identity_links, push_tokens, attribution_touchpoints, attribution_events, consent_records, notifications, audience_memberships, automation_runs).
+          additionalProperties: { type: array, items: { type: object } }
+        truncated:
+          type: array
+          description: Tables that hit the 10,000-row limit.
+          items: { type: string }
+    DeletionStatus:
+      type: object
+      required: [id, status, subject, created_at, rows_deleted, details]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [received, processing, completed, rejected] }
+        subject:
+          type: object
+          properties:
+            user_id: { type: [string, "null"] }
+            anonymous_id: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
+        rows_deleted: { type: integer }
+        details:
+          type: object
+          description: Rows deleted per table.
+          additionalProperties: { type: integer }

@@ -13,6 +13,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Multi-tenant Postgres schema with RLS, 64 tables covering all modules | ✓ |
 | Auth (email/password, sessions), organizations, invitations, 5 roles, audit log | ✓ |
 | Email verification, password reset and change, session management, invitation emails | ✓ (sending needs `RESEND_API_KEY` and a verified domain) |
+| End-user data export and deletion (dashboard and secret-key API) | ✓ |
 | Apps with dev/staging/production environments, public and secret keys, rotation, revocation | ✓ |
 | Ingestion API (single + batch, idempotent, limits, rate limits, clock skew) | ✓ |
 | Processing (identity, sessions, push tokens, plan validation) | ✓ |
@@ -35,7 +36,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Audiences and automation (push, in-app, webhooks) | 3–4 | [Audiences](audiences.md), [Automation](automation.md) |
 | Billing provider, limit enforcement | 3 | [Billing](billing.md) |
 | OAuth, MFA, SSO | 2–4 | Schema ready |
-| Privacy: consent, export, deletion jobs | 2 | Required before production customers |
+| Privacy: consent capture and suppression lists | 2 | Export and deletion are built (dashboard and API) |
 | LLM-assisted plan suggestions, Arabic free-text classification | 2 | Suggestions only, always approval-gated |
 | Plan editing: custom events/properties, version diff, export | 2 | |
 | Public management API with secret keys | 2 | |

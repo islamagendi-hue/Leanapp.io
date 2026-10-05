@@ -32,7 +32,10 @@ export type AuditAction =
   | "tracking_plan.approved"
   | "tracking_plan.published"
   | "event_mapping.accepted"
-  | "event_mapping.rejected";
+  | "event_mapping.rejected"
+  | "privacy.export"
+  | "privacy.deletion_requested"
+  | "privacy.deletion_completed";
 
 export interface AuditEntry {
   organizationId: string | null;
