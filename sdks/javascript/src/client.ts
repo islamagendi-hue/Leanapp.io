@@ -8,6 +8,14 @@ export const DEFAULT_ENDPOINT = "https://api.leanapp.io";
 export type Platform = "android" | "ios" | "react_native" | "flutter" | "web" | "backend";
 export type Properties = Record<string, unknown>;
 
+/** What the user can agree to. Each purpose is decided separately. */
+export const CONSENT_PURPOSES = ["analytics", "marketing", "push", "attribution"] as const;
+export type ConsentPurpose = (typeof CONSENT_PURPOSES)[number];
+export type ConsentStatus = "granted" | "pending" | "denied";
+/** The user's answers; purposes left out keep their current state. */
+export type ConsentInput = Partial<Record<ConsentPurpose, boolean>>;
+export type ConsentState = Record<ConsentPurpose, ConsentStatus>;
+
 export interface AnalyticsOptions {
   /** Public SDK key (la_pk_…) for apps, or a secret key (la_sk_…) on servers only. */
   apiKey: string;
@@ -34,6 +42,16 @@ export interface AnalyticsOptions {
   /** Stop sending (events still queue) until optIn(). */
   optedOut?: boolean;
   /**
+   * Consent assumed until setConsent() records the user's answer, for every purpose or per purpose.
+   * "granted" (default, the behaviour before consent existed): track normally.
+   * "pending": analytics events wait in memory only (not stored on the device, not sent) until consent
+   * is granted, and are discarded if it is denied or the app closes first.
+   * "denied": events are dropped.
+   * Analytics consent governs track/screen/identify/alias; push consent governs registerPushToken;
+   * attribution consent governs captureAttribution and the attribution attached to events.
+   */
+  consentDefault?: ConsentStatus | Partial<Record<ConsentPurpose, ConsentStatus>>;
+  /**
    * Browsers: send queued events when the page is hidden or closed (visibilitychange → hidden, pagehide),
    * using fetch keepalive so the request outlives the page. Default true; ignored outside browsers.
    */
@@ -56,7 +74,7 @@ export interface AppStateLike {
 }
 
 export interface WireEvent {
-  type: "track" | "screen" | "identify" | "alias" | "push_token";
+  type: "track" | "screen" | "identify" | "alias" | "push_token" | "consent";
   event_name?: string;
   event_id: string;
   timestamp: string;
@@ -68,6 +86,7 @@ export interface WireEvent {
   user_properties?: Properties;
   context: Record<string, unknown>;
   push_token?: { token: string; provider: "fcm" | "apns"; permission?: string };
+  consent?: ConsentInput;
 }
 
 interface QueuedEvent {
@@ -81,6 +100,8 @@ interface PersistedState {
   sessionId?: string;
   lastActivity?: number;
   attribution?: { first: Attribution; latest: Attribution };
+  /** The user's explicit answers (setConsent). Purposes not here follow consentDefault. */
+  consent?: ConsentInput;
 }
 
 export type FlushResult =
@@ -153,7 +174,7 @@ function autoContext(): Record<string, unknown> {
  * path: events go to a persistent queue and are sent in batches with retries.
  */
 export class LeanAppClient {
-  private readonly o: Required<Omit<AnalyticsOptions, "appVersion" | "appBuild" | "platform" | "context" | "optedOut" | "storage" | "flushOnHide" | "appState">> & {
+  private readonly o: Required<Omit<AnalyticsOptions, "appVersion" | "appBuild" | "platform" | "context" | "optedOut" | "storage" | "flushOnHide" | "appState" | "consentDefault">> & {
     platform: Platform;
     appVersion?: string;
     appBuild?: string;
@@ -165,6 +186,13 @@ export class LeanAppClient {
   private readonly unsubscribers: (() => void)[] = [];
   private state: PersistedState = { anonymousId: "" };
   private queue: QueuedEvent[] = [];
+  /** Events waiting for consent: memory only, never persisted or sent until consent is granted. */
+  private held: QueuedEvent[] = [];
+  private readonly consentDefault: ConsentState;
+  /** Attribution captured while attribution consent is pending: memory only. */
+  private heldAttribution: { first: Attribution; latest: Attribution } | null = null;
+  /** setConsent() answers given before storage loaded, for getConsent() only. */
+  private earlyConsent: ConsentInput | null = null;
   private pending: (() => void)[] = [];
   private ready = false;
   private readonly readyPromise: Promise<void>;
@@ -204,6 +232,10 @@ export class LeanAppClient {
       random: options.random ?? Math.random,
     };
     this.optedOut = options.optedOut ?? false;
+    const d = options.consentDefault ?? "granted";
+    this.consentDefault = Object.fromEntries(
+      CONSENT_PURPOSES.map((p) => [p, typeof d === "string" ? d : (d[p] ?? "granted")]),
+    ) as ConsentState;
     this.storage = options.storage ?? (platform === "web" ? localStorageAdapter() : memoryStorage());
     // Scoped per key kind and environment so dev and production data never share a queue.
     this.prefix = storagePrefix(options.apiKey);
@@ -230,12 +262,18 @@ export class LeanAppClient {
 
   /** Links this device to your user id. Traits are facts about the person (plan, city), not actions. */
   identify(userId?: string | null, traits: Properties = {}): void {
+    let changed = false;
     this.enqueue(() => {
       if (userId) {
+        changed = this.state.userId !== String(userId);
         this.state.userId = String(userId);
         this.persistState();
       }
       return { type: "identify", user_properties: { ...traits } };
+    });
+    // Consent given on this device follows the user who signs in on it.
+    this.whenLoaded(() => {
+      if (changed) this.resendConsent();
     });
   }
 
@@ -251,10 +289,11 @@ export class LeanAppClient {
       this.persistState();
       return { type: "alias", previous_id: prev };
     });
+    this.whenLoaded(() => this.resendConsent());
   }
 
   registerPushToken(token: string, provider: "fcm" | "apns", permission: "granted" | "denied" | "provisional" | "unknown" = "unknown"): void {
-    this.enqueue(() => ({ type: "push_token", push_token: { token, provider, permission } }));
+    this.enqueue(() => ({ type: "push_token", push_token: { token, provider, permission } }), {}, "push");
   }
 
   /**
@@ -265,10 +304,43 @@ export class LeanAppClient {
     const parsed = parseAttribution(url);
     if (!parsed) return null;
     this.whenLoaded(() => {
+      const status = this.consentFor("attribution");
+      if (status === "denied") return;
+      if (status === "pending") {
+        // Kept in memory until the user decides; stored only once attribution consent is granted.
+        this.heldAttribution = { first: this.heldAttribution?.first ?? this.state.attribution?.first ?? parsed, latest: parsed };
+        return;
+      }
       this.state.attribution = { first: this.state.attribution?.first ?? parsed, latest: parsed };
       this.persistState();
     });
     return parsed;
+  }
+
+  /**
+   * Records the user's consent answers, e.g. from your consent screen. Purposes left out keep their state.
+   * The answers are stored on the device and sent to LeanApp (always, whatever they are, so the
+   * platform can honour them). Granting analytics releases events waiting in memory; denying it
+   * discards them and clears the unsent queue.
+   */
+  setConsent(consent: ConsentInput): void {
+    const changes: ConsentInput = {};
+    for (const p of CONSENT_PURPOSES) if (typeof consent?.[p] === "boolean") changes[p] = consent[p];
+    if (!Object.keys(changes).length) return this.warn("setConsent() needs at least one of analytics, marketing, push, attribution as a boolean");
+    const at = this.o.now();
+    if (!this.ready) this.earlyConsent = { ...this.earlyConsent, ...changes };
+    this.whenLoaded(() => {
+      this.state.consent = { ...this.state.consent, ...changes };
+      this.persistState();
+      // The change goes first, then whatever it releases.
+      this.pushConsent(changes, at);
+      this.applyConsent();
+    });
+  }
+
+  /** Current consent per purpose: the user's answer, or consentDefault where they haven't answered. */
+  getConsent(): ConsentState {
+    return Object.fromEntries(CONSENT_PURPOSES.map((p) => [p, this.consentFor(p)])) as ConsentState;
   }
 
   /** Attribution captured on this device: first and latest touch. Null before anything was captured. */
@@ -284,11 +356,15 @@ export class LeanAppClient {
     return this.state.userId ?? null;
   }
 
-  /** Call on logout: forgets the user and starts a new anonymous identity and session. Queued events keep their ids. */
+  /**
+   * Call on logout: forgets the user and starts a new anonymous identity and session. Queued events keep their ids.
+   * Consent belongs to the device and is kept (and recorded for the new anonymous id).
+   */
   reset(): void {
     this.whenLoaded(() => {
-      this.state = { anonymousId: this.o.uuid() };
+      this.state = { anonymousId: this.o.uuid(), ...(this.state.consent ? { consent: this.state.consent } : {}) };
       this.persistState();
+      this.resendConsent();
     });
   }
 
@@ -355,6 +431,10 @@ export class LeanAppClient {
     }
     this.persistState();
     this.ready = true;
+    this.earlyConsent = null;
+    // Unsent events from before a denial (e.g. the app closed mid-way) are not sent.
+    const kept = this.queue.filter((q) => q.e.type === "consent" || this.consentFor(q.e.type === "push_token" ? "push" : "analytics") !== "denied");
+    if (kept.length !== this.queue.length) this.queue = kept;
     const fns = this.pending;
     this.pending = [];
     for (const fn of fns) fn();
@@ -410,12 +490,18 @@ export class LeanAppClient {
     else this.pending.push(fn);
   }
 
-  private enqueue(build: () => Omit<WireEvent, "event_id" | "timestamp" | "anonymous_id" | "context">, options: { eventId?: string; timestamp?: Date } = {}) {
+  private enqueue(
+    build: () => Omit<WireEvent, "event_id" | "timestamp" | "anonymous_id" | "context">,
+    options: { eventId?: string; timestamp?: Date } = {},
+    purpose: ConsentPurpose = "analytics",
+  ) {
     // Timestamp is taken at call time, not when storage finishes loading.
     const at = options.timestamp?.getTime() ?? this.o.now();
     this.whenLoaded(() => {
       try {
         const partial = build();
+        const status = this.consentFor(purpose);
+        if (status === "denied") return this.log("dropped (consent denied):", partial.type, partial.event_name ?? "");
         const e: WireEvent = {
           ...partial,
           event_id: options.eventId ?? this.o.uuid(),
@@ -425,7 +511,14 @@ export class LeanAppClient {
           context: this.context(),
         };
         if (this.state.userId) e.user_id = this.state.userId;
-        if (this.queue.some((q) => q.e.event_id === e.event_id)) return; // duplicate call with the same event id
+        if (this.queue.some((q) => q.e.event_id === e.event_id) || this.held.some((q) => q.e.event_id === e.event_id)) return; // duplicate call with the same event id
+        if (status === "pending") {
+          // Waiting for consent: memory only, bounded like the queue.
+          this.held.push({ e, queuedAt: this.o.now() });
+          if (this.held.length > this.o.maxQueueSize) this.held.splice(0, this.held.length - this.o.maxQueueSize);
+          this.log("held until consent:", e.type, e.event_name ?? "");
+          return;
+        }
         this.queue.push({ e, queuedAt: this.o.now() });
         if (this.queue.length > this.o.maxQueueSize) {
           const dropped = this.queue.length - this.o.maxQueueSize;
@@ -453,8 +546,73 @@ export class LeanAppClient {
     const ctx: Record<string, unknown> = { ...autoContext(), ...this.o.context, platform: this.o.platform, sdk: { name: SDK_NAME, version: SDK_VERSION } };
     if (this.o.appVersion) ctx.app_version = this.o.appVersion;
     if (this.o.appBuild) ctx.app_build = this.o.appBuild;
-    if (this.state.attribution) ctx.attribution = { ...this.state.attribution.latest };
+    if (this.state.attribution && this.consentFor("attribution") === "granted") ctx.attribution = { ...this.state.attribution.latest };
     return ctx;
+  }
+
+  private consentFor(purpose: ConsentPurpose): ConsentStatus {
+    // Before storage has loaded, answer with the latest setConsent() call so getConsent() is current.
+    const v = (!this.ready ? this.earlyConsent?.[purpose] : undefined) ?? this.state.consent?.[purpose];
+    return v === true ? "granted" : v === false ? "denied" : this.consentDefault[purpose];
+  }
+
+  /** Moves or discards what was waiting for consent after the user's answer changed. */
+  private applyConsent() {
+    const analytics = this.consentFor("analytics");
+    const push = this.consentFor("push");
+    const waiting = (q: QueuedEvent) => (q.e.type === "push_token" ? push : analytics);
+    const release = this.held.filter((q) => waiting(q) === "granted");
+    this.held = this.held.filter((q) => waiting(q) === "pending");
+    const before = this.queue.length;
+    // Denied: unsent events of that purpose are discarded. Consent changes always stay.
+    this.queue = this.queue.filter((q) => q.e.type === "consent" || waiting(q) !== "denied");
+    if (before !== this.queue.length) this.log(`consent denied: discarded ${before - this.queue.length} unsent event(s)`);
+    if (release.length) {
+      this.queue.push(...release);
+      if (this.queue.length > this.o.maxQueueSize) this.queue.splice(0, this.queue.length - this.o.maxQueueSize);
+    }
+    const attribution = this.consentFor("attribution");
+    if (attribution === "granted" && this.heldAttribution) {
+      this.state.attribution = { first: this.state.attribution?.first ?? this.heldAttribution.first, latest: this.heldAttribution.latest };
+      this.persistState();
+    }
+    if (attribution !== "pending") this.heldAttribution = null;
+    if (attribution === "denied" && this.state.attribution) {
+      delete this.state.attribution;
+      this.persistState();
+    }
+    if (before !== this.queue.length || release.length) this.persistQueue();
+    if (this.queue.length) this.schedule(this.queue.length >= this.o.flushAt ? 0 : this.o.flushIntervalMs);
+  }
+
+  /**
+   * Queues a consent change for LeanApp. Sent whatever the answer (it is the record of the answer)
+   * with only the ids and minimal context: no session, properties or attribution.
+   */
+  private pushConsent(consent: ConsentInput, at: number) {
+    const e: WireEvent = {
+      type: "consent",
+      consent: { ...consent },
+      event_id: this.o.uuid(),
+      timestamp: new Date(at).toISOString(),
+      anonymous_id: this.state.anonymousId,
+      context: { platform: this.o.platform, sdk: { name: SDK_NAME, version: SDK_VERSION }, ...(this.o.appVersion ? { app_version: this.o.appVersion } : {}) },
+    };
+    if (this.state.userId) e.user_id = this.state.userId;
+    this.queue.push({ e, queuedAt: at });
+    if (this.queue.length > this.o.maxQueueSize) {
+      // Never drop a consent change to make room: drop the oldest other event instead.
+      const i = this.queue.findIndex((q) => q.e.type !== "consent");
+      this.queue.splice(i >= 0 ? i : 0, 1);
+    }
+    this.log("queued consent", consent);
+    this.persistQueue();
+    this.schedule(0);
+  }
+
+  /** Records the device's explicit answers again for a new identity (sign-in, alias, reset). */
+  private resendConsent() {
+    if (this.state.consent && Object.keys(this.state.consent).length) this.pushConsent({ ...this.state.consent }, this.o.now());
   }
 
   private schedule(delayMs: number) {
