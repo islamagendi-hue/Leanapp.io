@@ -5,6 +5,9 @@ import { authenticateIngestionKey, type ApiKeyScope, type IngestionPrincipal } f
 import { resolveTenant, type TenantContext } from "@/modules/tenancy/context";
 import { SESSION_COOKIE } from "./session";
 import { log } from "@/lib/log";
+import { withSystem } from "@/lib/db";
+import { consumeRateLimit } from "@/lib/rate-limit";
+import { envNumber } from "@/lib/env-number";
 
 /**
  * True when the browser says the request came from a page on this origin.
@@ -50,13 +53,65 @@ export async function apiTenant(req: Request, orgSlug: string, opts: { form?: bo
  * carry `scope`. Public SDK keys ship inside apps, so they are refused here.
  */
 export async function apiSecretKey(req: Request, scope: ApiKeyScope): Promise<IngestionPrincipal> {
+  const principal = await authenticateRequestKey(req);
+  if (!principal) throw new UnauthorizedError("Missing, invalid, revoked or expired key.");
+  assertSecretScope(principal, scope);
+  return principal;
+}
+
+function authenticateRequestKey(req: Request): Promise<IngestionPrincipal | null> {
   const auth = req.headers.get("authorization");
   const raw = auth?.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : req.headers.get("x-api-key")?.trim();
-  const principal = await authenticateIngestionKey(raw);
-  if (!principal) throw new UnauthorizedError("Missing, invalid, revoked or expired key.");
+  return authenticateIngestionKey(raw);
+}
+
+function assertSecretScope(principal: IngestionPrincipal, scope: ApiKeyScope) {
   if (principal.kind !== "api") throw new ForbiddenError("This endpoint needs a secret API key (la_sk_…), not a public SDK key.");
   if (!principal.scopes.includes(scope)) throw new ForbiddenError(`This key doesn't have the ${scope} permission. Create a secret key with it.`);
-  return principal;
+}
+
+// An empty value in .env means "default", not 0.
+const MANAGEMENT_PER_MINUTE = envNumber("MANAGEMENT_API_REQUESTS_PER_MINUTE", 600);
+
+/**
+ * Wraps a management API route (secret key with `scope`): authentication,
+ * scope check, a per-environment rate limit, JSON errors, and one row in
+ * api_request_logs per authenticated request (including refusals), like ingestion.
+ * `route` is the path template that is logged (no ids or user data).
+ */
+export async function managementApi(
+  req: Request,
+  route: string,
+  scope: ApiKeyScope,
+  handler: (key: IngestionPrincipal) => Promise<unknown>,
+  opts: { status?: number } = {},
+): Promise<Response> {
+  const started = Date.now();
+  let principal: IngestionPrincipal | null = null;
+  let res: Response;
+  let errorCode: string | null = null;
+  try {
+    principal = await authenticateRequestKey(req);
+    if (!principal) throw new UnauthorizedError("Missing, invalid, revoked or expired key.");
+    assertSecretScope(principal, scope);
+    const wait = await consumeRateLimit(`mgmt:${principal.environmentId}`, MANAGEMENT_PER_MINUTE, 60);
+    if (wait) throw new RateLimitError(wait);
+    const body = await handler(principal);
+    res = Response.json(body, { status: opts.status ?? 200, headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    errorCode = err instanceof AppError ? err.code : "internal_error";
+    res = apiError(err);
+  }
+  if (principal) {
+    const p = principal;
+    await withSystem((db) =>
+      db.query(
+        "insert into platform.api_request_logs (organization_id, environment_id, route, status_code, duration_ms, credential_kind, error_code) values ($1, $2, $3, $4, $5, $6, $7)",
+        [p.organizationId, p.environmentId, `${req.method} ${route}`, res.status, Date.now() - started, p.kind, errorCode],
+      ),
+    ).catch((e) => log.error("api_request_log.failed", { error: e }));
+  }
+  return res;
 }
 
 /** Reads a JSON object body; anything else is a 400. */

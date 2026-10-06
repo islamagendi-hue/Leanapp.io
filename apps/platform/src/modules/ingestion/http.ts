@@ -7,15 +7,17 @@ import { processPendingEvents } from "@/modules/processing/processor";
 import { LIMITS } from "./schema";
 import { ingest } from "./service";
 import { log } from "@/lib/log";
+import { envNumber } from "@/lib/env-number";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-Api-Key",
+  "Access-Control-Expose-Headers": "Retry-After, Idempotent-Replayed, X-LeanApp-Plan-Limit",
   "Access-Control-Max-Age": "86400",
 };
 
-const PER_MINUTE = Number(process.env.INGEST_EVENTS_PER_MINUTE ?? 6000);
+const PER_MINUTE = envNumber("INGEST_EVENTS_PER_MINUTE", 6000);
 
 function json(status: number, body: unknown, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...CORS, ...extra } });
@@ -72,10 +74,12 @@ export async function handleIngest(req: Request, mode: "single" | "batch"): Prom
       errorCode = "rate_limited";
       return json(429, { error: errorCode, message: "Event rate limit exceeded for this environment." }, { "Retry-After": String(wait) });
     }
-    const result = await ingest(principal, payload, { mode, idempotencyKey: req.headers.get("idempotency-key") });
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
+    const result = await ingest(principal, payload, { mode, idempotencyKey: req.headers.get("idempotency-key"), clientIp });
     status = result.status;
+    if (status >= 400 && "error" in result.body) errorCode = result.body.error;
     after(() => processPendingEvents({ environmentId: principal.environmentId, limit: 1000 }).catch((e) => log.error("processing.failed", { environment_id: principal.environmentId, error: e })));
-    return json(result.status, result.body, result.replayed ? { "Idempotent-Replayed": "true" } : {});
+    return json(result.status, result.body, { ...result.headers, ...(result.replayed ? { "Idempotent-Replayed": "true" } : {}) });
   } catch (err) {
     log.error("ingest.failed", { environment_id: principal.environmentId, error: err });
     errorCode = "internal_error";

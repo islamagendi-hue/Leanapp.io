@@ -16,7 +16,15 @@ tags:
   - name: Management
     description: Dashboard-session API for organizations, apps and the debugger.
   - name: Privacy
-    description: End-user data export and deletion (secret key).
+    description: End-user data export and deletion, consent and suppression lists (secret key).
+  - name: Management (secret key)
+    description: |
+      Server-to-server management API. A secret key is bound to one environment of one app;
+      every endpoint answers for that app and environment only. Scopes: `management:read`,
+      `plan:write`, `analytics:read`, `users:read`. Rate limit: 600 requests per minute per
+      environment (`MANAGEMENT_API_REQUESTS_PER_MINUTE`).
+  - name: Attribution
+    description: Public tracking-link redirect.
   - name: In-app
     description: In-app messages queued by automations, polled by the app with its public key.
   - name: System
@@ -59,7 +67,7 @@ paths:
         "400": { $ref: "#/components/responses/IngestRejected" }
         "401": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
-        "429": { $ref: "#/components/responses/RateLimited" }
+        "429": { $ref: "#/components/responses/IngestLimited" }
     options:
       operationId: ingestEventPreflight
       tags: [Ingestion]
@@ -97,7 +105,7 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
-        "429": { $ref: "#/components/responses/RateLimited" }
+        "429": { $ref: "#/components/responses/IngestLimited" }
     options:
       operationId: ingestBatchPreflight
       tags: [Ingestion]
@@ -173,7 +181,12 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/App" }
         "401": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
+        "403":
+          description: "`forbidden`, or `plan_limit_exceeded` when the organization already has as many apps as its plan includes"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /v1/organizations/{org}/environments/{env}/events:
     parameters:
@@ -276,6 +289,381 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/privacy/consent:
+    get:
+      operationId: getConsent
+      tags: [Privacy]
+      summary: An end user's current consent, history and suppressions in the key's environment
+      description: Needs a secret key with the `privacy:read` scope. Consent is recorded with a `consent` event (POST /v1/events).
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: user_id, in: query, schema: { type: string, maxLength: 256 } }
+        - { name: anonymous_id, in: query, schema: { type: string, maxLength: 256 } }
+      responses:
+        "200":
+          description: Current consent per purpose (true, false, or null for no decision), stitched across the user and install keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_keys: { type: array, items: { type: string } }
+                  consent:
+                    type: object
+                    properties:
+                      analytics: { type: [boolean, "null"] }
+                      marketing: { type: [boolean, "null"] }
+                      push: { type: [boolean, "null"] }
+                      attribution: { type: [boolean, "null"] }
+                  updated_at: { type: [string, "null"], format: date-time }
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        purpose: { type: string, enum: [analytics, marketing, push, attribution] }
+                        granted: { type: boolean }
+                        source: { type: string, enum: [sdk, api, dashboard] }
+                        user_id: { type: [string, "null"] }
+                        anonymous_id: { type: [string, "null"] }
+                        recorded_at: { type: string, format: date-time }
+                        received_at: { type: string, format: date-time }
+                  suppressions: { type: array, items: { $ref: "#/components/schemas/Suppression" } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/privacy/suppressions:
+    get:
+      operationId: listSuppressions
+      tags: [Privacy]
+      summary: The key's environment's suppression list, newest first
+      description: Needs a secret key with the `privacy:read` scope.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: channel, in: query, schema: { type: string, enum: [marketing, push, email, whatsapp] } }
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: anonymous_id, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: cursor, in: query, description: next_cursor of the previous page, schema: { type: string } }
+      responses:
+        "200":
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Suppression" } }
+                  next_cursor: { type: [string, "null"] }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: addSuppression
+      tags: [Privacy]
+      summary: Suppress an end user on one or more channels
+      description: Needs a secret key with the `privacy:write` scope. Repeating an add only updates the reason.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: One of user_id or anonymous_id, and channel or channels.
+              properties:
+                user_id: { type: string, maxLength: 256 }
+                anonymous_id: { type: string, maxLength: 256 }
+                channel: { type: string, enum: [marketing, push, email, whatsapp] }
+                channels: { type: array, items: { type: string, enum: [marketing, push, email, whatsapp] } }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "201":
+          description: Suppressed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_key: { type: string }
+                  channels: { type: array, items: { type: string } }
+                  suppressed: { type: boolean }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: removeSuppression
+      tags: [Privacy]
+      summary: Remove manual and API suppressions of an end user
+      description: Needs a secret key with the `privacy:write` scope. Entries from denied consent stay until the user grants consent again.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: anonymous_id, in: query, schema: { type: string } }
+        - { name: channel, in: query, required: true, description: Repeat for several channels., schema: { type: string, enum: [marketing, push, email, whatsapp] } }
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_key: { type: string }
+                  removed: { type: integer }
+                  still_suppressed_by_consent: { type: array, items: { type: string } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /v1/app:
+    get:
+      operationId: getKeyApp
+      tags: [Management (secret key)]
+      summary: The key's app, with the key's environment
+      description: Needs `management:read`. Other environments of the app are not listed.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      responses:
+        "200":
+          description: The app
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - { $ref: "#/components/schemas/ApiApp" }
+                  - type: object
+                    required: [environment]
+                    properties:
+                      environment: { $ref: "#/components/schemas/ApiEnvironment" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/environment:
+    get:
+      operationId: getKeyEnvironment
+      tags: [Management (secret key)]
+      summary: The environment the key belongs to
+      description: Needs `management:read`.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      responses:
+        "200":
+          description: The environment
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiEnvironment" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/tracking-plan:
+    get:
+      operationId: getPublishedTrackingPlan
+      tags: [Management (secret key)]
+      summary: The app's published tracking plan
+      description: Needs `management:read`. Same document as the dashboard's JSON export. 404 until a version is published.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      responses:
+        "200":
+          description: Published plan
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TrackingPlan" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/tracking-plan/events:
+    post:
+      operationId: addTrackingPlanEvent
+      tags: [Management (secret key)]
+      summary: Add a custom event to the draft tracking plan
+      description: |
+        Needs `plan:write`. The event goes into the plan's working draft; when there is none, the newest
+        approved or published version is copied into a new draft first. Approved and published versions
+        never change, and nothing is published: a person approves and publishes the draft in the dashboard.
+        A standard library name (e.g. `refund_completed`) starts from the library definition and properties.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewPlanEvent" }
+      responses:
+        "201":
+          description: Added to the draft
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [version_id, version, status, draft_created, event_name, warnings]
+                properties:
+                  version_id: { type: string, format: uuid }
+                  version: { type: integer }
+                  status: { type: string, enum: [draft] }
+                  draft_created: { type: boolean, description: True when this request created the draft version. }
+                  event_name: { type: string }
+                  warnings:
+                    type: array
+                    description: Naming advice (object_action, past tense, looks like a standard event).
+                    items: { type: string }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/analytics/events:
+    get:
+      operationId: getEventsReport
+      tags: [Management (secret key)]
+      summary: Events of the key's environment with counts and distinct people
+      description: Needs `analytics:read`. Same numbers as the dashboard's Events report (canonical names, track events only), most frequent first, at most 200.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - name: days
+          in: query
+          schema: { type: integer, enum: [7, 30, 90], default: 30 }
+      responses:
+        "200":
+          description: Events report
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [environment_id, days, events]
+                properties:
+                  environment_id: { type: string, format: uuid }
+                  days: { type: integer }
+                  events:
+                    type: array
+                    items:
+                      type: object
+                      required: [name, count, people]
+                      properties:
+                        name: { type: string }
+                        count: { type: integer }
+                        people: { type: integer }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/analytics/trend:
+    get:
+      operationId: getEventTrend
+      tags: [Management (secret key)]
+      summary: Daily counts and people for one event
+      description: Needs `analytics:read`. Days are calendar days in the app's timezone. With a breakdown, the top 5 groups are returned and the rest summed as "Other".
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - name: event
+          in: query
+          required: true
+          schema: { type: string, maxLength: 200 }
+        - name: days
+          in: query
+          schema: { type: integer, enum: [7, 30, 90], default: 30 }
+        - name: breakdown
+          in: query
+          description: "`platform`, `app_version`, `country` or `property:<name>`."
+          schema: { type: string }
+      responses:
+        "200":
+          description: Trend
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [event, environment_id, timezone, days, series, total, breakdown]
+                properties:
+                  event: { type: string }
+                  environment_id: { type: string, format: uuid }
+                  timezone: { type: string }
+                  days: { type: array, items: { type: string, format: date } }
+                  breakdown: { type: [string, "null"] }
+                  series:
+                    type: array
+                    items:
+                      type: object
+                      required: [key, counts, people, total]
+                      properties:
+                        key: { type: string }
+                        counts: { type: array, items: { type: integer } }
+                        people: { type: array, items: { type: integer } }
+                        total: { type: integer }
+                  total:
+                    type: object
+                    properties:
+                      count: { type: integer }
+                      people: { type: integer }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/users/{user_id}:
+    get:
+      operationId: getUser
+      tags: [Management (secret key)]
+      summary: An end user of the key's environment
+      description: Needs `users:read`. `user_id` is your own user id, URL-encoded. Users of other environments are not found.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - name: user_id
+          in: path
+          required: true
+          schema: { type: string, maxLength: 256 }
+      responses:
+        "200":
+          description: The user
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id, properties, first_seen_at, last_seen_at, anonymous_ids, event_count, last_event_at]
+                properties:
+                  user_id: { type: string }
+                  properties: { type: object, additionalProperties: true }
+                  first_seen_at: { type: string, format: date-time }
+                  last_seen_at: { type: string, format: date-time }
+                  anonymous_ids:
+                    type: array
+                    description: Installs linked to the user (newest first, at most 100).
+                    items: { type: string }
+                  event_count: { type: integer }
+                  last_event_at: { type: [string, "null"], format: date-time }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /l/{code}:
+    get:
+      operationId: followTrackingLink
+      tags: [Attribution]
+      summary: Follow a tracking link
+      description: |
+        Records a click (not for crawlers, link previews, prefetches, paused links or rate-limited senders) and redirects:
+        iOS to the App Store, Android to Google Play with the click id in `referrer`, others to the web fallback.
+        Campaign labels can be overridden with `utm_campaign`, `utm_term`, `utm_content`; ad-network click ids are stored with the click.
+      security: []
+      servers: [{ url: https://api.leanapp.io }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{6,32}$" }
+        - { name: utm_campaign, in: query, required: false, schema: { type: string } }
+        - { name: utm_term, in: query, required: false, schema: { type: string } }
+        - { name: utm_content, in: query, required: false, schema: { type: string } }
+        - { name: gclid, in: query, required: false, schema: { type: string } }
+        - { name: ttclid, in: query, required: false, schema: { type: string } }
+        - { name: ScCid, in: query, required: false, schema: { type: string } }
+        - { name: fbclid, in: query, required: false, schema: { type: string } }
+      responses:
+        "302":
+          description: Redirect to the store or web fallback
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        "404":
+          description: Unknown link
+        "503":
+          description: Temporary failure; retry
   /v1/in-app:
     get:
       operationId: listInAppMessages
@@ -361,7 +749,7 @@ components:
     bearerKey:
       type: http
       scheme: bearer
-      description: Public SDK key (la_pk_…) or secret key (la_sk_…).
+      description: Public SDK key (la_pk_…) or secret key (la_sk_…). Management endpoints need a secret key with the listed scope.
     headerKey:
       type: apiKey
       in: header
@@ -389,6 +777,9 @@ components:
       headers:
         Idempotent-Replayed:
           schema: { type: string, enum: ["true"] }
+        X-LeanApp-Plan-Limit:
+          description: Present while the organization is past its monthly event allowance but inside the 10% grace.
+          schema: { type: string, enum: ["grace"] }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/IngestResult" }
@@ -397,6 +788,17 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/IngestResult" }
+    IngestLimited:
+      description: >-
+        `rate_limited` (too many events per minute for this environment) or `plan_limit_exceeded`
+        (the organization used its monthly event allowance plus the 10% grace; nothing in the request
+        was stored). Retry after `Retry-After` seconds.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     RateLimited:
       description: Rate limit exceeded
       headers:
@@ -411,6 +813,132 @@ components:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
   schemas:
+    Suppression:
+      type: object
+      properties:
+        user_key: { type: string, description: "user_id, or anon:<anonymous_id>" }
+        channel: { type: string, enum: [marketing, push, email, whatsapp] }
+        source: { type: string, enum: [manual, api, consent] }
+        reason: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+    ApiApp:
+      type: object
+      required: [id, name, slug, timezone, default_currency, platforms, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        slug: { type: string }
+        description: { type: [string, "null"] }
+        category: { type: [string, "null"] }
+        timezone: { type: string }
+        default_currency: { type: string }
+        platforms: { type: array, items: { type: string } }
+        created_at: { type: string, format: date-time }
+    ApiEnvironment:
+      type: object
+      required: [id, name, type, status, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string, enum: [development, staging, production] }
+        status: { type: string, enum: [active, disabled] }
+        created_at: { type: string, format: date-time }
+    PlanProperty:
+      type: object
+      required: [name, type]
+      properties:
+        name: { type: string, pattern: "^[a-z][a-z0-9_]{0,63}$" }
+        type: { type: string, enum: [string, number, integer, boolean, array, object, currency, datetime] }
+        required: { type: boolean, default: false }
+        description: { type: string, maxLength: 500 }
+        allowed_values: { type: [array, "null"], items: { type: string }, maxItems: 50, description: Only for string properties. }
+        example: { type: [string, number, boolean, "null"] }
+    NewPlanEvent:
+      type: object
+      required: [event_name]
+      properties:
+        event_name:
+          type: string
+          pattern: "^[a-z][a-z0-9_]{1,63}$"
+          description: snake_case, object_action, past tense (`gift_card_redeemed`). SDK protocol names (user_identified, user_aliased, push_token_registered) are reserved.
+        display_name: { type: string, maxLength: 100 }
+        description: { type: string, maxLength: 1000 }
+        category: { type: string, maxLength: 40 }
+        trigger: { type: string, maxLength: 500, description: When the event fires. }
+        source: { type: string, enum: [mobile_sdk, backend, both, automatic], default: mobile_sdk }
+        priority: { type: string, enum: [critical, high, medium, low], default: medium }
+        required: { type: boolean, default: false }
+        platforms: { type: array, items: { type: string, enum: [android, ios, web, react_native, flutter, backend] } }
+        revenue_relevance: { type: boolean }
+        conversion_relevance: { type: boolean }
+        attribution_relevance: { type: boolean }
+        automation_relevance: { type: boolean }
+        reason: { type: string, maxLength: 500 }
+        properties: { type: array, maxItems: 50, items: { $ref: "#/components/schemas/PlanProperty" } }
+    TrackingPlan:
+      type: object
+      required: [format, app, version, version_id, status, events, user_properties, attribution_rules]
+      properties:
+        format: { type: string, enum: [leanapp.tracking_plan/v1] }
+        app:
+          type: object
+          properties:
+            id: { type: string, format: uuid }
+            name: { type: string }
+        version: { type: integer }
+        version_id: { type: string, format: uuid }
+        status: { type: string, enum: [draft, approved, published, archived] }
+        generator: { type: string }
+        business_model: { type: [string, "null"] }
+        activation_event: { type: [string, "null"] }
+        north_star_event: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        approved_at: { type: [string, "null"], format: date-time }
+        published_at: { type: [string, "null"], format: date-time }
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              event_name: { type: string }
+              display_name: { type: string }
+              description: { type: string }
+              category: { type: string }
+              trigger: { type: string }
+              source: { type: string, enum: [mobile_sdk, backend, both, automatic] }
+              priority: { type: string, enum: [critical, high, medium, low] }
+              required: { type: boolean }
+              custom: { type: boolean, description: Added by hand rather than generated. }
+              platforms: { type: array, items: { type: string } }
+              relevance:
+                type: object
+                properties:
+                  activation: { type: boolean }
+                  conversion: { type: boolean }
+                  revenue: { type: boolean }
+                  attribution: { type: boolean }
+                  automation: { type: boolean }
+              reason: { type: string }
+              properties: { type: array, items: { $ref: "#/components/schemas/PlanProperty" } }
+        user_properties:
+          type: array
+          items:
+            type: object
+            properties:
+              name: { type: string }
+              type: { type: string }
+              description: { type: string }
+              source: { type: string }
+              reason: { type: string }
+        attribution_rules:
+          type: array
+          items:
+            type: object
+            properties:
+              channel: { type: string }
+              parameters: { type: array, items: { type: string } }
+              click_id_param: { type: [string, "null"] }
+              notes: { type: string }
     Error:
       type: object
       required: [error, message]

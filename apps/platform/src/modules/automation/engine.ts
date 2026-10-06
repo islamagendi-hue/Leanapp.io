@@ -372,6 +372,8 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
     case "email":
       return sendEmailStep(env, s, index, vars);
     case "in_app": {
+      const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "in_app");
+      if (blocked) return { next: "continue", entry: { type: "in_app", outcome: "skipped", detail: `Not sent: ${blocked}` } };
       const appId = await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [run.environment_id]);
       const row = await db.one(
         `insert into platform.in_app_messages (organization_id, app_id, environment_id, user_key, automation_id, automation_run_id, step, title, body, button_text, deep_link, expires_at)

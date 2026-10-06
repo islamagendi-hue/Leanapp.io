@@ -23,7 +23,7 @@ import { resetPushCaches } from "@/modules/push/transport";
 import { createWebhook, deliverWebhooks } from "@/modules/webhooks/service";
 import { makeTenant } from "./helpers";
 
-process.env.INTEGRATIONS_ENCRYPTION_KEY = "test-key-".padEnd(48, "x");
+process.env.INTEGRATIONS_ENCRYPTION_KEY = "e".repeat(64);
 
 type T = Awaited<ReturnType<typeof makeTenant>>;
 let t: T;
@@ -133,10 +133,8 @@ beforeAll(async () => {
     { type: "identify", anonymous_id: "a3", user_id: "u3", user_properties: { name: "Lina", email: "lina@example.com" } },
     { type: "push_token", anonymous_id: "a3", user_id: "u3", push_token: { token: "fcm-good-token-3", provider: "fcm", permission: "granted" } },
   ]);
-  // u3 opted out of marketing.
-  await withSystem((db) =>
-    db.query("insert into platform.consent_records (organization_id, environment_id, user_key, purpose, granted, source) values ($1, $2, 'u3', 'marketing', false, 'test')", [t.org.id, t.dev.id]),
-  );
+  // u3 denies marketing from the SDK's consent screen (automatic marketing suppression).
+  await send([{ type: "consent", anonymous_id: "a3", user_id: "u3", consent: { marketing: false } }]);
 });
 
 afterAll(async () => {
@@ -196,10 +194,11 @@ describe("abandoned checkout flow", () => {
     ]);
     expect(u1.log.find((l) => l.type === "push")!.detail).toBe("Sent to 2 of 2 devices");
     expect(u2.log.map((l) => `${l.type}:${l.outcome}`)).toEqual(["trigger:started", "delay:waiting", "branch:exit", "run:completed"]);
-    // u3 opted out: no push, no email; in-app still shows in the app.
-    expect(u3.log.filter((l) => l.type === "push" || l.type === "email").map((l) => `${l.type}:${l.outcome}:${l.detail}`)).toEqual([
-      "push:skipped:Not sent: consent_revoked",
-      "email:skipped:Not sent: consent_revoked",
+    // u3 denied marketing: no push, in-app or email.
+    expect(u3.log.filter((l) => ["push", "in_app", "email"].includes(l.type)).map((l) => `${l.type}:${l.outcome}:${l.detail}`)).toEqual([
+      "push:skipped:Not sent: suppressed",
+      "in_app:skipped:Not sent: suppressed",
+      "email:skipped:Not sent: suppressed",
     ]);
 
     // FCM: OAuth JWT-bearer exchange, then a send with the access token and rendered content.
@@ -239,7 +238,7 @@ describe("abandoned checkout flow", () => {
       { channel: "push", provider: "apns", status: "sent" },
       { channel: "push", provider: "fcm", status: "sent" },
     ]);
-    expect(state.inApp).toEqual([{ user_key: "u1", title: "Your cart" }, { user_key: "u3", title: "Your cart" }]);
+    expect(state.inApp).toEqual([{ user_key: "u1", title: "Your cart" }]);
     expect(state.props).toMatchObject({ cart_reminded: true, name: "Sara" });
     expect(state.event).toMatchObject({ source: "automatic", context: { automation: { id, run_id: u1.id } } });
     expect(state.usage.map((u) => [u.meter_id, Number(u.quantity)])).toEqual([["automation_runs", 3], ["push_messages", 2]]);

@@ -3,7 +3,7 @@ import { createWebhookAction } from "@/app/actions/engage";
 import { ActionForm } from "@/components/ActionForm";
 import { EnvSwitcher } from "@/components/EnvSwitcher";
 import { StatusPill } from "@/components/engage/shared";
-import { secretsAvailable } from "@/lib/secret-box";
+import { encryptionAvailable } from "@/lib/secret-box";
 import { listWebhooks, WEBHOOK_EVENT_TYPES } from "@/modules/webhooks/service";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
@@ -58,7 +58,7 @@ export default async function WebhooksPage(props: PageProps<"/o/[org]/apps/[app]
 
       <section className="card space-y-3">
         <h2 className="h2">Add an endpoint</h2>
-        {!secretsAvailable() ? (
+        {!encryptionAvailable() ? (
           <p className="text-sm text-alert">Webhooks can&apos;t be created on this server: <code>INTEGRATIONS_ENCRYPTION_KEY</code> is not configured (signing secrets are stored encrypted).</p>
         ) : (
           <ActionForm action={createWebhookAction.bind(null, org, app, env.id)} submitLabel="Create webhook" className="space-y-3">

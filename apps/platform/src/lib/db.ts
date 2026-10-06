@@ -14,6 +14,7 @@
  */
 import "server-only";
 import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
+import { envNumber } from "@/lib/env-number";
 
 // `date` (OID 1082) is a calendar day, not an instant: node-pg would turn it
 // into local midnight, which shifts the day on servers not running in UTC.
@@ -42,7 +43,7 @@ export function getPool(): Pool {
   if (!pool) {
     pool = new Pool({
       connectionString: databaseUrl(),
-      max: Number(process.env.DATABASE_POOL_MAX ?? 5),
+      max: envNumber("DATABASE_POOL_MAX", 5),
       ssl: process.env.DATABASE_SSL === "require" ? { rejectUnauthorized: false } : undefined,
       idleTimeoutMillis: 10_000,
     });

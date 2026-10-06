@@ -1,5 +1,8 @@
 import { AnalyticsHeader, param, RANGE_LABELS } from "@/components/AnalyticsHeader";
+import { CohortSelect } from "@/components/CohortSelect";
+import { SaveReport } from "@/components/SaveReport";
 import { funnel, RANGES, topEvents } from "@/modules/analytics/service";
+import { cohortFilter } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Funnels" };
@@ -17,16 +20,17 @@ function duration(s: number | null): string {
 export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/analytics/funnels">) {
   const { org, app } = await props.params;
   const sp = await props.searchParams;
-  const { ctx, environments } = await loadApp(org, app);
+  const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
   const env = pickEnvironment(environments, sp.env ?? "production");
   const days = Number(param(sp.days)) || 30;
   const windowDays = Number(param(sp.window)) || 7;
   const split = param(sp.split) === "platform";
   const chosen = (Array.isArray(sp.step) ? sp.step : sp.step ? [sp.step] : []).map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const events = await topEvents(ctx, { environmentId: env.id, days });
   const result = chosen.length >= 2
-    ? await funnel(ctx, { environmentId: env.id }, { steps: chosen, windowDays, days, breakdown: split ? "platform" : undefined })
+    ? await funnel(ctx, { environmentId: env.id, timezone: a.timezone }, { steps: chosen, windowDays, days, breakdown: split ? "platform" : undefined, cohortId: cf.cohortId })
     : null;
   const slots = Math.min(6, Math.max(2, chosen.length + 1));
   const names = [...new Set([...events.map((e) => e.name), ...chosen])];
@@ -57,11 +61,13 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
           <label><span className="label">People who started in</span>
             <select name="days" className="input" defaultValue={String(days)}>{RANGES.map((r) => <option key={r} value={r}>{RANGE_LABELS[r]}</option>)}</select>
           </label>
+          <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
           <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" name="split" value="platform" defaultChecked={split} /> Split by platform</label>
           <button className="btn" type="submit">Show funnel</button>
         </div>
       </form>
 
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the funnel shows everyone.</p>}
       {!result ? (
         <p className="text-sm text-ink-3">Choose at least two steps. {events.length === 0 && "There are no events in this environment and range yet."}</p>
       ) : (
@@ -88,22 +94,24 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
           {result.breakdown && (
             <div className="overflow-x-auto">
               <table className="table">
-                <thead><tr><th>Platform</th>{result.steps.map((s, i) => <th key={i} className="text-right">{i + 1}. {s.name}</th>)}<th className="text-right">Overall</th></tr></thead>
+                <thead><tr><th>Platform</th>{result.steps.map((s, i) => <th key={i} className="text-end">{i + 1}. {s.name}</th>)}<th className="text-end">Overall</th></tr></thead>
                 <tbody>
                   {result.breakdown.map((g) => (
                     <tr key={g.key}>
                       <td>{g.key}</td>
-                      {g.people.map((n, i) => <td key={i} className="text-right tabular-nums">{n.toLocaleString("en-US")}</td>)}
-                      <td className="text-right tabular-nums">{g.people[0] ? pct(g.people.at(-1)! / g.people[0]) : "–"}</td>
+                      {g.people.map((n, i) => <td key={i} className="text-end tabular-nums">{n.toLocaleString("en-US")}</td>)}
+                      <td className="text-end tabular-nums">{g.people[0] ? pct(g.people.at(-1)! / g.people[0]) : "–"}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
           )}
+          {cf.cohortName && <p className="text-xs text-ink-3">Only people in the cohort {cf.cohortName}.</p>}
           <p className="text-xs text-ink-3">A person enters at their first step-1 event in the range; each later step must happen after the previous one and within the window from entering.</p>
         </section>
       )}
+      {result && cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="funnel" query={sp} />}
     </div>
   );
 }

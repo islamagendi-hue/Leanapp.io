@@ -65,17 +65,16 @@ If the key or the credentials are missing, the step is logged as failed (`not_co
 
 ## Consent
 
-Consent is opt-out based until consent capture is built. Before a push or an email, the engine checks:
+Every automation message counts as marketing. Before a push, in-app or email message the engine uses the privacy module (`src/modules/privacy/consent.ts`, see [API](api.md#consent-and-suppression)) and skips the step (logged as `skipped`) when the user key:
 
-- the user's latest `consent_records` row for `marketing`, and also for `push` when sending push;
-- any `marketing_opt_out` privacy request.
+- is on the `marketing` suppression list, or on the list for the medium (`push`, `email`, `whatsapp`). Suppressions are manual, from the API, automatic from denied consent, or from an unsubscribe;
+- has a latest consent decision denying `marketing`, or denying `push` when sending push.
 
-A recorded opt-out skips the step, and it's logged as `skipped`. Email also needs an `email` user property with a valid address.
+No decision recorded means the message is allowed, so apps that don't collect consent keep working. Email also needs an `email` user property with a valid address. Webhooks, user property updates and events aren't messages and aren't checked.
 
 ## Not built yet
 
 - Prayer-time-aware quiet hours and Ramadan scheduling.
 - Holdout groups and attributing conversions to an automation.
 - A per-user timezone. Quiet hours and schedules use the organization's timezone.
-- A consent capture API. Only recorded opt-outs are honoured.
 - An in-app message UI in the SDKs.

@@ -26,7 +26,8 @@
 
 | Field | Rules |
 | --- | --- |
-| `type` | `track` (default), `screen`, `identify`, `alias`, `push_token` |
+| `type` | `track` (default), `screen`, `identify`, `alias`, `push_token`, `consent` |
+| `consent` | Required for `consent`: `{ analytics?, marketing?, push?, attribution? }` booleans, at least one. Recorded as the user's consent ([API](api.md#consent-and-suppression)), not stored as an event |
 | `event_name` | Required for `track`. Starts with a letter; letters, digits, space `_ . : -`; ≤100 chars. Plans use `snake_case` `object_action` (`order_completed`). |
 | `event_id` | Strongly recommended. Unique per environment; duplicates are ignored. Missing ids get a server id and a warning. |
 | `anonymous_id` / `user_id` | At least one required |
@@ -34,7 +35,9 @@
 | `properties` | ≤255 keys, ≤32KB, nesting depth ≤4 |
 | whole event | ≤64KB; batch ≤1MB |
 
-System types map to stored names: `screen` → `screen_viewed`, `identify` → `user_identified`, `alias` → `user_aliased`, `push_token` → `push_token_registered`.
+System types map to stored names: `screen` → `screen_viewed`, `identify` → `user_identified`, `alias` → `user_aliased`, `push_token` → `push_token_registered`. `consent` events are not stored as events.
+
+Events from a user whose latest analytics decision is "denied" are rejected with `"reason": "consent_denied"` (not stored, not billed).
 
 ## Response
 

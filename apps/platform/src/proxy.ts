@@ -33,7 +33,7 @@ export function proxy(request: NextRequest) {
   headers.set("x-request-id", requestId);
 
   const path = request.nextUrl.pathname;
-  const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.endsWith("/export");
+  const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.startsWith("/l/") && !path.endsWith("/export");
   let csp: string | null = null;
   if (isPage) {
     const nonce = Buffer.from(crypto.randomUUID()).toString("base64");

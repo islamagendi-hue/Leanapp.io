@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { Analytics, LeanAppClient, memoryStorage, parseAttribution, type StorageAdapter, type WireEvent } from "./index.js";
+import { Analytics, LeanAppClient, memoryStorage, parseAttribution, storagePrefix, type StorageAdapter, type WireEvent } from "./index.js";
 
 const KEY = "la_pk_dev_abcdefghijklmnopqrstuvwx";
 
@@ -285,5 +285,292 @@ describe("singleton", () => {
     await Analytics.flush();
     expect(s.calls[0].body.batch[0].event_name).toBe("app_opened");
     warn.mockRestore();
+  });
+});
+
+describe("storage namespace", () => {
+  const ROTATED = "la_pk_dev_zyxwvutsrqponmlkjihgfedc";
+
+  it("depends only on the key kind and environment, not the random part", () => {
+    expect(storagePrefix(KEY)).toBe("leanapp:la_pk_dev:");
+    expect(storagePrefix(ROTATED)).toBe(storagePrefix(KEY));
+    expect(storagePrefix("la_pk_live_abcdefghijklmnopqrstuvwx")).toBe("leanapp:la_pk_live:");
+  });
+
+  it("keeps the anonymous id and queue when the key is rotated", async () => {
+    const storage = memoryStorage();
+    const first = make({ storage, fetch: server(() => new TypeError("offline")).fetch });
+    first.client.track("queued_before_rotation");
+    await first.client.whenReady();
+    const anonymousId = first.client.getAnonymousId();
+    await first.client.shutdown();
+
+    const s = server();
+    const second = make({ storage, apiKey: ROTATED, fetch: s.fetch });
+    await second.client.whenReady();
+    expect(second.client.getAnonymousId()).toBe(anonymousId);
+    await second.client.flush();
+    expect(s.calls[0].body.batch.map((e) => e.event_name)).toEqual(["queued_before_rotation"]);
+  });
+
+  it("moves data from the old key-specific namespace once", async () => {
+    const storage = memoryStorage();
+    const legacy = `leanapp:${KEY.slice(0, 14)}:`;
+    const queued: WireEvent = { type: "track", event_name: "old", event_id: "old-1", timestamp: "2026-10-05T09:00:00.000Z", anonymous_id: "anon-legacy", context: {} };
+    await storage.setItem(legacy + "state", JSON.stringify({ anonymousId: "anon-legacy", userId: "u1" }));
+    await storage.setItem(legacy + "queue", JSON.stringify([{ e: queued, queuedAt: Date.parse("2026-10-05T09:00:00Z") }]));
+
+    const s = server();
+    const { client } = make({ storage, fetch: s.fetch });
+    await client.whenReady();
+    expect(client.getAnonymousId()).toBe("anon-legacy");
+    expect(client.getUserId()).toBe("u1");
+    expect(client.queueLength).toBe(1);
+    await client.shutdown();
+    expect(await storage.getItem(legacy + "state")).toBeNull();
+    expect(await storage.getItem(legacy + "queue")).toBeNull();
+    expect(JSON.parse((await storage.getItem("leanapp:la_pk_dev:state"))!).anonymousId).toBe("anon-legacy");
+
+    // A second start reads the new namespace and does not migrate again.
+    await storage.setItem(legacy + "state", JSON.stringify({ anonymousId: "anon-stale" }));
+    const again = make({ storage, fetch: s.fetch });
+    await again.client.whenReady();
+    expect(again.client.getAnonymousId()).toBe("anon-legacy");
+  });
+});
+
+describe("lifecycle flush", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function browser() {
+    const doc = Object.assign(new EventTarget(), { visibilityState: "visible" });
+    const win = new EventTarget();
+    vi.stubGlobal("document", doc);
+    vi.stubGlobal("addEventListener", win.addEventListener.bind(win));
+    vi.stubGlobal("removeEventListener", win.removeEventListener.bind(win));
+    const inits: RequestInit[] = [];
+    const s = server();
+    const fetchFn = ((url: string, init: RequestInit) => {
+      inits.push(init);
+      return s.fetch(url, init);
+    }) as typeof fetch;
+    return {
+      fetch: fetchFn,
+      calls: s.calls,
+      inits,
+      hide() {
+        doc.visibilityState = "hidden";
+        doc.dispatchEvent(new Event("visibilitychange"));
+      },
+      pagehide: () => win.dispatchEvent(new Event("pagehide")),
+    };
+  }
+
+  it("sends queued events with keepalive when the page is hidden", async () => {
+    const b = browser();
+    const { client } = make({ platform: "web", fetch: b.fetch });
+    await client.whenReady();
+    client.track("checkout_started");
+    b.hide();
+    await vi.waitFor(() => expect(client.queueLength).toBe(0));
+    expect(b.calls[0].body.batch[0].event_name).toBe("checkout_started");
+    expect(b.inits[0].keepalive).toBe(true);
+    await client.shutdown();
+  });
+
+  it("sends on pagehide and keeps each keepalive request under 64 KiB", async () => {
+    const b = browser();
+    const { client } = make({ platform: "web", fetch: b.fetch });
+    await client.whenReady();
+    for (let i = 0; i < 40; i++) client.track("big", { blob: "x".repeat(3_000) });
+    b.pagehide();
+    await vi.waitFor(() => expect(b.calls.length).toBe(1));
+    expect(new TextEncoder().encode(b.inits[0].body as string).length).toBeLessThan(64 * 1024);
+    expect(b.calls[0].body.batch.length).toBeLessThan(40);
+    await vi.waitFor(() => expect(client.queueLength).toBe(40 - b.calls[0].body.batch.length));
+    await client.shutdown();
+  });
+
+  it("can be turned off and stops listening on shutdown", async () => {
+    const b = browser();
+    const off = make({ platform: "web", fetch: b.fetch, flushOnHide: false });
+    await off.client.whenReady();
+    off.client.track("a");
+    b.hide();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(b.calls.length).toBe(0);
+    await off.client.shutdown();
+  });
+
+  it("flushes when a React Native app goes to the background", async () => {
+    let listener: ((state: string) => void) | null = null;
+    const remove = vi.fn();
+    const appState = {
+      addEventListener: (_type: "change", l: (state: string) => void) => {
+        listener = l;
+        return { remove };
+      },
+    };
+    const s = server();
+    const { client } = make({ fetch: s.fetch, appState });
+    await client.whenReady();
+    client.track("cart_viewed");
+    listener!("inactive");
+    await new Promise((r) => setTimeout(r, 0));
+    expect(s.calls.length).toBe(0);
+    listener!("background");
+    await vi.waitFor(() => expect(s.calls.length).toBe(1));
+    expect(s.calls[0].body.batch[0].event_name).toBe("cart_viewed");
+    await client.shutdown();
+    expect(remove).toHaveBeenCalled();
+  });
+});
+
+describe("consent", () => {
+  const types = (calls: { body: { batch: WireEvent[] } }[]) => calls.flatMap((c) => c.body.batch.map((e) => (e.type === "track" ? e.event_name : e.type)));
+
+  it("defaults to granted, so apps that never call setConsent behave as before", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch });
+    expect(client.getConsent()).toEqual({ analytics: "granted", marketing: "granted", push: "granted", attribution: "granted" });
+    client.track("a");
+    await client.flush();
+    expect(types(s.calls)).toEqual(["a"]);
+  });
+
+  it("pending: holds events in memory only, then sends them once analytics is granted", async () => {
+    const s = server();
+    const storage = memoryStorage();
+    const { client } = make({ fetch: s.fetch, storage, consentDefault: "pending" });
+    client.track("a");
+    client.screen("Home");
+    expect(await client.flush()).toEqual({ status: "empty" });
+    expect(s.calls).toHaveLength(0);
+    expect(client.queueLength).toBe(0);
+    await client.shutdown();
+    // Nothing waiting for consent is written to the device.
+    expect(await storage.getItem(`${storagePrefix(KEY)}queue`)).toBe("[]");
+
+    client.setConsent({ analytics: true, marketing: false });
+    await client.flush();
+    expect(types(s.calls)).toEqual(["consent", "a", "screen"]);
+    const c = s.calls[0].body.batch[0];
+    expect(c.consent).toEqual({ analytics: true, marketing: false });
+    expect(c.session_id).toBeUndefined();
+    expect(c.context.attribution).toBeUndefined();
+    expect(client.getConsent()).toMatchObject({ analytics: "granted", marketing: "denied", push: "pending" });
+  });
+
+  it("pending events are lost if the app closes before the user decides", async () => {
+    const storage = memoryStorage();
+    const first = make({ storage, consentDefault: "pending" }).client;
+    first.track("a");
+    await first.whenReady();
+    await first.shutdown();
+    const s = server();
+    const second = make({ storage, fetch: s.fetch, consentDefault: "pending" }).client;
+    second.setConsent({ analytics: true });
+    await second.flush();
+    expect(types(s.calls)).toEqual(["consent"]);
+  });
+
+  it("denied: discards held and queued events but still sends the consent change", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch, consentDefault: { analytics: "pending" } });
+    client.track("held");
+    client.setConsent({ analytics: true });
+    client.track("queued");
+    client.setConsent({ analytics: false });
+    client.track("after");
+    await client.flush();
+    // Only the consent changes go out: "queued" was discarded with the denial, "after" never queued.
+    expect(types(s.calls)).toEqual(["consent", "consent"]);
+    expect(s.calls[0].body.batch.map((e) => e.consent)).toEqual([{ analytics: true }, { analytics: false }]);
+  });
+
+  it("an explicit default of denied drops events without sending anything", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch, consentDefault: "denied" });
+    client.track("a");
+    client.registerPushToken("t".repeat(20), "fcm");
+    expect(await client.flush()).toEqual({ status: "empty" });
+    expect(s.calls).toHaveLength(0);
+  });
+
+  it("persists the answer across restarts and purges unsent events on load after a denial", async () => {
+    const storage = memoryStorage();
+    const s = server(() => new Error("offline"));
+    const first = make({ storage, fetch: s.fetch }).client;
+    first.track("before");
+    first.setConsent({ analytics: false, push: true });
+    await first.flush();
+    await first.shutdown();
+
+    const s2 = server();
+    const second = make({ storage, fetch: s2.fetch, consentDefault: "pending" }).client;
+    await second.whenReady();
+    expect(second.getConsent()).toMatchObject({ analytics: "denied", push: "granted", marketing: "pending" });
+    second.track("ignored");
+    second.registerPushToken("t".repeat(20), "fcm", "granted");
+    await second.flush();
+    expect(types(s2.calls)).toEqual(["consent", "push_token"]);
+  });
+
+  it("push and attribution are separate purposes", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch, consentDefault: { push: "pending", attribution: "pending" } });
+    client.captureAttribution("https://x.test/?utm_source=tiktok");
+    client.registerPushToken("t".repeat(20), "fcm");
+    client.track("a");
+    await client.flush();
+    expect(types(s.calls)).toEqual(["a"]);
+    expect(s.calls[0].body.batch[0].context.attribution).toBeUndefined();
+    expect(client.getAttribution()).toBeNull();
+
+    client.setConsent({ push: true, attribution: true });
+    client.track("b");
+    await client.flush();
+    const sent = s.calls[1].body.batch;
+    expect(sent.map((e) => e.type)).toEqual(["consent", "push_token", "track"]);
+    expect(sent[2].context.attribution).toMatchObject({ utm_source: "tiktok" });
+
+    client.setConsent({ attribution: false });
+    client.track("c");
+    await client.flush();
+    const last = s.calls[2].body.batch;
+    expect(last[last.length - 1].context.attribution).toBeUndefined();
+    expect(client.getAttribution()).toBeNull();
+  });
+
+  it("records the device's consent for a user who signs in, and for the new id after reset", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch });
+    client.setConsent({ marketing: false });
+    client.identify("u1");
+    client.identify("u1"); // same user: nothing new to record
+    client.reset();
+    await client.flush();
+    const consents = s.calls.flatMap((c) => c.body.batch).filter((e) => e.type === "consent");
+    expect(consents.map((e) => [e.user_id ?? null, e.consent])).toEqual([
+      [null, { marketing: false }],
+      ["u1", { marketing: false }],
+      [null, { marketing: false }],
+    ]);
+    expect(consents[2].anonymous_id).not.toBe(consents[0].anonymous_id);
+    expect(client.getConsent().marketing).toBe("denied");
+  });
+
+  it("ignores calls without a boolean purpose and is exposed on the singleton", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch });
+    client.setConsent({} as never);
+    client.setConsent({ analytics: "yes" } as never);
+    expect(await client.flush()).toEqual({ status: "empty" });
+
+    Analytics.initialize({ apiKey: KEY, platform: "react_native", storage: memoryStorage(), fetch: s.fetch, consentDefault: "pending" });
+    Analytics.setConsent({ analytics: true });
+    expect(Analytics.getConsent()).toMatchObject({ analytics: "granted", marketing: "pending" });
   });
 });

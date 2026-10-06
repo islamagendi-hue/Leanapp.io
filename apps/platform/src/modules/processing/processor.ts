@@ -4,6 +4,7 @@ import { loadPublishedPlan, type PublishedPlan } from "@/modules/implementation/
 import { suggestMapping } from "@/modules/implementation/similarity";
 import { validateEvent } from "@/modules/implementation/validate";
 import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
+import { attributeEvent } from "@/modules/attribution/engine";
 
 /**
  * Asynchronous event processing (the "queue" consumer).
@@ -19,6 +20,7 @@ import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
  *   3. push tokens
  *   4. plan: canonical name via accepted mappings, schema validation,
  *      implementation status, mapping suggestions for unplanned names
+ *   5. attribution: installs, re-engagements, conversions (modules/attribution)
  */
 
 export interface EventRow {
@@ -34,6 +36,7 @@ export interface EventRow {
   session_id: string | null;
   platform: string | null;
   app_version: string | null;
+  os_version?: string | null;
   source: string;
   properties: Record<string, unknown>;
   user_properties: Record<string, unknown> | null;
@@ -94,7 +97,7 @@ async function processBatch(environmentId: string, size: number): Promise<{ clai
     if (!lock?.ok) return null;
     const rows = await db.query<EventRow & { processing_attempts: number }>(
       `select id, organization_id, app_id, environment_id, type, event_name, "timestamp", anonymous_id, user_id, session_id,
-              platform, app_version, source, properties, user_properties, context, processing_attempts
+              platform, app_version, os_version, source, properties, user_properties, context, processing_attempts
          from platform.events
         where processed_at is null and environment_id = $1
         order by id
@@ -224,6 +227,9 @@ async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null) {
 
   // 4. Plan
   const canonical = await applyPlan(db, e, plan);
+
+  // 5. Attribution: installs, re-engagements and conversions (no-op for other events).
+  await attributeEvent(db, e, canonical, plan);
   await db.query("update platform.events set processed_at = now(), processing_error = null, canonical_name = $2 where id = $1", [
     e.id,
     canonical !== e.event_name ? canonical : null,

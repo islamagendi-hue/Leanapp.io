@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
-import { decryptSecret, encryptSecret, secretsAvailable } from "@/lib/secret-box";
+import { decryptSecret, encryptSecret, encryptionAvailable } from "@/lib/secret-box";
 import { audit } from "@/modules/audit/service";
 import { parseApnsKey, parseServiceAccount, type ApnsCredentials, type ServiceAccount } from "@/modules/push/messages";
 import { allowedTokenUri } from "@/modules/push/transport";
@@ -51,7 +51,7 @@ export interface ResendCredentials {
 }
 
 async function upsert(ctx: TenantContext, environmentId: string, provider: IntegrationProvider, config: Record<string, string>, secret: string): Promise<string> {
-  if (!secretsAvailable()) throw new ValidationError("Credentials can't be stored: the server has no INTEGRATIONS_ENCRYPTION_KEY configured. Ask your LeanApp operator to set it.");
+  if (!encryptionAvailable()) throw new ValidationError("Credentials can't be stored: the server has no INTEGRATIONS_ENCRYPTION_KEY configured. Ask your LeanApp operator to set it.");
   return tenantTx(ctx, "integrations.manage", async (db) => {
     const env = await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [environmentId]);
     if (!env) throw new NotFoundError("Environment");

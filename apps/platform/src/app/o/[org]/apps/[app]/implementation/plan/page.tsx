@@ -1,9 +1,10 @@
 import Link from "next/link";
-import { approveAction, editEventAction, publishAction } from "@/app/actions/implementation";
+import { approveAction, planEditAction, publishAction, type PlanEditOp } from "@/app/actions/implementation";
 import { ActionForm } from "@/components/ActionForm";
 import { CodeTabs } from "@/components/CodeTabs";
 import { MODEL_LABELS, type BusinessModel } from "@/modules/implementation/catalog/models";
 import { generateSnippets, SDK_AVAILABILITY } from "@/modules/implementation/codegen";
+import { EVENT_PROPERTY_TYPES, EVENT_SOURCES, PRIORITIES, USER_PROPERTY_SOURCES, USER_PROPERTY_TYPES } from "@/modules/implementation/plan-input";
 import { getPlanVersion, listVersions } from "@/modules/implementation/service";
 import { can } from "@/modules/rbac/authorize";
 import { publicBaseUrl } from "@/server/env";
@@ -40,7 +41,13 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/imp
 
   const v = plan.version;
   const isDraft = v.status === "draft";
-  const canEdit = isDraft && can(ctx.role, "implementation.edit");
+  const mayEdit = can(ctx.role, "implementation.edit");
+  // Edits always land on the working draft. Without one, the newest approved / published version is copied into a new draft.
+  const draft = versions.find((x) => x.status === "draft");
+  const draftBase = versions.find((x) => x.status !== "archived") ?? versions[0];
+  const canEdit = mayEdit && (isDraft || (!draft && v.id === draftBase?.id));
+  const nextVersion = Math.max(...versions.map((x) => x.version)) + 1;
+  const edit = (op: PlanEditOp) => planEditAction.bind(null, org, app, a.id, op);
   const canApprove = can(ctx.role, "implementation.approve");
   const baseUrl = publicBaseUrl();
   const counts = {
@@ -67,8 +74,22 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/imp
             <ActionForm action={publishAction.bind(null, org, app, a.id, v.id)} submitLabel="Publish plan" className="contents" confirm="Publish this version? Incoming events will be validated against it." />
           )}
           <Link href={`${base}/implementation/questions`} className="btn-secondary">Edit answers</Link>
+          {versions.length > 1 && <Link href={`${base}/implementation/plan/diff?to=${v.id}`} className="btn-secondary">Compare versions</Link>}
+          <a href={`${base}/implementation/plan/export?version=${v.id}&format=json`} className="btn-secondary" download>Export JSON</a>
+          <a href={`${base}/implementation/plan/export?version=${v.id}&format=csv`} className="btn-secondary" download>Export CSV</a>
         </div>
       </div>
+
+      {canEdit && !isDraft && (
+        <p className="rounded-lg border border-line bg-paper-2 px-3 py-2 text-sm text-ink-2">
+          Version {v.version} is {v.status} and can&apos;t change. Editing it creates draft v{nextVersion} from it; publish that draft when it&apos;s ready.
+        </p>
+      )}
+      {mayEdit && !canEdit && draft && draft.id !== v.id && (
+        <p className="rounded-lg border border-line bg-paper-2 px-3 py-2 text-sm text-ink-2">
+          Changes go to the working draft. <Link href={`?version=${draft.id}`} className="underline">Edit draft v{draft.version}</Link>
+        </p>
+      )}
 
       {versions.length > 1 && (
         <div className="flex flex-wrap gap-2 text-sm">
@@ -136,7 +157,7 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/imp
                   {e.properties.length > 0 ? (
                     <div className="overflow-x-auto">
                       <table className="table">
-                        <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th><th>Example</th></tr></thead>
+                        <thead><tr><th>Property</th><th>Type</th><th>Required</th><th>Description</th><th>Example</th>{canEdit && <th />}</tr></thead>
                         <tbody>
                           {e.properties.map((p) => (
                             <tr key={p.name}>
@@ -145,6 +166,9 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/imp
                               <td>{p.required ? "yes" : ""}</td>
                               <td className="text-ink-2">{p.description}{p.allowed_values ? <span className="block font-mono text-xs text-ink-3">{p.allowed_values.join(" | ")}</span> : null}</td>
                               <td className="font-mono text-xs">{p.example === null || p.example === undefined ? "" : JSON.stringify(p.example)}</td>
+                              {canEdit && (
+                                <td><ActionForm action={edit({ kind: "remove_property", event: e.event_name, property: p.name })} submitLabel="Remove" buttonClass="btn-danger" className="contents" confirm={`Remove ${p.name} from ${e.event_name}?`} /></td>
+                              )}
                             </tr>
                           ))}
                         </tbody>
@@ -158,9 +182,12 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/imp
                     tabs={(Object.keys(snippets) as (keyof typeof snippets)[]).map((k) => ({ key: k, label: SDK_AVAILABILITY[k].label, code: snippets[k], note: SDK_AVAILABILITY[k].available ? undefined : SDK_AVAILABILITY[k].note }))}
                   />
                   {canEdit && (
-                    <div className="flex flex-wrap gap-2 border-t border-line pt-3">
-                      <ActionForm action={editEventAction.bind(null, org, app, a.id, v.id, e.event_name, e.required ? "optional" : "require")} submitLabel={e.required ? "Mark optional" : "Mark required"} buttonClass="btn-secondary" className="contents" />
-                      <ActionForm action={editEventAction.bind(null, org, app, a.id, v.id, e.event_name, "remove")} submitLabel="Remove from plan" buttonClass="btn-danger" className="contents" confirm={`Remove ${e.event_name} from this draft?`} />
+                    <div className="space-y-3 border-t border-line pt-3">
+                      <div className="flex flex-wrap gap-2">
+                        <ActionForm action={edit({ kind: "event_required", event: e.event_name, required: !e.required })} submitLabel={e.required ? "Mark optional" : "Mark required"} buttonClass="btn-secondary" className="contents" />
+                        <ActionForm action={edit({ kind: "remove_event", event: e.event_name })} submitLabel="Remove from plan" buttonClass="btn-danger" className="contents" confirm={`Remove ${e.event_name} from the draft?`} />
+                      </div>
+                      <PropertyForm action={edit({ kind: "set_property", event: e.event_name })} />
                     </div>
                   )}
                 </div>
@@ -170,18 +197,47 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/imp
         </div>
       </section>
 
+      {canEdit && (
+        <section className="card">
+          <h2 className="h2">Add an event</h2>
+          <p className="mb-3 text-sm text-ink-3">snake_case, object then past-tense action (<span className="font-mono">gift_card_redeemed</span>). A standard name such as <span className="font-mono">refund_completed</span> starts from the library definition and properties.</p>
+          <ActionForm action={edit({ kind: "add_event" })} submitLabel="Add event" buttonClass="btn-secondary" className="grid gap-3 md:grid-cols-3">
+            <div><label className="label" htmlFor="ev-name">Event name</label><input className="input font-mono" id="ev-name" name="event_name" required pattern="[a-z][a-z0-9_]{1,63}" placeholder="gift_card_redeemed" /></div>
+            <div><label className="label" htmlFor="ev-display">Display name</label><input className="input" id="ev-display" name="display_name" maxLength={100} placeholder="Gift Card Redeemed" /></div>
+            <div><label className="label" htmlFor="ev-category">Category</label><input className="input" id="ev-category" name="category" maxLength={40} placeholder="custom" /></div>
+            <div className="md:col-span-2"><label className="label" htmlFor="ev-desc">Description</label><input className="input" id="ev-desc" name="description" maxLength={1000} /></div>
+            <div><label className="label" htmlFor="ev-trigger">Fires when</label><input className="input" id="ev-trigger" name="trigger" maxLength={500} /></div>
+            <div><label className="label" htmlFor="ev-source">Source</label><select className="input" id="ev-source" name="source" defaultValue="mobile_sdk">{EVENT_SOURCES.map((x) => <option key={x} value={x}>{SOURCE_LABEL[x]}</option>)}</select></div>
+            <div><label className="label" htmlFor="ev-priority">Priority</label><select className="input" id="ev-priority" name="priority" defaultValue="medium">{PRIORITIES.map((x) => <option key={x}>{x}</option>)}</select></div>
+            <label className="flex items-center gap-2 self-end pb-2 text-sm"><input type="checkbox" name="required" /> Required</label>
+          </ActionForm>
+        </section>
+      )}
+
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="card overflow-x-auto">
           <h2 className="h2">User properties</h2>
           <p className="mb-3 text-sm text-ink-3">Facts about the person, set with identify / setUserProperties. Actions belong in event properties.</p>
           <table className="table">
-            <thead><tr><th>Name</th><th>Type</th><th>Source</th><th>Why</th></tr></thead>
+            <thead><tr><th>Name</th><th>Type</th><th>Source</th><th>Why</th>{canEdit && <th />}</tr></thead>
             <tbody>
               {plan.userProperties.map((u) => (
-                <tr key={u.name}><td className="font-mono">{u.name}</td><td className="font-mono text-ink-2">{u.type}</td><td className="text-ink-2">{u.source}</td><td className="text-ink-2">{u.description} {u.reason}</td></tr>
+                <tr key={u.name}>
+                  <td className="font-mono">{u.name}</td><td className="font-mono text-ink-2">{u.type}</td><td className="text-ink-2">{u.source}</td><td className="text-ink-2">{u.description} {u.reason}</td>
+                  {canEdit && <td><ActionForm action={edit({ kind: "remove_user_property", name: u.name })} submitLabel="Remove" buttonClass="btn-danger" className="contents" confirm={`Remove user property ${u.name}?`} /></td>}
+                </tr>
               ))}
             </tbody>
           </table>
+          {canEdit && (
+            <ActionForm action={edit({ kind: "set_user_property" })} submitLabel="Save user property" buttonClass="btn-secondary" className="mt-4 grid gap-2 border-t border-line pt-3 sm:grid-cols-2">
+              <div><label className="label" htmlFor="up-name">Name</label><input className="input font-mono" id="up-name" name="name" required pattern="[a-z][a-z0-9_]{0,63}" placeholder="loyalty_tier" /></div>
+              <div><label className="label" htmlFor="up-type">Type</label><select className="input" id="up-type" name="type">{USER_PROPERTY_TYPES.map((x) => <option key={x}>{x}</option>)}</select></div>
+              <div><label className="label" htmlFor="up-desc">Description</label><input className="input" id="up-desc" name="description" maxLength={500} /></div>
+              <div><label className="label" htmlFor="up-source">Source</label><select className="input" id="up-source" name="source" defaultValue="mobile_sdk">{USER_PROPERTY_SOURCES.map((x) => <option key={x}>{x}</option>)}</select></div>
+              <p className="text-xs text-ink-3 sm:col-span-2">Saving an existing name replaces it.</p>
+            </ActionForm>
+          )}
         </div>
         <div className="card overflow-x-auto">
           <h2 className="h2">Attribution</h2>
@@ -199,6 +255,19 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/imp
         </div>
       </section>
     </div>
+  );
+}
+
+function PropertyForm({ action }: { action: Parameters<typeof ActionForm>[0]["action"] }) {
+  return (
+    <ActionForm action={action} submitLabel="Save property" buttonClass="btn-secondary" className="flex flex-wrap items-end gap-2">
+      <label className="text-xs text-ink-2">Property<input className="input mt-1 min-h-9 w-40 font-mono text-sm" name="name" required pattern="[a-z][a-z0-9_]{0,63}" placeholder="gift_card_id" /></label>
+      <label className="text-xs text-ink-2">Type<select className="input mt-1 min-h-9 w-auto text-sm" name="type">{EVENT_PROPERTY_TYPES.map((x) => <option key={x}>{x}</option>)}</select></label>
+      <label className="min-w-40 flex-1 text-xs text-ink-2">Description<input className="input mt-1 min-h-9 text-sm" name="description" maxLength={500} /></label>
+      <label className="text-xs text-ink-2">Allowed values<input className="input mt-1 min-h-9 w-40 text-sm" name="allowed_values" placeholder="a | b | c" /></label>
+      <label className="flex min-h-9 items-center gap-2 text-sm"><input type="checkbox" name="required" /> Required</label>
+      <span className="w-full text-xs text-ink-3">Saving an existing property name replaces it.</span>
+    </ActionForm>
   );
 }
 

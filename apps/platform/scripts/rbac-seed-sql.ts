@@ -1,4 +1,9 @@
-/** Generates db/migrations/0002_rbac_seed.sql from src/modules/rbac/permissions.ts. */
+/**
+ * Generated db/migrations/0002_rbac_seed.sql (the first permission matrix) from
+ * src/modules/rbac/permissions.ts. 0002 is applied and frozen: add new permissions
+ * in a new migration. test/rbac.int.test.ts checks the migrated database matches
+ * permissions.ts.
+ */
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { PERMISSIONS, ROLE_INFO, ROLE_PERMISSIONS, ROLES } from "../src/modules/rbac/permissions.ts";

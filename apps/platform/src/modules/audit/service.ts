@@ -29,6 +29,7 @@ export type AuditAction =
   | "api_key.revoked"
   | "implementation.answers_saved"
   | "tracking_plan.generated"
+  | "tracking_plan.draft_created"
   | "tracking_plan.edited"
   | "tracking_plan.approved"
   | "tracking_plan.published"
@@ -51,7 +52,27 @@ export type AuditAction =
   | "webhook.secret_rotated"
   | "webhook.deleted"
   | "integration.configured"
-  | "integration.removed";
+  | "integration.removed"
+  | "billing.checkout_started"
+  | "billing.checkout_completed"
+  | "billing.portal_opened"
+  | "billing.subscription_updated"
+  | "billing.plan_changed"
+  | "billing.invoice_paid"
+  | "billing.payment_failed"
+  | "attribution.settings_updated"
+  | "attribution.link_created"
+  | "attribution.link_updated"
+  | "attribution.postback_created"
+  | "attribution.postback_updated"
+  | "attribution.postback_deleted"
+  | "cohort.created"
+  | "cohort.updated"
+  | "cohort.deleted"
+  | "saved_report.created"
+  | "saved_report.deleted"
+  | "privacy.suppression_added"
+  | "privacy.suppression_removed";
 
 export interface AuditEntry {
   organizationId: string | null;

@@ -6,11 +6,11 @@
  *   Analytics.initialize({ apiKey: "la_pk_dev_…" });
  *   Analytics.track("order_completed", { order_id: "o1", revenue: 45, currency: "SAR" });
  */
-import { LeanAppClient, type AnalyticsOptions, type FlushResult, type Properties } from "./client.js";
+import { LeanAppClient, type AnalyticsOptions, type ConsentInput, type ConsentState, type FlushResult, type Properties } from "./client.js";
 import type { Attribution } from "./attribution.js";
 
-export { LeanAppClient, DEFAULT_ENDPOINT, SDK_NAME, SDK_VERSION } from "./client.js";
-export type { AnalyticsOptions, FlushResult, Platform, Properties, WireEvent } from "./client.js";
+export { LeanAppClient, CONSENT_PURPOSES, DEFAULT_ENDPOINT, SDK_NAME, SDK_VERSION, storagePrefix } from "./client.js";
+export type { AnalyticsOptions, AppStateLike, ConsentInput, ConsentPurpose, ConsentState, ConsentStatus, FlushResult, Platform, Properties, WireEvent } from "./client.js";
 export { ATTRIBUTION_PARAMS, parseAttribution, type Attribution } from "./attribution.js";
 export { asyncStorageAdapter, localStorageAdapter, memoryStorage, type StorageAdapter } from "./storage.js";
 
@@ -46,6 +46,8 @@ export const Analytics = {
   reset: () => client()?.reset(),
   optOut: () => client()?.optOut(),
   optIn: () => client()?.optIn(),
+  setConsent: (consent: ConsentInput) => client()?.setConsent(consent),
+  getConsent: (): ConsentState | null => client()?.getConsent() ?? null,
   flush: (): Promise<FlushResult> => client()?.flush() ?? Promise.resolve({ status: "empty" as const }),
   /** For tests: drops the singleton. */
   async _reset(): Promise<void> {

@@ -23,6 +23,12 @@ import { log } from "@/lib/log";
  *   as is: the caller is asking about that install, not a person;
  * - identified activity of other users is never touched, even on the same install.
  *
+ * Consent history, current consent and suppression entries are keyed by user
+ * key (`user_id`, or `anon:<anonymous_id>` for an install), so the same rule
+ * applies: a shared install's `anon:` entries are left alone. Deletion removes
+ * suppressions too (they are personal data); if the customer keeps sending
+ * messages to that user id, it must suppress them again.
+ *
  * Every query runs under RLS as the organization (withTenant), so a request
  * can't reach another tenant's rows whatever the input.
  */
@@ -108,7 +114,9 @@ const SUBJECT_TABLES: { table: string; label: string; where: string; order?: str
   { table: "app_users", label: "profiles", where: "environment_id = $1 and external_id = any($2)" },
   { table: "anonymous_users", label: "installs", where: "environment_id = $1 and anonymous_id = any($3)" },
   { table: "identity_links", label: "identity_links", where: "environment_id = $1 and user_id = any($2)" },
-  { table: "consent_records", label: "consent_records", where: "environment_id = $1 and user_key = any($4)" },
+  { table: "consent_records", label: "consent_records", where: "environment_id = $1 and user_key = any($4)", order: "recorded_at desc" },
+  { table: "consent_state", label: "consent_state", where: "environment_id = $1 and user_key = any($4)" },
+  { table: "suppressions", label: "suppressions", where: "environment_id = $1 and user_key = any($4)" },
   { table: "notifications", label: "notifications", where: "environment_id = $1 and user_key = any($4)" },
   {
     table: "audience_members",

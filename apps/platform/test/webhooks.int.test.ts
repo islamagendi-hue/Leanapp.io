@@ -15,7 +15,7 @@ import { createWebhook, deleteWebhook, deliverWebhooks, getWebhook, listWebhooks
 import { verifySignature } from "@/modules/webhooks/signing";
 import { makeTenant } from "./helpers";
 
-process.env.INTEGRATIONS_ENCRYPTION_KEY = "test-key-".padEnd(48, "x");
+process.env.INTEGRATIONS_ENCRYPTION_KEY = "e".repeat(64);
 
 type T = Awaited<ReturnType<typeof makeTenant>>;
 let t: T;

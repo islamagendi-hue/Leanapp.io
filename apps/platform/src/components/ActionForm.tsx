@@ -54,7 +54,7 @@ export function ActionForm({
       {state.secret && (
         <div className="rounded-lg border border-warn/40 bg-warn-soft p-3 text-sm">
           <p className="mb-2 font-medium">Copy this now. It won&apos;t be shown again.</p>
-          <code className="block break-all rounded bg-white px-2 py-1 font-mono text-xs">{state.secret}</code>
+          <code className="block break-all rounded bg-white px-2 dark:bg-paper py-1 font-mono text-xs">{state.secret}</code>
         </div>
       )}
       <button type="submit" className={buttonClass} disabled={pending}>

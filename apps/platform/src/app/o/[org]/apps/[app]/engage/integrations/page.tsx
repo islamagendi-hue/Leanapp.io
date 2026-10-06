@@ -2,7 +2,7 @@ import { configureIntegrationAction, removeIntegrationAction } from "@/app/actio
 import { ActionForm } from "@/components/ActionForm";
 import { EnvSwitcher } from "@/components/EnvSwitcher";
 import { fmtDate } from "@/components/engage/shared";
-import { secretsAvailable } from "@/lib/secret-box";
+import { encryptionAvailable } from "@/lib/secret-box";
 import { listIntegrations, type IntegrationRow } from "@/modules/messaging/integrations";
 import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -19,7 +19,7 @@ export default async function IntegrationsPage(props: PageProps<"/o/[org]/apps/[
   const env = pickEnvironment(environments, sp.env);
   const rows = await listIntegrations(ctx, env.id);
   const manage = can(ctx.role, "integrations.manage");
-  const keyReady = secretsAvailable();
+  const keyReady = encryptionAvailable();
   const by = (p: string) => rows.find((r) => r.provider === p);
   const configure = (p: "fcm" | "apns" | "resend") => configureIntegrationAction.bind(null, org, app, env.id, p);
 

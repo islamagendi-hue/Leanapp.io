@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { AnalyticsHeader, param, RANGE_LABELS } from "@/components/AnalyticsHeader";
+import { CohortSelect } from "@/components/CohortSelect";
+import { SaveReport } from "@/components/SaveReport";
 import { TrendChart } from "@/components/TrendChart";
 import { BREAKDOWNS, eventTrend, RANGES, topEvents } from "@/modules/analytics/service";
+import { cohortFilter } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Events" };
@@ -16,22 +19,25 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   requirePermission(ctx, "analytics.read");
   const env = pickEnvironment(environments, sp.env ?? "production");
   const days = Number(param(sp.days)) || 30;
-  const events = await topEvents(ctx, { environmentId: env.id, days });
+  const cf = await cohortFilter(ctx, env.id, sp.cohort);
+  const events = await topEvents(ctx, { environmentId: env.id, days, timezone: a.timezone, cohortId: cf.cohortId });
   const selected = param(sp.event) ?? events[0]?.name;
   const property = param(sp.property)?.trim();
   const by = param(sp.by);
   const breakdown = by === "property" && property ? `property:${property}` : by;
-  const trend = selected ? await eventTrend(ctx, { environmentId: env.id, timezone: a.timezone }, { event: selected, days, breakdown }) : null;
+  const trend = selected ? await eventTrend(ctx, { environmentId: env.id, timezone: a.timezone }, { event: selected, days, breakdown, cohortId: cf.cohortId }) : null;
   const path = `/o/${org}/apps/${app}/analytics/events`;
-  const link = (name: string) => `${path}?${new URLSearchParams({ env: env.type, days: String(days), event: name })}`;
+  const link = (name: string) => `${path}?${new URLSearchParams({ env: env.type, days: String(days), event: name, ...(cf.cohortId ? { cohort: cf.cohortId } : {}) })}`;
 
   return (
     <div className="space-y-6">
       <AnalyticsHeader title="Events" description="How often each event happens and how many people do it, per day in the app's timezone." path={path} env={env.type} query={sp} />
 
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the report shows everyone.</p>}
       {events.length === 0 ? (
         <div className="card">
-          <p>No events in this environment in the {RANGE_LABELS[days]?.toLowerCase() ?? "selected range"}.</p>
+          <p>No events {cf.cohortName ? `for the cohort ${cf.cohortName}` : "in this environment"} in the {RANGE_LABELS[days]?.toLowerCase() ?? "selected range"}.</p>
+          {cf.cohortName && <p className="mt-1 text-sm"><Link className="underline" href={`${path}?env=${env.type}&days=${days}`}>Show everyone instead</Link></p>}
           <p className="mt-1 text-sm text-ink-3">Events appear here as soon as your app sends them. Check the <Link className="underline" href={`/o/${org}/apps/${app}/developers/debugger?env=${env.type}`}>event debugger</Link>.</p>
         </div>
       ) : (
@@ -52,6 +58,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
               </select>
             </label>
             <label><span className="label">Property</span><input name="property" className="input w-40" defaultValue={property ?? ""} placeholder="e.g. plan" maxLength={64} /></label>
+            <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
             <button className="btn" type="submit">Show</button>
           </form>
 
@@ -69,18 +76,19 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
 
           <section className="card overflow-x-auto p-0">
             <table className="table">
-              <thead><tr><th>Event</th><th className="text-right">Events</th><th className="text-right">People</th></tr></thead>
+              <thead><tr><th>Event</th><th className="text-end">Events</th><th className="text-end">People</th></tr></thead>
               <tbody>
                 {events.map((e) => (
                   <tr key={e.name}>
                     <td className="font-mono text-sm"><Link className={e.name === selected ? "font-bold" : "underline"} href={link(e.name)}>{e.name}</Link></td>
-                    <td className="text-right tabular-nums">{num(e.count)}</td>
-                    <td className="text-right tabular-nums">{num(e.people)}</td>
+                    <td className="text-end tabular-nums">{num(e.count)}</td>
+                    <td className="text-end tabular-nums">{num(e.people)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </section>
+          {trend && cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="trend" query={{ ...sp, event: trend.event }} />}
           <p className="text-xs text-ink-3">Mapped events count under their canonical name. Anonymous activity counts toward the user once the install is linked to exactly one user.</p>
         </>
       )}

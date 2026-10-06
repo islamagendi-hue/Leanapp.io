@@ -1,20 +1,95 @@
 # Attribution
 
-**Status: partial.** Built: the SDK captures UTM parameters and click ids from deep links and landing URLs and attaches them to every event (`context.attribution`); the tracking plan generates per-channel attribution rules; the Implementation Score checks that planned parameters arrive. Not built: the attribution engine, ad-network integrations and postbacks. Tables exist (`attribution_settings`, `campaigns`, `attribution_touchpoints`, `attribution_events`, `attribution_conversions`).
+**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, and settings. Not built: SKAdNetwork / AdAttributionKit, view-through (impression) attribution, ad-network cost import, MMP import (AppsFlyer / Adjust / Branch), first-touch and linear reporting models.
+
+Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migration `0012_attribution.sql`. Dashboard: app → Attribution (Overview, Tracking links, Postbacks, Settings).
 
 ## Why it matters here
 
 In the GCC, TikTok and Snapchat often drive as much mobile acquisition as Google and Meta. Many teams pay an MMP but don't trust its numbers because revenue events come from the app rather than the server. LeanApp's angle: attribution that is fed by the same validated event stream, with revenue confirmed by the backend.
 
-## Target design
+## Everything is per environment
 
-1. **Touchpoints.** Clicks via LeanApp links (`leanapp.io/l/…`, planned), click ids from deep links, install referrer (Android), and ad-network APIs. Stored in `attribution_touchpoints` with channel, campaign, ad set, ad, click id and timestamp.
-2. **Matching** at install / first open, in order of confidence: deterministic (click id, install referrer, user id), then probabilistic only where allowed and disclosed. iOS: SKAdNetwork / AdAttributionKit postbacks; no fingerprinting.
-3. **Models.** Last touch (default, 7-day click / 1-day view windows per channel, configurable in `attribution_settings`), first touch, and linear for reporting.
-4. **Conversions.** Revenue and conversion events from the plan (backend-sourced where possible) are attributed in `attribution_conversions` with the matched touchpoint.
-5. **Postbacks** to Google Ads, Meta CAPI, TikTok Events API and Snapchat CAPI with hashed identifiers and deduplication ids, using credentials referenced from a secret manager (`integrations.secret_ref`).
-6. **Existing MMP.** Import AppsFlyer / Adjust / Branch attribution via their raw-data or webhook exports so customers can migrate gradually.
+Links, clicks, attributions, conversions and postbacks belong to one environment. A production link records production clicks, and only installs sent with a production key can match them. Settings are per app.
 
-## What to do today
+## Install referrer (Android)
 
-Follow the plan's attribution rules: preserve click ids in your deep links and call `Analytics.captureAttribution(url)` on app open. The data is stored now and will be attributed when the engine ships.
+The Android SDK reads the Google Play Install Referrer once per install and sends it on every event as `context.campaign.install_referrer` (raw referrer string), with `referrer_click_timestamp_seconds`, `install_begin_timestamp_seconds` and `google_play_instant`. utm_* and click ids (including LeanApp's `click_id`) parsed from it are also sent as the first touch in `context.attribution`. Deep links captured by the native SDKs add `context.attribution.deep_link_url`. See [SDK](sdk.md).
+
+## Tracking links
+
+`https://api.leanapp.io/l/{code}` (8 url-safe characters). Each link has a name, source, medium, campaign, ad group, creative, an App Store URL, a Google Play URL, a web fallback and an optional deep link path. Ad networks can override campaign / ad group / creative per ad with `utm_campaign`, `utm_term`, `utm_content` (or `campaign`, `ad_group`, `creative`) on the link, and their click id (`gclid`, `gbraid`, `wbraid`, `fbclid`, `ttclid`, `ScCid`, `twclid`, `msclkid`, `li_fat_id`) is stored with the click.
+
+On a click the redirect:
+
+1. picks the destination from the user agent: iPhone/iPad → App Store; Android → Google Play with `referrer=` carrying `click_id`, `utm_*` and `deep_link`; anything else → web fallback with `click_id` and `utm_*` appended. A missing destination falls back to the next one;
+2. records a touchpoint (`attribution_touchpoints`, `kind = 'click'`) with a generated click id `lac_…`, the link's labels, the user agent (truncated), OS and major version, the referring host, coarse country from `x-vercel-ip-country` when present, and a **keyed hash** of the IP (HMAC-SHA256 with `ATTRIBUTION_IP_HASH_SECRET`, scoped per app). The raw IP is never stored. IP hashes and user agents are cleared after 7 days by the scheduled worker;
+3. does **not** record (but still redirects) crawlers and link unfurlers (Facebook, WhatsApp, Slack, Twitter, Telegram, Google, scripted clients, …), prefetches (`Purpose` / `Sec-Purpose: prefetch`), `HEAD` requests, paused links, and senders over the rate limit (20 clicks per visitor per link per minute, 6,000 per environment per minute; configurable). The visitor always reaches the store.
+
+Responses are `302` with `Cache-Control: no-store`, `X-Robots-Tag: noindex`, `Referrer-Policy: no-referrer`; unknown codes are `404`. Links are created only by members with `attribution.manage`, and destinations must be https.
+
+## Matching (installs)
+
+Runs inside event processing (`modules/processing` step 5), once per event, for `app_installed`. Other events cost nothing except opens carrying a LeanApp click id and conversion events (a few indexed lookups each). In order of confidence, within the app's **click lookback** (default 7 days, 1–90):
+
+| # | Signal | `match_type` / `match_key` |
+| --- | --- | --- |
+| 1 | LeanApp click id from the Play install referrer, a deep link URL, or `context.attribution.click_id` | deterministic / `install_referrer`, `deep_link`, `click_id` |
+| 2 | Ad-network click id in the install's context: matched to a recorded click that carried it, else a touchpoint is created from the context (network from the click id, campaign from `utm_*`) | deterministic / `gclid`, `ttclid`, `ScCid`, `fbclid`, … |
+| 3 | `utm_source` captured from the link that installed or opened the app (referrer or deep link) | deterministic / `install_referrer`, `utm_parameters` |
+| 4 | **Probabilistic**, only when the app turns it on (off by default): an *unclaimed* Android link click from the same IP hash and Android major version within the probabilistic window (default 24 h, max 7 days). Never used for iOS or unknown platforms. Reported separately everywhere | probabilistic / `ip_ua` |
+| 5 | Nothing matched | organic |
+
+When the Play referrer reports `referrer_click_timestamp_seconds` older than the lookback, steps 2–3 count as organic. Clicks from another environment or another organization never match.
+
+**Reinstall:** an install whose `context.device.id` or `user_id` already has an install in the environment is stored as `reinstall` (still matched as above). A second `app_installed` from the same `anonymous_id` is ignored.
+
+**Re-engagement:** when re-engagement is on (default), an `app_opened` / `deep_link_opened` carrying a LeanApp click id from a click *after* the install creates a `re_engagement` attribution event, once per click per install.
+
+Each attribution is one row in `attribution_events` with kind, match type and key, the touchpoint, and denormalized source / medium / campaign / link / network for reporting. The matched click gets `matched_at` and the install's `anonymous_id` (so privacy export and deletion include it).
+
+### Why probabilistic is limited
+
+The design rule is "probabilistic only where allowed and disclosed; no fingerprinting on iOS". Apple's rules forbid fingerprinting for attribution on iOS, so iOS installs are only matched deterministically (SKAdNetwork / AdAttributionKit is planned). On Android, IP + OS matching is a common MMP fallback, but it is personal-data processing: it is off unless the customer turns it on in Settings after disclosing it, uses a keyed hash computed at ingestion (only for `app_installed` from public SDK keys; clients can't supply it), a short window, and each click can be claimed once.
+
+## Conversions
+
+Events the published tracking plan marks as conversion or revenue (or, without a plan entry, the event library's conversion/revenue events; `ad_impression` excluded) are stored in `attribution_conversions` with revenue and currency (`revenue`, else `value`, `amount`, `price`; refunds count negative). Each conversion is credited to the **last touch**: the latest install, reinstall or re-engagement of that install, or of any install linked to the event's `user_id`, within the **conversion window** (default 90 days). Backend events with only a `user_id` are attributed through identity links. Conversions with no install on record are stored and reported as such.
+
+Revenue is reported per currency as sent; no FX conversion yet.
+
+## Postbacks
+
+Configured per environment (app → Attribution → Postbacks). Each postback lists the events it wants (`install`, `reinstall`, `re_engagement`, conversion event names) and optionally the sources it reports. Ad-network postbacks receive only installs attributed to that network (by click id network or source name) unless sources are listed; organic events can only go to custom postbacks that opt in.
+
+Deliveries are queued in the processing transaction (`attribution_postback_deliveries`, unique per postback and attribution) and sent by the scheduled worker (`runAttributionJobs`, called from `/api/internal/process-events` while time is left): claimed with `FOR UPDATE SKIP LOCKED` and a 2-minute lease, 10 s timeout, no redirects followed. 2xx → `succeeded`; network errors, 408, 425, 429 and 5xx retry after 1 min, 5 min, 30 min, 2 h, 12 h, then `giving_up`; other statuses and configuration errors → `failed`. The dashboard lists each postback's counts and the latest deliveries.
+
+| Network | Request | Needs | Status |
+| --- | --- | --- | --- |
+| Custom URL | `GET` (or `POST` with a JSON body) to the template, macros URL-encoded: `{click_id}` `{network_click_id}` `{network_click_param}` `{event}` `{event_id}` `{revenue}` `{currency}` `{timestamp}` `{event_time}` `{install_timestamp}` `{platform}` `{source}` `{medium}` `{campaign}` `{link_code}` `{match_type}` `{country}`; optional Authorization header | URL | ✓ tested against a local server |
+| TikTok | Events API 2.0 `POST business-api.tiktok.com/open_api/v1.3/event/track/`, `event_source: app`, `ttclid` | TikTok App ID, access token | built, **not verified with the live network** |
+| Snapchat | Conversions API v3 `POST tr.snapchat.com/v3/{snap_app_id}/events`, `sc_click_id` | Snap App ID, token | built, **not verified** |
+| Meta | Conversions API `POST graph.facebook.com/{v21.0}/{dataset_id}/events`, `action_source: app`, `fbc` from `fbclid` | Dataset ID, system user token | built, **not verified** (Meta app events usually also need `advertiser_id` / extinfo from the device, which the SDKs don't send yet) |
+| Google Ads | `POST googleads.googleapis.com/{v18}/customers/{id}:uploadClickConversions` with `gclid` / `gbraid` / `wbraid`, OAuth refresh-token flow | Customer ID, conversion action ID, developer token, OAuth client id/secret, refresh token | built, **not verified**; sent only for events with a Google click id |
+
+Network event names default to the network's standard events (install → `InstallApp` / `APP_INSTALL` / `MobileAppInstall`; revenue → `Purchase` / `PURCHASE`; re-engagement → `LaunchAPP` / `APP_OPEN` / `fb_mobile_activate_app`) and can be overridden with `config.event_map`.
+
+Credentials are encrypted at rest (AES-256-GCM, `INTEGRATIONS_ENCRYPTION_KEY`), readable only by trusted server code (the tenant database role has no column access), never shown again, and refused when the key isn't configured. Postback URLs must be https and public when deployed (private and link-local addresses are blocked, DNS checked before each request).
+
+## Reports
+
+App → Attribution: clicks, installs (attributed / organic / probabilistic / reinstalls), re-engagements, installs per day, installs by source and campaign, conversions and revenue by source and campaign (per currency), and per-link click → install rates, for 7 / 30 / 90 days per environment. `attribution.read` sees them; `attribution.manage` edits links, postbacks and settings (owner, admin, marketer; analysts read only; developers don't see attribution).
+
+## What the SDKs must send
+
+See [SDK: attribution context](sdk.md#attribution-context): `app_installed` with the Play install referrer (Android), the deep link URL and click ids in `context.attribution` / `context.campaign`.
+
+## Not built yet
+
+- SKAdNetwork / AdAttributionKit postbacks and conversion values (iOS).
+- View-through attribution: needs impression data from ad networks (`view_lookback_hours` is stored for it).
+- Cost import and ROAS; FX conversion of revenue.
+- First-touch and linear models in reports (data supports them; last touch is what is computed).
+- Importing AppsFlyer / Adjust / Branch data; `attribution_settings.authoritative_source` is not used yet.
+- Live verification of the TikTok, Snap, Meta and Google postbacks: needs a customer's ad accounts, app ids and tokens.
+- Management API endpoints for links and postbacks (dashboard only for now).

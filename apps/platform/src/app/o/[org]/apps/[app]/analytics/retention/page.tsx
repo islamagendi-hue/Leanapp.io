@@ -1,5 +1,8 @@
 import { AnalyticsHeader, param, RANGE_LABELS } from "@/components/AnalyticsHeader";
+import { CohortSelect } from "@/components/CohortSelect";
+import { SaveReport } from "@/components/SaveReport";
 import { RANGES, RETENTION_DAYS, retention, topEvents } from "@/modules/analytics/service";
+import { cohortFilter } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Retention" };
@@ -19,11 +22,12 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
   requirePermission(ctx, "analytics.read");
   const env = pickEnvironment(environments, sp.env ?? "production");
   const days = Number(param(sp.days)) || 30;
+  const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const events = await topEvents(ctx, { environmentId: env.id, days });
   const startEvent = param(sp.start) || events.find((e) => /install|first_open|sign_?up/.test(e.name))?.name || events[0]?.name;
   const returnEvent = param(sp.return) || events.find((e) => /app_opened|session_start/.test(e.name))?.name || startEvent;
   const r = startEvent && returnEvent
-    ? await retention(ctx, { environmentId: env.id, timezone: a.timezone }, { startEvent, returnEvent, days })
+    ? await retention(ctx, { environmentId: env.id, timezone: a.timezone }, { startEvent, returnEvent, days, cohortId: cf.cohortId })
     : null;
   const path = `/o/${org}/apps/${app}/analytics/retention`;
   const names = events.map((e) => e.name);
@@ -32,6 +36,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
     <div className="space-y-6">
       <AnalyticsHeader title="Retention" description="Of the people who did a start event on a given day, how many came back and did the return event N days later." path={path} env={env.type} query={sp} />
 
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the report shows everyone.</p>}
       {!r ? (
         <div className="card"><p>No events in this environment in the {RANGE_LABELS[days]?.toLowerCase() ?? "selected range"}.</p></div>
       ) : (
@@ -44,6 +49,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
             <label className="min-w-48 flex-1"><span className="label">Return event</span>
               <select name="return" className="input" defaultValue={returnEvent}>{names.map((n) => <option key={n}>{n}</option>)}</select>
             </label>
+            <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
             <label><span className="label">Cohorts from</span>
               <select name="days" className="input" defaultValue={String(days)}>{RANGES.map((d) => <option key={d} value={d}>{RANGE_LABELS[d]}</option>)}</select>
             </label>
@@ -53,12 +59,12 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
           <section className="card overflow-x-auto p-0">
             <table className="table">
               <thead>
-                <tr><th>Start day</th><th className="text-right">People</th>{RETENTION_DAYS.map((d) => <th key={d} className="text-center">Day {d}</th>)}</tr>
+                <tr><th>Start day</th><th className="text-end">People</th>{RETENTION_DAYS.map((d) => <th key={d} className="text-center">Day {d}</th>)}</tr>
               </thead>
               <tbody>
                 <tr className="font-medium">
                   <td>All cohorts</td>
-                  <td className="text-right tabular-nums">{r.people.toLocaleString("en-US")}</td>
+                  <td className="text-end tabular-nums">{r.people.toLocaleString("en-US")}</td>
                   {r.overall.map((rate, i) => {
                     const c = cell(rate);
                     return <td key={i} className={`text-center tabular-nums ${c.className}`} style={c.style}>{rate === null ? "–" : pct(rate)}</td>;
@@ -67,7 +73,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
                 {r.cohorts.map((co) => (
                   <tr key={co.day}>
                     <td className="whitespace-nowrap">{co.day}</td>
-                    <td className="text-right tabular-nums">{co.size.toLocaleString("en-US")}</td>
+                    <td className="text-end tabular-nums">{co.size.toLocaleString("en-US")}</td>
                     {co.returned.map((n, i) => {
                       const rate = n === null ? null : n / co.size;
                       const c = cell(rate);
@@ -78,7 +84,8 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
               </tbody>
             </table>
           </section>
-          <p className="text-xs text-ink-3">People are grouped by the day of their first start event in the range ({a.timezone}). Day N counts people who did the return event on that calendar day. Empty cells are days that aren&apos;t over yet.</p>
+          <p className="text-xs text-ink-3">People are grouped by the day of their first start event in the range ({a.timezone}). Day N counts people who did the return event on that calendar day. Empty cells are days that aren&apos;t over yet.{cf.cohortName && <> Only people in the cohort {cf.cohortName}.</>}</p>
+          {cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="retention" query={{ ...sp, start: startEvent, return: returnEvent }} />}
         </>
       )}
     </div>

@@ -39,3 +39,9 @@ export class RateLimitError extends AppError {
     super("rate_limited", "Too many requests.", 429);
   }
 }
+/** A plan limit (apps, members, monthly events) is reached. `limit` names it. */
+export class PlanLimitError extends AppError {
+  constructor(message: string, public readonly limit: string, status = 403) {
+    super("plan_limit_exceeded", message, status);
+  }
+}

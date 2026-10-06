@@ -157,8 +157,13 @@ alter table platform.webhook_deliveries
 create index webhook_deliveries_due_idx on platform.webhook_deliveries (next_attempt_at) where status = 'pending';
 create index webhook_deliveries_webhook_idx on platform.webhook_deliveries (webhook_id, created_at desc);
 
--- ── Consent lookups ──────────────────────────────────────────────────────────
-create index consent_records_user_idx on platform.consent_records (environment_id, user_key, purpose, recorded_at desc);
+-- ── Suppressions: WhatsApp channel, unsubscribe source ──────────────────────
+-- WhatsApp gets its own suppression list; email unsubscribe links and
+-- WhatsApp STOP replies add rows with source 'unsubscribe'.
+alter table platform.suppressions drop constraint suppressions_channel_check;
+alter table platform.suppressions add constraint suppressions_channel_check check (channel in ('marketing', 'push', 'email', 'whatsapp'));
+alter table platform.suppressions drop constraint suppressions_source_check;
+alter table platform.suppressions add constraint suppressions_source_check check (source in ('manual', 'api', 'consent', 'unsubscribe'));
 
 -- ── RLS for the new tenant tables ────────────────────────────────────────────
 do $$
