@@ -7,7 +7,8 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 - ✓ Passwords hashed with scrypt (N=2^15, r=8, p=1, 16-byte salt), stored as `scrypt$N$r$p$salt$hash` so the cost can be raised later without invalidating existing hashes and older hashes are upgraded on the next successful sign-in. Minimum length 10. NFKC-normalized.
 - ✓ Unknown emails still run a hash against a dummy value, so response time doesn't reveal which emails exist.
 - ✓ Sessions: 32-byte random token in an `httpOnly`, `Secure` (production), `SameSite=Lax` cookie `la_session` for 30 days. Only the SHA-256 of the token is stored. Sign-out deletes the row; "sign out everywhere" deletes all of a user's sessions.
-- ✓ Throttling: sign-up 10/hour per IP; login 10 per 15 min per email and 50 per 15 min per IP.
+- ✓ Throttling: sign-up 10/hour per IP; login 50 attempts per 15 min per IP, and only *failed* logins count against an email: 10 per 15 min per (email, IP), 100 per 15 min per email overall. Someone guessing from elsewhere can't lock the owner out.
+- ✓ Return paths after sign-in, sign-up and email confirmation (`?next=`) must be same-origin relative paths (`src/lib/safe-next.ts`): no `//`, backslashes or control characters.
 - ○ OAuth (Google, Apple) and MFA (TOTP): `user_identities` and the `users.mfa_*` columns are ready, flows are not built.
 - ✓ Email verification and password reset use one-time tokens: 32 random bytes, stored only as SHA-256 in `auth_tokens` (no grant to the app role), single use, 24h (verify) or 1h (reset), and a new token invalidates older ones. Links open a page that confirms with a POST, so mail scanners that prefetch links can't consume them.
 - ✓ Password reset answers the same whether or not the account exists, is throttled 3/hour per email and 20/hour per IP, signs out every session, marks the email verified and sends a "password changed" email.
@@ -18,7 +19,8 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 
 - ✓ Central permission matrix ([RBAC](rbac.md)), checked in `tenantTx` before any tenant query, plus RLS in the database ([multi-tenancy](multi-tenancy.md)).
 - ✓ Pages a role can't use render 404.
-- ✓ Members can't grant a role above their own or manage someone of a higher rank; the last owner can't be removed.
+- ✓ Members can't grant a role above their own or manage someone of a higher rank; the last owner can't be removed or demoted, even by two owners acting at once (membership changes in an organization take a transaction-level advisory lock).
+- ✓ Accepting an invitation needs a confirmed email that matches the invitation; the confirmation link brings the user back to the invitation.
 
 ## Keys
 
@@ -28,6 +30,7 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 | Secret API key | `la_sk_{dev,stg,live}_…` | SHA-256 + display prefix; shown once | Servers only. The SDK refuses a secret key on any platform other than `backend`. |
 
 - ✓ Rotation creates a new key and keeps the old one valid for a grace period (default 72h, 0–90 days) so app releases can roll out.
+- ✓ Secret keys have scopes chosen at creation: `events:write` (default), `privacy:read`, `privacy:write`; each endpoint checks the one it needs. Keys created before scopes were enforced keep `events:write` only, so privacy calls need a new key.
 - ✓ Revocation is immediate. Keys check expiry, revocation and that the environment, app and organization are active.
 - ✓ All key operations are audit-logged.
 
@@ -43,7 +46,8 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 
 - ✓ Export and deletion of an end user's data per environment, from the dashboard (owners and admins, `privacy.manage`) or from a server with a secret key. Public SDK keys are refused. See [API](api.md#privacy-requests) for which rows count as the user's, including shared devices.
 - ✓ Deletions run in one transaction under the organization's RLS scope, so a request can't reach another tenant's rows; interrupted jobs are retried by the scheduled worker.
-- ✓ Every export and deletion is recorded in `privacy_requests` and the audit log (who asked, rows deleted per table).
+- ✓ Every export and deletion is recorded in `privacy_requests` and the audit log (who asked, rows deleted per table). The dashboard export is a same-origin form POST, not a GET, because it records a request.
+- ✓ A failed deletion job stores only `internal_error`; the database error goes to the server logs.
 - ○ Consent capture from the SDK, and suppressing events for users who asked to be forgotten.
 
 ## Web
