@@ -5,7 +5,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | Migration | Contents |
 | --- | --- |
 | `0001_foundation.sql` | All tables, indexes, `updated_at` triggers, roles, RLS policies, seed data for plans and usage meters |
-| `0002_rbac_seed.sql` | Roles, permissions and the role → permission matrix, **generated** from `src/modules/rbac/permissions.ts` by `npm run db:seed-rbac`. Do not edit by hand. |
+| `0002_rbac_seed.sql` | The first roles, permissions and role → permission matrix, generated from `src/modules/rbac/permissions.ts`. Frozen: later permissions come in their own migrations, and `test/rbac.int.test.ts` checks the migrated database matches `permissions.ts`. |
 
 ## Conventions
 

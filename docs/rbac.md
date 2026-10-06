@@ -1,6 +1,6 @@
 # Roles and permissions
 
-Defined once in `apps/platform/src/modules/rbac/permissions.ts`. The SQL seed (`db/migrations/0002_rbac_seed.sql`) was generated from it with `npm run db:seed-rbac`. Migrations that are already applied never change, so permissions added later are inserted by their own migration (`analytics.write` in `0010_analytics.sql`); an integration test (`test/analytics-v2.int.test.ts`) checks the migrated database matches `permissions.ts` for every role.
+Defined once in `apps/platform/src/modules/rbac/permissions.ts`. The SQL seed (`db/migrations/0002_rbac_seed.sql`) was generated from it with `npm run db:seed-rbac`. Migrations that are already applied never change, so permissions added later are inserted by their own migration (`analytics.write` in `0010_analytics.sql`); an integration test (`test/rbac.int.test.ts`) checks the migrated database matches `permissions.ts` for every role.
 
 ## Roles
 

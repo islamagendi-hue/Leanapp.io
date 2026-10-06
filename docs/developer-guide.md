@@ -21,7 +21,7 @@ Note: this Next.js version differs from older ones (async `params`/`cookies`, `p
 
 ```
 apps/platform/
-  db/migrations/          SQL migrations (0002 is generated: npm run db:seed-rbac)
+  db/migrations/          SQL migrations (0002 is the frozen first RBAC seed)
   scripts/                migrate, RBAC seed generator
   src/lib/                db (withTenant / withSystem), crypto, errors, rate limit
   src/modules/<domain>/   business logic; one folder per domain
@@ -37,7 +37,7 @@ docs/                     this documentation
 
 - **All tenant data access goes through `tenantTx(ctx, permission, fn)`.** It checks the permission and runs `fn` as `platform_app` with RLS. Use `withSystem` only for things that are not tenant-scoped (auth, key lookup, the processor) and say why in a comment.
 - **New tenant table:** add `organization_id`, composite foreign keys to parents, add it to the RLS loop in the migration. The isolation test picks it up automatically and will fail until RLS is on.
-- **New permission:** add it to `PERMISSIONS` and `ROLE_PERMISSIONS`, run `npm run db:seed-rbac`, commit the regenerated `0002_rbac_seed.sql` (or a new migration once 0002 has shipped to production).
+- **New permission:** add it to `PERMISSIONS` and `ROLE_PERMISSIONS`, then insert it and its role grants in a new migration (see `0010_analytics.sql`). `test/rbac.int.test.ts` fails until the database matches.
 - **Migrations are forward-only.** Never edit a migration that has been applied in production; add a new one.
 - **Audit** security-relevant changes with `audit(db, …)` inside the same transaction.
 - **Pages and actions stay thin.** Validation and rules live in modules with tests.

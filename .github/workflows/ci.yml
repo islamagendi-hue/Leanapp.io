@@ -44,8 +44,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      - name: RBAC seed is in sync with the permission matrix
-        run: npm run db:seed-rbac && git diff --exit-code db/migrations/0002_rbac_seed.sql
       - run: npm run test:unit
       - run: npm run test:integration
       - name: Migrations apply to an empty database
