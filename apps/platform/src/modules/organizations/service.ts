@@ -32,7 +32,8 @@ export interface OrganizationSummary {
   role: Role;
 }
 
-function validTimezone(tz: string) {
+/** True for an IANA timezone name the runtime knows (e.g. "Asia/Riyadh"). */
+export function validTimezone(tz: string) {
   try {
     new Intl.DateTimeFormat("en", { timeZone: tz });
     return true;

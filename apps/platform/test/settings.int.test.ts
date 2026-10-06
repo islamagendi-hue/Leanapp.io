@@ -1,5 +1,6 @@
 /** Organization settings, plan usage and the audit log viewer. */
 import { beforeAll, describe, expect, it } from "vitest";
+import { createApp } from "@/modules/apps/service";
 import { listAuditLogs } from "@/modules/audit/service";
 import { authenticateIngestionKey, listKeys } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
@@ -36,6 +37,10 @@ describe("organization settings", () => {
     await expect(updateOrganization(t.ctx, { ...profile, timezone: "Mars/Olympus" })).rejects.toThrow(/timezone/);
     await expect(updateOrganization(t.ctx, { ...profile, defaultCurrency: "dollars" })).rejects.toThrow(/currency/);
     await expect(updateOrganization({ ...t.ctx, role: "developer" }, profile)).rejects.toThrow(/permission/);
+  });
+
+  it("rejects an unknown app timezone", async () => {
+    await expect(createApp(t.ctx, { name: "Clock App", platforms: ["ios"], timezone: "Mars/Olympus" })).rejects.toThrow(/timezone/);
   });
 });
 
