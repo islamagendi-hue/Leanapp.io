@@ -13,6 +13,8 @@ export interface PlanEventRow {
   source: "mobile_sdk" | "backend" | "both" | "automatic";
   priority: "critical" | "high" | "medium" | "low";
   required: boolean;
+  /** Added by hand (dashboard or API) rather than generated. */
+  custom: boolean;
   activation_relevance: boolean;
   conversion_relevance: boolean;
   revenue_relevance: boolean;
@@ -27,7 +29,7 @@ export interface PlanEventRow {
 /** Loads a version's events with their properties (one query). Works under tenant or system scope. */
 export async function loadPlanEvents(db: Db, versionId: string): Promise<PlanEventRow[]> {
   return db.query<PlanEventRow>(
-    `select e.id, e.event_name, e.display_name, e.description, e.category, e."trigger", e.source, e.priority, e.required,
+    `select e.id, e.event_name, e.display_name, e.description, e.category, e."trigger", e.source, e.priority, e.required, e.custom,
             e.activation_relevance, e.conversion_relevance, e.revenue_relevance, e.attribution_relevance, e.automation_relevance,
             e.platforms, e.reason, e.sort_order,
             coalesce((select json_agg(json_build_object('name', p.name, 'type', p.type, 'required', p.required,

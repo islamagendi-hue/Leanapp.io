@@ -16,6 +16,10 @@ const SCOPE_LABEL: Record<ApiKeyScope, string> = {
   "events:write": "Send events",
   "privacy:read": "Export user data",
   "privacy:write": "Delete user data",
+  "management:read": "Read app, environment and tracking plan",
+  "plan:write": "Add events to a draft plan",
+  "analytics:read": "Read events reports",
+  "users:read": "Look up users",
 };
 
 export default async function SdkPage(props: PageProps<"/o/[org]/apps/[app]/developers/sdk">) {
@@ -126,7 +130,7 @@ curl -X POST ${api}/v1/events \\
       </section>
 
       <section className="card space-y-3">
-        <h2 className="h2">Secret API keys <span className="text-sm font-normal text-ink-3">server-side only; for backend events and privacy requests</span></h2>
+        <h2 className="h2">Secret API keys <span className="text-sm font-normal text-ink-3">server-side only; for backend events, privacy requests and the management API</span></h2>
         {apiKeys.length > 0 && (
           <div className="overflow-x-auto">
             <table className="table">

@@ -22,6 +22,8 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Ingestion API (single + batch, idempotent, limits, rate limits, clock skew) | ✓ |
 | Processing (identity, sessions, push tokens, plan validation) | ✓ |
 | Implementation engine (questionnaire, classifier, generator, versioning, approval, codegen, validation, mappings, score) | ✓ |
+| Tracking plan editing: custom events and properties, user properties, edits as new draft versions, version diff, JSON/CSV export | ✓ |
+| Public management API with secret keys: app, environment, published plan, add plan events, events report and trend, user lookup; scopes, rate limit, request logs | ✓ (more endpoints planned, see below) |
 | Dashboard: onboarding, questionnaire, plan, SDK & keys, live debugger, validation & mapping, members | ✓ |
 | JavaScript / React Native SDK | ✓ (not published to npm) |
 | Docs, ADRs, OpenAPI, CI (lint, types, unit, integration, migrations, build, browser end-to-end) | ✓ |
@@ -42,8 +44,8 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | OAuth, MFA, SSO | 2–4 | Schema ready |
 | Privacy: consent capture and suppression lists | 2 | Export and deletion are built (dashboard and API) |
 | LLM-assisted plan suggestions, Arabic free-text classification | 2 | Suggestions only, always approval-gated |
-| Plan editing: custom events/properties, version diff, export | 2 | |
-| Public management API with secret keys | 2 | |
+| Plan editing: comments, event rename, code-generated typed tracking functions | 2 | Add/edit/remove events and properties, diff and JSON/CSV export are built ([tracking plan](tracking-plan.md)) |
+| Management API: plan edits beyond adding events, mappings, funnels/retention, keys, members | 2 | Read endpoints, plan event creation and analytics/users reads are built ([API](api.md)) |
 | Arabic UI | 2 | Layout uses logical properties; strings not yet extracted |
 
 ## Phase plan
