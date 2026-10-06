@@ -29,6 +29,7 @@ export type AuditAction =
   | "api_key.revoked"
   | "implementation.answers_saved"
   | "tracking_plan.generated"
+  | "tracking_plan.draft_created"
   | "tracking_plan.edited"
   | "tracking_plan.approved"
   | "tracking_plan.published"
