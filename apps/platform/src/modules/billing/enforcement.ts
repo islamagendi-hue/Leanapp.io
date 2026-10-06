@@ -2,6 +2,7 @@ import "server-only";
 import { withSystem, type Db } from "@/lib/db";
 import { PlanLimitError } from "@/lib/errors";
 import { asLimit, canAdd, eventHardCap, eventState, LIMIT_FEATURES, usagePeriod, type LimitKey, type LimitState } from "./limits";
+import { envNumber } from "@/lib/env-number";
 
 /**
  * Plan-limit enforcement. Limits are data (platform.plan_features); a null or
@@ -102,7 +103,7 @@ interface CacheEntry {
 
 const cache = new Map<string, CacheEntry>();
 const MAX_ENTRIES = 50_000;
-const ttlMs = () => Number(process.env.PLAN_USAGE_CACHE_MS ?? 30_000);
+const ttlMs = () => envNumber("PLAN_USAGE_CACHE_MS", 30_000);
 
 /** Forget cached allowances (all, or one organization's after a plan change). */
 export function clearAllowanceCache(organizationId?: string) {

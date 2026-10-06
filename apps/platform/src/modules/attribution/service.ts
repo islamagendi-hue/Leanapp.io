@@ -11,6 +11,7 @@ import { DEFAULT_SETTINGS, type AttributionSettings } from "./engine";
 import { NETWORK_SPECS, NETWORKS, type Network } from "./networks";
 import { destinationFor, isBot, isPrefetch, NETWORK_CLICK_IDS, parseUserAgent, unknownMacros, type LinkDestinations } from "./pure";
 import { assertPostbackUrlShape } from "./url-safety";
+import { envNumber } from "@/lib/env-number";
 
 const issue = (e: z.ZodError) => new ValidationError(e.issues[0]?.message ?? "Invalid input.", Object.fromEntries(e.issues.map((i) => [i.path.join(".") || "form", i.message])));
 
@@ -154,8 +155,8 @@ export async function listLinks(ctx: TenantContext, appId: string, environmentId
 }
 
 // ── Clicks (public redirect) ────────────────────────────────────────────────
-export const CLICKS_PER_IP_PER_MINUTE = Number(process.env.LINK_CLICKS_PER_IP_PER_MINUTE ?? 20);
-export const CLICKS_PER_ENVIRONMENT_PER_MINUTE = Number(process.env.LINK_CLICKS_PER_ENV_PER_MINUTE ?? 6000);
+export const CLICKS_PER_IP_PER_MINUTE = envNumber("LINK_CLICKS_PER_IP_PER_MINUTE", 20);
+export const CLICKS_PER_ENVIRONMENT_PER_MINUTE = envNumber("LINK_CLICKS_PER_ENV_PER_MINUTE", 6000);
 
 export interface ClickRequest {
   method: string;

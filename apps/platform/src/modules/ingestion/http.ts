@@ -7,6 +7,7 @@ import { processPendingEvents } from "@/modules/processing/processor";
 import { LIMITS } from "./schema";
 import { ingest } from "./service";
 import { log } from "@/lib/log";
+import { envNumber } from "@/lib/env-number";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -16,7 +17,7 @@ const CORS = {
   "Access-Control-Max-Age": "86400",
 };
 
-const PER_MINUTE = Number(process.env.INGEST_EVENTS_PER_MINUTE ?? 6000);
+const PER_MINUTE = envNumber("INGEST_EVENTS_PER_MINUTE", 6000);
 
 function json(status: number, body: unknown, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...CORS, ...extra } });

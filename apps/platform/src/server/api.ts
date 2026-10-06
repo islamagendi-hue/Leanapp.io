@@ -7,6 +7,7 @@ import { SESSION_COOKIE } from "./session";
 import { log } from "@/lib/log";
 import { withSystem } from "@/lib/db";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import { envNumber } from "@/lib/env-number";
 
 /**
  * True when the browser says the request came from a page on this origin.
@@ -70,7 +71,7 @@ function assertSecretScope(principal: IngestionPrincipal, scope: ApiKeyScope) {
 }
 
 // An empty value in .env means "default", not 0.
-const MANAGEMENT_PER_MINUTE = Number(process.env.MANAGEMENT_API_REQUESTS_PER_MINUTE) || 600;
+const MANAGEMENT_PER_MINUTE = envNumber("MANAGEMENT_API_REQUESTS_PER_MINUTE", 600);
 
 /**
  * Wraps a management API route (secret key with `scope`): authentication,
