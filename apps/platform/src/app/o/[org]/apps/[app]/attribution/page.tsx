@@ -2,6 +2,7 @@ import Link from "next/link";
 import { AnalyticsHeader, param, RANGE_LABELS } from "@/components/AnalyticsHeader";
 import { TrendChart } from "@/components/TrendChart";
 import { ATTRIBUTION_RANGES, attributionOverview } from "@/modules/attribution/reports";
+import { skanBySource } from "@/modules/attribution/skan-service";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Attribution" };
@@ -17,6 +18,7 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
   requirePermission(ctx, "attribution.read");
   const env = pickEnvironment(environments, sp.env ?? "production");
   const r = await attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, param(sp.days));
+  const skan = await skanBySource(ctx, env.id, r.days);
   const base = `/o/${org}/apps/${app}/attribution`;
   const t = r.totals;
   const allInstalls = t.installs + t.reinstalls;
@@ -139,6 +141,31 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
             </p>
           )}
         </>
+      )}
+
+      {skan.length > 0 && (
+        <section className="card overflow-x-auto p-0">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 px-5 pt-5">
+            <h2 className="h2">SKAdNetwork postbacks by source identifier</h2>
+            <Link className="text-sm underline" href={`${base}/skan?env=${env.type}&days=${r.days}`}>Details</Link>
+          </div>
+          <p className="px-5 text-sm text-ink-3">Apple-verified iOS postbacks; aggregate only, never joined to users or counted in installs above.</p>
+          <table className="table mt-3">
+            <thead><tr><th>Ad network</th><th>Source id</th><th className="text-end">Postbacks</th><th className="text-end">Won</th><th className="text-end">Avg fine value</th><th className="text-end">Coarse high</th></tr></thead>
+            <tbody>
+              {skan.slice(0, 15).map((k) => (
+                <tr key={`${k.framework}:${k.ad_network_id}:${k.source_identifier}`}>
+                  <td className="font-mono text-xs">{k.network ?? k.ad_network_id}</td>
+                  <td className="font-mono text-xs">{k.source_identifier ?? "–"}</td>
+                  <td className="text-end tabular-nums">{num(k.postbacks)}</td>
+                  <td className="text-end tabular-nums">{num(k.wins)}</td>
+                  <td className="text-end tabular-nums">{k.fine_avg === null ? "–" : k.fine_avg.toFixed(1)}</td>
+                  <td className="text-end tabular-nums">{num(k.coarse_high)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
       )}
     </div>
   );

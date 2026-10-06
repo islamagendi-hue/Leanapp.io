@@ -1,6 +1,6 @@
 # Attribution
 
-**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, and settings. Not built: SKAdNetwork / AdAttributionKit, view-through (impression) attribution, ad-network cost import, MMP import (AppsFlyer / Adjust / Branch), first-touch and linear reporting models.
+**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, settings, and SKAdNetwork / AdAttributionKit postback copies with conversion value schemas (server side). Not built: the iOS SDK applying conversion values, view-through (impression) attribution, ad-network cost import, MMP import (AppsFlyer / Adjust / Branch), first-touch and linear reporting models.
 
 Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migration `0012_attribution.sql`. Dashboard: app → Attribution (Overview, Tracking links, Postbacks, Settings).
 
@@ -80,13 +80,29 @@ Credentials are encrypted at rest (AES-256-GCM, `INTEGRATIONS_ENCRYPTION_KEY`), 
 
 App → Attribution: clicks, installs (attributed / organic / probabilistic / reinstalls), re-engagements, installs per day, installs by source and campaign, conversions and revenue by source and campaign (per currency), and per-link click → install rates, for 7 / 30 / 90 days per environment. `attribution.read` sees them; `attribution.manage` edits links, postbacks and settings (owner, admin, marketer; analysts read only; developers don't see attribution).
 
+## SKAdNetwork / AdAttributionKit
+
+Code: `skan.ts` (parsing and Apple signature verification, pure), `skan-schema.ts` (conversion value schema, pure), `skan-service.ts` (receiver, settings, schema, reports). Migration `0016_mmp_skan.sql`. Dashboard: app → Attribution → SKAdNetwork; the overview lists postbacks per network and source identifier.
+
+**Receiving postback copies.** The app sets `NSAdvertisingAttributionReportEndpoint` (SKAdNetwork) and `AdAttributionKit → AttributionCopyEndpoint` in Info.plist to `https://<domain>`. Apple uses only the registrable domain and posts to `/.well-known/skadnetwork/report-attribution/` and `/.well-known/appattribution/report-attribution/` (trailing slash; `next.config.ts` sets `skipTrailingSlashRedirect` and `proxy.ts` keeps the usual redirect for every other path). `SKAN_REPORT_DOMAIN` names the domain whose root routes those paths to this deployment; customers on their own domain forward the two paths unchanged.
+
+**Verification.** SKAdNetwork 2.1–4.x: ECDSA P-256 / SHA-256 over the version's fields joined by U+2063 (4.x: version, ad-network-id, source-identifier, app-id, transaction-id, redownload, source-app-id or source-domain when present, fidelity-type, did-win, postback-sequence-index; 3.0 and 2.x use campaign-id and fewer fields), with Apple's published key (constant with its source URL in `skan.ts`). Versions 1.0 / 2.0 (other keys) are refused. AdAttributionKit: compact JWS, `ES256`, key chosen by `kid` (`apple-cas-identifier/0` production, `apple-development-identifier/0|1` development). Tests use Apple's own signed examples plus locally generated key pairs for every version layout. Postbacks that fail verification get `400` and are never stored. Apple doesn't sign conversion values, country or interaction type; the first copy of a transaction wins (duplicates by `transaction-id` / `postback-identifier` are discarded).
+
+**Routing.** By App Store id (`attribution_settings.ios_app_store_id`, unique across LeanApp: an id claimed by another app is refused and needs support). SKAdNetwork and production AdAttributionKit postbacks go to the production environment, development-key AdAttributionKit postbacks to development. An unclaimed id gets `404` so the device keeps retrying (up to 9 days). Rate limits: `SKAN_POSTBACKS_PER_IP_PER_MINUTE` (120), `SKAN_POSTBACKS_PER_APP_PER_MINUTE` (6,000).
+
+**Stored** (`skan_postbacks`): framework, version, ad network id, source identifier (or campaign id), source app id / domain, redownload / conversion type, fidelity, did-win, sequence index, fine and coarse value, country, and the postback as received. Postbacks have no user or device id and are never joined to users or counted as installs.
+
+**Conversion value schema** (per app, `skan_conversion_schemas`, edited as JSON on the SKAdNetwork page, served by `GET /v1/skan/conversion-schema` with the SDK key). Rules `{ window: 0|1|2, event?, min_revenue?, max_revenue?, fine? (0–63, window 0 only), coarse? (low|medium|high), lock? }`; windows are Apple's 0–48 h, 48 h–7 days, 7–35 days after install; a rule matches when the event has its name and the window's cumulative revenue in the schema currency is within `[min, max)`; values only go up within a window; `lock` locks the window. `evaluateConversion()` is the reference implementation, tested with `test/fixtures/conversion-schema-vectors.json`. **The iOS SDK does not apply schemas yet.**
+
+The App Store id and the SKAdNetwork ids from the app's `SKAdNetworkItems` are stored per app; LeanApp can't read Info.plist, so the list is what the customer pasted.
+
 ## What the SDKs must send
 
 See [SDK: attribution context](sdk.md#attribution-context): `app_installed` with the Play install referrer (Android), the deep link URL and click ids in `context.attribution` / `context.campaign`.
 
 ## Not built yet
 
-- SKAdNetwork / AdAttributionKit postbacks and conversion values (iOS).
+- iOS SDK support for conversion values (calling `SKAdNetwork.updatePostbackConversionValue` / AdAttributionKit per the schema).
 - View-through attribution: needs impression data from ad networks (`view_lookback_hours` is stored for it).
 - Cost import and ROAS; FX conversion of revenue.
 - First-touch and linear models in reports (data supports them; last touch is what is computed).

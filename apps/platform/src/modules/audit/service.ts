@@ -51,6 +51,8 @@ export type AuditAction =
   | "attribution.postback_created"
   | "attribution.postback_updated"
   | "attribution.postback_deleted"
+  | "attribution.skan_settings_updated"
+  | "attribution.skan_schema_updated"
   | "cohort.created"
   | "cohort.updated"
   | "cohort.deleted"

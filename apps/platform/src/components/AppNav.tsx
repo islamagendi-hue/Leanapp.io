@@ -45,6 +45,7 @@ export function AppNav({ base, appName, privacy = false, attribution = false, us
         { label: "Overview", href: `${base}/attribution` },
         { label: "Tracking links", href: `${base}/attribution/links` },
         { label: "Postbacks", href: `${base}/attribution/postbacks` },
+        { label: "SKAdNetwork", href: `${base}/attribution/skan` },
         { label: "Settings", href: `${base}/attribution/settings` },
       ],
     }] : []),
@@ -72,7 +73,7 @@ export function AppNav({ base, appName, privacy = false, attribution = false, us
                 <li key={i.label}>
                   <Link
                     href={i.href}
-                    className={`block rounded-md px-2 py-1.5 ${path === i.href || (path.startsWith(`${i.href}/`) && i.href !== base && i.href !== `${base}/analytics`) ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
+                    className={`block rounded-md px-2 py-1.5 ${path === i.href || (path.startsWith(`${i.href}/`) && i.href !== base && i.href !== `${base}/analytics` && i.href !== `${base}/attribution`) ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
                   >
                     {i.label}
                   </Link>
