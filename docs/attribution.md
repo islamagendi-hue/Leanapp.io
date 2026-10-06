@@ -15,6 +15,10 @@ In the GCC, TikTok and Snapchat often drive as much mobile acquisition as Google
 5. **Postbacks** to Google Ads, Meta CAPI, TikTok Events API and Snapchat CAPI with hashed identifiers and deduplication ids, using credentials referenced from a secret manager (`integrations.secret_ref`).
 6. **Existing MMP.** Import AppsFlyer / Adjust / Branch attribution via their raw-data or webhook exports so customers can migrate gradually.
 
+## Install referrer (Android)
+
+The Android SDK reads the Google Play Install Referrer once per install and sends it on every event as `context.campaign.install_referrer` (raw referrer string), with `referrer_click_timestamp_seconds`, `install_begin_timestamp_seconds` and `google_play_instant`. utm_* and click ids (including LeanApp's `click_id`) parsed from it are also sent as the first touch in `context.attribution`. Deep links captured by the native SDKs add `context.attribution.deep_link_url`. See [SDK](sdk.md).
+
 ## What to do today
 
 Follow the plan's attribution rules: preserve click ids in your deep links and call `Analytics.captureAttribution(url)` on app open. The data is stored now and will be attributed when the engine ships.

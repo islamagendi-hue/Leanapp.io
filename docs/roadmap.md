@@ -23,6 +23,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Implementation engine (questionnaire, classifier, generator, versioning, approval, codegen, validation, mappings, score) | ✓ |
 | Dashboard: onboarding, questionnaire, plan, SDK & keys, live debugger, validation & mapping, members | ✓ |
 | JavaScript / React Native SDK | ✓ (not published to npm) |
+| Native SDKs: Android (Kotlin, with Play Install Referrer), iOS (Swift), Flutter (Dart), tested in CI | ✓ (not published: Maven Central, Swift package tag / CocoaPods and pub.dev need the owner's accounts) |
 | Docs, ADRs, OpenAPI, CI (lint, types, unit, integration, migrations, build, browser end-to-end) | ✓ |
 | Production deployment | ✗ waits for owner (database, Vercel project, DNS) |
 
@@ -32,7 +33,8 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | --- | --- | --- |
 | Production deployment and monitoring (Sentry or similar, uptime) | 1.5 | Owner decisions in [deployment](deployment.md) |
 | Email provider account | 1.5 | Code is built; needs a Resend API key and leanapp.io verified as a sending domain |
-| Native SDKs: Android, iOS, Flutter | 2 | API is specified in [SDK](sdk.md) |
+| Native SDK publishing (Maven Central, Swift package tag / CocoaPods, pub.dev) | 2 | Code and tests are built ([SDK](sdk.md)); needs the owner's Sonatype account and signing key, a public release repository or CocoaPods trunk account, and a pub.dev verified publisher |
+| iOS SKAdNetwork / AdAttributionKit conversion values | 3 | With the attribution engine |
 | Analytics: cohorts, revenue, user profiles, saved reports | 2 | Events, funnels and retention v1 are built ([analytics](analytics.md)) |
 | ClickHouse event store, Redis | 2 | When volume requires ([ADR-002](adr/ADR-002-event-store.md)) |
 | Attribution engine, links, ad-network postbacks, MMP import | 3 | [Attribution](attribution.md) |
