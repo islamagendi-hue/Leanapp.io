@@ -11,7 +11,8 @@ import { authenticateIngestionKey, createApiKey, createSdkKey, listKeys, revokeS
 import { connectionHealth, liveEvents } from "@/modules/debugger/service";
 import { implementationReport, saveAnswers } from "@/modules/implementation/service";
 import { ingest } from "@/modules/ingestion/service";
-import { changeMemberRole, listMembers } from "@/modules/organizations/service";
+import { signUp } from "@/modules/auth/service";
+import { changeMemberRole, listMembers, removeMember } from "@/modules/organizations/service";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { resolveTenant } from "@/modules/tenancy/context";
 import { makeTenant } from "./helpers";
@@ -161,5 +162,21 @@ describe("RBAC", () => {
   });
   it("keeps at least one owner", async () => {
     await expect(changeMemberRole(A.ctx, A.user.id, "admin")).rejects.toThrow(/at least one owner/);
+  });
+  it("keeps at least one owner when two owners remove or demote each other at once", async () => {
+    for (const race of ["remove", "demote"] as const) {
+      const C = await makeTenant(`owners-${race}`);
+      const { user: second } = await signUp({ name: "Second Owner", email: `owner2-${race}-${Date.now()}@example.com`, password: "correct-horse-9" }, { ip: "10.4.0.1" });
+      await withSystem((db) => db.query("insert into platform.organization_members (organization_id, user_id, role_id) values ($1, $2, 'owner')", [C.org.id, second.id]));
+      const ctx2 = await resolveTenant(second.id, C.org.slug);
+      const results = await Promise.allSettled(
+        race === "remove"
+          ? [removeMember(C.ctx, second.id), removeMember(ctx2, C.user.id)]
+          : [changeMemberRole(C.ctx, second.id, "admin"), changeMemberRole(ctx2, C.user.id, "admin")],
+      );
+      expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+      const owners = await withSystem((db) => db.query("select 1 from platform.organization_members where organization_id = $1 and role_id = 'owner'", [C.org.id]));
+      expect(owners).toHaveLength(1);
+    }
   });
 });

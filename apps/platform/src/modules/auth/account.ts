@@ -4,6 +4,7 @@ import { hashPassword, randomToken, sha256, verifyPassword } from "@/lib/crypto"
 import { withSystem, type Db } from "@/lib/db";
 import { RateLimitError, UnauthorizedError, ValidationError } from "@/lib/errors";
 import { consumeRateLimit } from "@/lib/rate-limit";
+import { safeNext } from "@/lib/safe-next";
 import { audit } from "@/modules/audit/service";
 import { sendEmail, type SendResult } from "@/modules/email/service";
 import { passwordChangedMessage, passwordResetMessage, verifyEmailMessage } from "@/modules/email/templates";
@@ -40,7 +41,8 @@ async function consumeToken(db: Db, token: string, purpose: Purpose): Promise<{ 
 }
 
 // ── Email verification ──────────────────────────────────────────────────────
-export async function sendVerificationEmail(userId: string): Promise<SendResult | { delivered: false; transport: "skipped" }> {
+/** `next` (a safe relative path, e.g. an invitation) is carried on the link so confirming returns the user there. */
+export async function sendVerificationEmail(userId: string, opts: { next?: string | null } = {}): Promise<SendResult | { delivered: false; transport: "skipped" }> {
   if (await consumeRateLimit(`verify-email:${userId}`, 5, 3600)) throw new RateLimitError(3600);
   const issued = await withSystem(async (db) => {
     const u = await db.one<{ email: string; name: string; email_verified_at: Date | null }>(
@@ -51,7 +53,9 @@ export async function sendVerificationEmail(userId: string): Promise<SendResult 
     return { ...u, token: await issueToken(db, userId, u.email, "verify_email") };
   });
   if (!issued) return { delivered: false, transport: "skipped" };
-  return sendEmail(verifyEmailMessage(issued.email, issued.name, `${publicAppUrl()}/verify-email/${issued.token}`));
+  const next = safeNext(opts.next);
+  const link = `${publicAppUrl()}/verify-email/${issued.token}${next ? `?next=${encodeURIComponent(next)}` : ""}`;
+  return sendEmail(verifyEmailMessage(issued.email, issued.name, link));
 }
 
 /** Verifies the address the token was sent to. Fails if the account's email changed since. */

@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { randomToken, sha256 } from "@/lib/crypto";
-import { isUniqueViolation, withSystem } from "@/lib/db";
+import { isUniqueViolation, withSystem, type Db } from "@/lib/db";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify } from "@/lib/slug";
 import { audit } from "@/modules/audit/service";
@@ -212,8 +212,12 @@ export async function revokeInvitation(ctx: TenantContext, invitationId: string)
   });
 }
 
-/** Accepts an invitation for the signed-in user. The invitation email must match the account email. */
-export async function acceptInvitation(user: { id: string; email: string }, token: string): Promise<OrganizationSummary> {
+/**
+ * Accepts an invitation for the signed-in user. The invitation email must match
+ * the account email, and the account must have confirmed it: otherwise anyone
+ * could sign up with the invitee's address and use a leaked link.
+ */
+export async function acceptInvitation(user: { id: string }, token: string): Promise<OrganizationSummary> {
   return withSystem(async (db) => {
     const inv = await db.one<{ id: string; organization_id: string; email: string; role_id: Role; slug: string; name: string }>(
       `select i.id, i.organization_id, i.email, i.role_id, o.slug, o.name
@@ -223,8 +227,14 @@ export async function acceptInvitation(user: { id: string; email: string }, toke
       [sha256(token)],
     );
     if (!inv) throw new NotFoundError("Invitation");
-    if (inv.email.toLowerCase() !== user.email.toLowerCase())
+    const account = await db.one<{ email: string; email_verified_at: Date | null }>(
+      "select email, email_verified_at from platform.users where id = $1 and status = 'active'",
+      [user.id],
+    );
+    if (!account) throw new NotFoundError("Account");
+    if (inv.email.toLowerCase() !== account.email.toLowerCase())
       throw new ForbiddenError(`This invitation was sent to ${inv.email}. Sign in with that email to accept it.`);
+    if (!account.email_verified_at) throw new ForbiddenError("Confirm your email address before accepting this invitation.");
     await db.query(
       `insert into platform.organization_members (organization_id, user_id, role_id) values ($1, $2, $3)
        on conflict (organization_id, user_id) do nothing`,
@@ -239,6 +249,7 @@ export async function acceptInvitation(user: { id: string; email: string }, toke
 export async function changeMemberRole(ctx: TenantContext, memberUserId: string, newRole: unknown): Promise<void> {
   if (!isRole(newRole)) throw new ValidationError("Choose a role.");
   await tenantTx(ctx, "members.update_role", async (db) => {
+    await lockOwnership(db, ctx.organizationId);
     const member = await db.one<{ role_id: Role }>(
       "select role_id from platform.organization_members where user_id = $1 for update",
       [memberUserId],
@@ -254,6 +265,7 @@ export async function changeMemberRole(ctx: TenantContext, memberUserId: string,
 
 export async function removeMember(ctx: TenantContext, memberUserId: string): Promise<void> {
   await tenantTx(ctx, "members.remove", async (db) => {
+    await lockOwnership(db, ctx.organizationId);
     const member = await db.one<{ role_id: Role }>("select role_id from platform.organization_members where user_id = $1 for update", [memberUserId]);
     if (!member) throw new NotFoundError("Member");
     if (!canManageMember(ctx.role, member.role_id)) throw new ForbiddenError("You can't remove this member.");
@@ -261,6 +273,15 @@ export async function removeMember(ctx: TenantContext, memberUserId: string): Pr
     await db.query("delete from platform.organization_members where user_id = $1", [memberUserId]);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "member.removed", targetType: "user", targetId: memberUserId });
   });
+}
+
+/**
+ * Serializes membership changes within one organization. Row locks on the
+ * member being changed aren't enough: two owners demoting or removing each
+ * other at once would each still see the other as an owner, leaving none.
+ */
+async function lockOwnership(db: Db, organizationId: string) {
+  await db.query("select pg_advisory_xact_lock(hashtextextended('org-members:' || $1::text, 0))", [organizationId]);
 }
 
 async function assertAnotherOwner(db: { one: (q: string, v?: unknown[]) => Promise<unknown> }, exceptUserId: string) {

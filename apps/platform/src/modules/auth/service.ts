@@ -3,10 +3,13 @@ import { z } from "zod";
 import { DUMMY_PASSWORD_HASH, hashPassword, needsRehash, randomToken, sha256, verifyPassword } from "@/lib/crypto";
 import { isUniqueViolation, withSystem } from "@/lib/db";
 import { ConflictError, RateLimitError, UnauthorizedError, ValidationError } from "@/lib/errors";
-import { consumeRateLimit } from "@/lib/rate-limit";
+import { consumeRateLimit, peekRateLimit } from "@/lib/rate-limit";
 import { audit } from "@/modules/audit/service";
 
 export const SESSION_TTL_DAYS = 30;
+/** Failed sign-ins allowed per 15 minutes for one email from one IP, and for one email overall. */
+export const LOGIN_FAILURES_PER_IP = 10;
+export const LOGIN_FAILURES_PER_EMAIL = 100;
 
 export interface AuthUser {
   id: string;
@@ -84,10 +87,15 @@ export async function signUp(input: unknown, meta: { userAgent?: string | null; 
 
 export async function signIn(input: unknown, meta: { userAgent?: string | null; ip?: string } = {}): Promise<SessionResult> {
   const data = parse(signInSchema, input);
-  // Throttle per account and per IP to blunt credential stuffing.
+  const ip = meta.ip ?? "unknown";
+  // Failed attempts are throttled per (email, IP), so guessing from one place is
+  // slow but nobody else can lock the owner out; a much higher ceiling per email
+  // alone stops a distributed guess. Every attempt counts against the IP.
+  const failKeys = [`login:fail:${data.email}:${ip}`, `login:fail:${data.email}`] as const;
   const wait = Math.max(
-    await consumeRateLimit(`login:email:${data.email}`, 10, 900),
-    await consumeRateLimit(`login:ip:${meta.ip ?? "unknown"}`, 50, 900),
+    await peekRateLimit(failKeys[0], LOGIN_FAILURES_PER_IP, 900),
+    await peekRateLimit(failKeys[1], LOGIN_FAILURES_PER_EMAIL, 900),
+    await consumeRateLimit(`login:ip:${ip}`, 50, 900),
   );
   if (wait) throw new RateLimitError(wait);
 
@@ -99,6 +107,7 @@ export async function signIn(input: unknown, meta: { userAgent?: string | null; 
   );
   const ok = await verifyPassword(data.password, row?.password_hash ?? DUMMY_PASSWORD_HASH);
   if (!row || !row.password_hash || !ok || row.status !== "active") {
+    await Promise.all(failKeys.map((k) => consumeRateLimit(k, Number.MAX_SAFE_INTEGER, 900)));
     if (row) await withSystem((db) => audit(db, { organizationId: null, actorUserId: row.id, action: "auth.login_failed" }));
     throw new UnauthorizedError("Email or password is incorrect.");
   }

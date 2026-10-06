@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { changePassword, requestPasswordReset, resetPassword, sendVerificationEmail, signOutOtherSessions, verifyEmail } from "@/modules/auth/account";
+import { safeNext } from "@/lib/safe-next";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requestMeta, requireUser, sessionToken } from "@/server/session";
 
@@ -24,20 +25,21 @@ export async function resetPasswordAction(token: string, _: ActionState, form: F
   redirect("/login?reset=1");
 }
 
-export async function verifyEmailAction(token: string, _: ActionState): Promise<ActionState> {
+export async function verifyEmailAction(token: string, next: string | null, _: ActionState): Promise<ActionState> {
   try {
     const r = await verifyEmail(token);
     if (!r) return { error: "This link is invalid, expired, or was already used. Sign in and send a new one from your account page." };
   } catch (err) {
     return toActionError(err);
   }
-  redirect("/account?verified=1");
+  redirect(safeNext(next) ?? "/account?verified=1");
 }
 
-export async function resendVerificationAction(_: ActionState): Promise<ActionState> {
+/** An optional hidden `next` field brings the user back there (e.g. to an invitation) after confirming. */
+export async function resendVerificationAction(_: ActionState, form?: FormData): Promise<ActionState> {
   try {
     const user = await requireUser();
-    const r = await sendVerificationEmail(user.id);
+    const r = await sendVerificationEmail(user.id, { next: safeNext(form?.get("next")) });
     if (r.transport === "skipped") return { ok: true, message: "Your email is already confirmed." };
     if (!r.delivered) return { error: "Email delivery isn't configured on this server yet, so the confirmation email couldn't be sent." };
     return { ok: true, message: `Sent to ${user.email}. The link expires in 24 hours.` };

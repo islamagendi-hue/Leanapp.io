@@ -23,6 +23,21 @@ export async function consumeRateLimit(key: string, limit: number, windowSeconds
   return Math.max(1, Math.ceil((windowStart.getTime() + windowSeconds * 1000 - now) / 1000));
 }
 
+/**
+ * Like consumeRateLimit but only reads the current window, for limits that
+ * count some outcomes (failed logins) rather than every request. Returns the
+ * seconds to wait once `limit` has been reached, else 0.
+ */
+export async function peekRateLimit(key: string, limit: number, windowSeconds: number): Promise<number> {
+  const now = Date.now();
+  const windowStart = new Date(Math.floor(now / (windowSeconds * 1000)) * windowSeconds * 1000);
+  const row = await withSystem((db) =>
+    db.one<{ count: number }>("select count from platform.rate_limit_buckets where key = $1 and window_start = $2", [key, windowStart]),
+  );
+  if ((row?.count ?? 0) < limit) return 0;
+  return Math.max(1, Math.ceil((windowStart.getTime() + windowSeconds * 1000 - now) / 1000));
+}
+
 /** Deletes expired windows. Called from the scheduled maintenance job. */
 export async function purgeRateLimitBuckets(): Promise<number> {
   const rows = await withSystem((db) =>

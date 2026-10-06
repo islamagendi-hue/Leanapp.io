@@ -10,7 +10,7 @@ import {
   changePassword, isResetTokenValid, listSessions, requestPasswordReset, resetPassword, sendVerificationEmail,
   signOutOtherSessions, verifyEmail,
 } from "@/modules/auth/account";
-import { getUserBySessionToken, signIn, signUp } from "@/modules/auth/service";
+import { getUserBySessionToken, LOGIN_FAILURES_PER_EMAIL, LOGIN_FAILURES_PER_IP, signIn, signUp } from "@/modules/auth/service";
 import { outbox } from "@/modules/email/service";
 import { acceptInvitation, inviteMember } from "@/modules/organizations/service";
 import { makeTenant } from "./helpers";
@@ -145,7 +145,7 @@ describe("password hashing upgrades", () => {
 });
 
 describe("invitations", () => {
-  it("emails the invitation link, which the invitee can accept", async () => {
+  it("emails the invitation link, which the invitee can accept once their email is confirmed", async () => {
     const t = await makeTenant("invite");
     const invitee = await newUser();
     const { link, delivery } = await inviteMember(t.ctx, { email: invitee.email, role: "developer" });
@@ -153,7 +153,58 @@ describe("invitations", () => {
     const msg = outbox.find((m) => m.kind === "invitation" && m.to === invitee.email)!;
     expect(msg.subject).toContain(t.ctx.organizationName);
     expect(msg.text).toContain(link);
-    const org = await acceptInvitation({ id: invitee.user.id, email: invitee.email }, link.split("/").pop()!);
+    const token = link.split("/").pop()!;
+
+    // Anyone can sign up with an address; only confirming it proves it's theirs.
+    await expect(acceptInvitation({ id: invitee.user.id }, token)).rejects.toThrow(/Confirm your email/);
+
+    // The confirmation link carries the invitation as `next`, so confirming leads back to it.
+    await sendVerificationEmail(invitee.user.id, { next: `/invite/${token}` });
+    const url = new URL([...outbox].reverse().find((m) => m.to === invitee.email && m.kind === "verify_email")!.text.match(/https?:\/\/\S+/)![0]);
+    expect(url.searchParams.get("next")).toBe(`/invite/${token}`);
+    expect(await verifyEmail(url.pathname.split("/").pop()!)).toEqual({ userId: invitee.user.id });
+
+    const org = await acceptInvitation({ id: invitee.user.id }, token);
     expect(org.slug).toBe(t.org.slug);
+  });
+
+  it("drops an unsafe next from the confirmation link", async () => {
+    const u = await newUser();
+    await sendVerificationEmail(u.user.id, { next: "/\\evil.example" });
+    const url = new URL([...outbox].reverse().find((m) => m.to === u.email && m.kind === "verify_email")!.text.match(/https?:\/\/\S+/)![0]);
+    expect(url.search).toBe("");
+  });
+
+  it("refuses an invitation sent to another address, even when confirmed", async () => {
+    const t = await makeTenant("invite-other");
+    const invitee = await newUser();
+    const stranger = await newUser();
+    await withSystem((db) => db.query("update platform.users set email_verified_at = now() where id = $1", [stranger.user.id]));
+    const { token } = await inviteMember(t.ctx, { email: invitee.email, role: "developer" });
+    await expect(acceptInvitation({ id: stranger.user.id }, token)).rejects.toThrow(/was sent to/);
+  });
+});
+
+describe("sign-in throttling", () => {
+  it("counts only failures, per email and IP, so others can't lock the owner out", async () => {
+    const u = await newUser();
+    for (let i = 0; i < LOGIN_FAILURES_PER_IP; i++) {
+      await expect(signIn({ email: u.email, password: "wrong-pass-1" }, { ip: "10.5.0.1" })).rejects.toThrow(/incorrect/);
+    }
+    // The attacker's IP is now throttled for this email, even with the right password…
+    await expect(signIn({ email: u.email, password: u.password }, { ip: "10.5.0.1" })).rejects.toThrow(/Too many|try again/i);
+    // …but the owner signs in from elsewhere, as often as they like.
+    for (let i = 0; i < LOGIN_FAILURES_PER_IP + 2; i++) await signIn({ email: u.email, password: u.password }, { ip: "10.5.0.2" });
+  });
+
+  it("caps failures per email across all IPs", async () => {
+    const u = await newUser();
+    await withSystem((db) =>
+      db.query(
+        "insert into platform.rate_limit_buckets (key, window_start, count) values ($1, to_timestamp(floor(extract(epoch from now()) / 900) * 900), $2)",
+        [`login:fail:${u.email}`, LOGIN_FAILURES_PER_EMAIL],
+      ),
+    );
+    await expect(signIn({ email: u.email, password: u.password }, { ip: "10.5.1.1" })).rejects.toThrow(/Too many|try again/i);
   });
 });
