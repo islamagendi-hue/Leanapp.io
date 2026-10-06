@@ -427,3 +427,150 @@ describe("lifecycle flush", () => {
     expect(remove).toHaveBeenCalled();
   });
 });
+
+describe("consent", () => {
+  const types = (calls: { body: { batch: WireEvent[] } }[]) => calls.flatMap((c) => c.body.batch.map((e) => (e.type === "track" ? e.event_name : e.type)));
+
+  it("defaults to granted, so apps that never call setConsent behave as before", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch });
+    expect(client.getConsent()).toEqual({ analytics: "granted", marketing: "granted", push: "granted", attribution: "granted" });
+    client.track("a");
+    await client.flush();
+    expect(types(s.calls)).toEqual(["a"]);
+  });
+
+  it("pending: holds events in memory only, then sends them once analytics is granted", async () => {
+    const s = server();
+    const storage = memoryStorage();
+    const { client } = make({ fetch: s.fetch, storage, consentDefault: "pending" });
+    client.track("a");
+    client.screen("Home");
+    expect(await client.flush()).toEqual({ status: "empty" });
+    expect(s.calls).toHaveLength(0);
+    expect(client.queueLength).toBe(0);
+    await client.shutdown();
+    // Nothing waiting for consent is written to the device.
+    expect(await storage.getItem(`${storagePrefix(KEY)}queue`)).toBe("[]");
+
+    client.setConsent({ analytics: true, marketing: false });
+    await client.flush();
+    expect(types(s.calls)).toEqual(["consent", "a", "screen"]);
+    const c = s.calls[0].body.batch[0];
+    expect(c.consent).toEqual({ analytics: true, marketing: false });
+    expect(c.session_id).toBeUndefined();
+    expect(c.context.attribution).toBeUndefined();
+    expect(client.getConsent()).toMatchObject({ analytics: "granted", marketing: "denied", push: "pending" });
+  });
+
+  it("pending events are lost if the app closes before the user decides", async () => {
+    const storage = memoryStorage();
+    const first = make({ storage, consentDefault: "pending" }).client;
+    first.track("a");
+    await first.whenReady();
+    await first.shutdown();
+    const s = server();
+    const second = make({ storage, fetch: s.fetch, consentDefault: "pending" }).client;
+    second.setConsent({ analytics: true });
+    await second.flush();
+    expect(types(s.calls)).toEqual(["consent"]);
+  });
+
+  it("denied: discards held and queued events but still sends the consent change", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch, consentDefault: { analytics: "pending" } });
+    client.track("held");
+    client.setConsent({ analytics: true });
+    client.track("queued");
+    client.setConsent({ analytics: false });
+    client.track("after");
+    await client.flush();
+    // Only the consent changes go out: "queued" was discarded with the denial, "after" never queued.
+    expect(types(s.calls)).toEqual(["consent", "consent"]);
+    expect(s.calls[0].body.batch.map((e) => e.consent)).toEqual([{ analytics: true }, { analytics: false }]);
+  });
+
+  it("an explicit default of denied drops events without sending anything", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch, consentDefault: "denied" });
+    client.track("a");
+    client.registerPushToken("t".repeat(20), "fcm");
+    expect(await client.flush()).toEqual({ status: "empty" });
+    expect(s.calls).toHaveLength(0);
+  });
+
+  it("persists the answer across restarts and purges unsent events on load after a denial", async () => {
+    const storage = memoryStorage();
+    const s = server(() => new Error("offline"));
+    const first = make({ storage, fetch: s.fetch }).client;
+    first.track("before");
+    first.setConsent({ analytics: false, push: true });
+    await first.flush();
+    await first.shutdown();
+
+    const s2 = server();
+    const second = make({ storage, fetch: s2.fetch, consentDefault: "pending" }).client;
+    await second.whenReady();
+    expect(second.getConsent()).toMatchObject({ analytics: "denied", push: "granted", marketing: "pending" });
+    second.track("ignored");
+    second.registerPushToken("t".repeat(20), "fcm", "granted");
+    await second.flush();
+    expect(types(s2.calls)).toEqual(["consent", "push_token"]);
+  });
+
+  it("push and attribution are separate purposes", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch, consentDefault: { push: "pending", attribution: "pending" } });
+    client.captureAttribution("https://x.test/?utm_source=tiktok");
+    client.registerPushToken("t".repeat(20), "fcm");
+    client.track("a");
+    await client.flush();
+    expect(types(s.calls)).toEqual(["a"]);
+    expect(s.calls[0].body.batch[0].context.attribution).toBeUndefined();
+    expect(client.getAttribution()).toBeNull();
+
+    client.setConsent({ push: true, attribution: true });
+    client.track("b");
+    await client.flush();
+    const sent = s.calls[1].body.batch;
+    expect(sent.map((e) => e.type)).toEqual(["consent", "push_token", "track"]);
+    expect(sent[2].context.attribution).toMatchObject({ utm_source: "tiktok" });
+
+    client.setConsent({ attribution: false });
+    client.track("c");
+    await client.flush();
+    const last = s.calls[2].body.batch;
+    expect(last[last.length - 1].context.attribution).toBeUndefined();
+    expect(client.getAttribution()).toBeNull();
+  });
+
+  it("records the device's consent for a user who signs in, and for the new id after reset", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch });
+    client.setConsent({ marketing: false });
+    client.identify("u1");
+    client.identify("u1"); // same user: nothing new to record
+    client.reset();
+    await client.flush();
+    const consents = s.calls.flatMap((c) => c.body.batch).filter((e) => e.type === "consent");
+    expect(consents.map((e) => [e.user_id ?? null, e.consent])).toEqual([
+      [null, { marketing: false }],
+      ["u1", { marketing: false }],
+      [null, { marketing: false }],
+    ]);
+    expect(consents[2].anonymous_id).not.toBe(consents[0].anonymous_id);
+    expect(client.getConsent().marketing).toBe("denied");
+  });
+
+  it("ignores calls without a boolean purpose and is exposed on the singleton", async () => {
+    const s = server();
+    const { client } = make({ fetch: s.fetch });
+    client.setConsent({} as never);
+    client.setConsent({ analytics: "yes" } as never);
+    expect(await client.flush()).toEqual({ status: "empty" });
+
+    Analytics.initialize({ apiKey: KEY, platform: "react_native", storage: memoryStorage(), fetch: s.fetch, consentDefault: "pending" });
+    Analytics.setConsent({ analytics: true });
+    expect(Analytics.getConsent()).toMatchObject({ analytics: "granted", marketing: "pending" });
+  });
+});

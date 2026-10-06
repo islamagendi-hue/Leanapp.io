@@ -1,0 +1,59 @@
+{
+  "comment": "Shared test vectors for the conversion value schema: evaluated by apps/platform/src/modules/attribution/skan-schema.test.ts (reference implementation). Each case starts from an empty state with the install at hour 0.",
+  "schema": {
+    "currency": "SAR",
+    "rules": [
+      { "window": 0, "event": "app_installed", "fine": 1, "coarse": "low" },
+      { "window": 0, "event": "signup_completed", "fine": 8, "coarse": "medium" },
+      { "window": 0, "min_revenue": 0.01, "max_revenue": 50, "fine": 20, "coarse": "high" },
+      { "window": 0, "min_revenue": 50, "max_revenue": 200, "fine": 40, "coarse": "high" },
+      { "window": 0, "min_revenue": 200, "fine": 63, "coarse": "high", "lock": true },
+      { "window": 1, "event": "signup_completed", "coarse": "medium" },
+      { "window": 1, "min_revenue": 0.01, "coarse": "high" },
+      { "window": 2, "min_revenue": 0.01, "coarse": "high", "lock": true }
+    ]
+  },
+  "cases": [
+    {
+      "name": "install then signup raise the fine value",
+      "steps": [
+        { "event": "app_installed", "hours": 0, "expect": { "window": 0, "fine": 1, "coarse": "low", "lock": false } },
+        { "event": "screen_viewed", "hours": 1, "expect": null },
+        { "event": "signup_completed", "hours": 2, "expect": { "window": 0, "fine": 8, "coarse": "medium", "lock": false } },
+        { "event": "app_installed", "hours": 3, "expect": null }
+      ]
+    },
+    {
+      "name": "revenue accumulates within the window",
+      "steps": [
+        { "event": "purchase_completed", "revenue": 30, "currency": "SAR", "hours": 1, "expect": { "window": 0, "fine": 20, "coarse": "high", "lock": false } },
+        { "event": "purchase_completed", "revenue": 30, "currency": "sar", "hours": 5, "expect": { "window": 0, "fine": 40, "coarse": "high", "lock": false } },
+        { "event": "purchase_completed", "revenue": 10, "currency": "USD", "hours": 6, "expect": null },
+        { "event": "purchase_completed", "revenue": 150, "currency": "SAR", "hours": 7, "expect": { "window": 0, "fine": 63, "coarse": "high", "lock": true } },
+        { "event": "signup_completed", "hours": 8, "expect": null }
+      ]
+    },
+    {
+      "name": "values never go down",
+      "steps": [
+        { "event": "signup_completed", "hours": 0, "expect": { "window": 0, "fine": 8, "coarse": "medium", "lock": false } },
+        { "event": "app_installed", "hours": 1, "expect": null }
+      ]
+    },
+    {
+      "name": "later windows send coarse values only",
+      "steps": [
+        { "event": "signup_completed", "hours": 60, "expect": { "window": 1, "fine": 0, "coarse": "medium", "lock": false } },
+        { "event": "purchase_completed", "revenue": 5, "currency": "SAR", "hours": 100, "expect": { "window": 1, "fine": 0, "coarse": "high", "lock": false } },
+        { "event": "purchase_completed", "revenue": 5, "currency": "SAR", "hours": 200, "expect": { "window": 2, "fine": 0, "coarse": "high", "lock": true } },
+        { "event": "purchase_completed", "revenue": 5, "currency": "SAR", "hours": 300, "expect": null }
+      ]
+    },
+    {
+      "name": "nothing after 35 days",
+      "steps": [
+        { "event": "purchase_completed", "revenue": 500, "currency": "SAR", "hours": 841, "expect": null }
+      ]
+    }
+  ]
+}

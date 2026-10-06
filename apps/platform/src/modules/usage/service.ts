@@ -1,9 +1,11 @@
 import "server-only";
 import type { Db } from "@/lib/db";
 import { PERSON } from "@/modules/analytics/service";
+import { seatsUsed } from "@/modules/billing/enforcement";
+import { asLimit, countState, eventHardCap, eventState, LIMIT_FEATURES, usagePeriod, type LimitState } from "@/modules/billing/limits";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 
-export type UsageMetric = "events" | "monthly_active_users" | "automation_runs" | "push_messages" | "api_requests" | "storage" | "seats";
+export type UsageMetric = "events" | "events_refused" | "monthly_active_users" | "automation_runs" | "push_messages" | "whatsapp_messages" | "email_messages" | "api_requests" | "storage" | "seats";
 
 /**
  * UsageService.record(organizationId, metric, quantity): the single entry point
@@ -41,51 +43,70 @@ export interface UsageLine {
   key: "events" | "apps" | "seats" | "monthly_active_users";
   label: string;
   used: number;
-  /** null = unlimited on this plan. */
+  /** null = unlimited on this plan (or not a limit). */
   limit: number | null;
+  /** warning from 80%, over from 100%, blocked when ingestion refuses (events past the grace). */
+  state: LimitState;
+  /** Events only: usage from which ingestion refuses (limit + 10% grace). */
+  hardCap?: number | null;
+  note?: string;
 }
 
 export interface UsageSummary {
   plan: { id: string; name: string; retentionDays: number | null };
   periodStart: Date;
+  periodEnd: Date;
   lines: UsageLine[];
+  /** Events refused this month because the allowance (with grace) was used up. */
+  eventsRefused: number;
 }
 
 /**
- * This calendar month's usage (UTC) against the organization's plan. Limits are
- * shown, not enforced: nothing is blocked when usage goes over.
+ * This calendar month's usage (UTC) against the organization's plan. Apps and
+ * members (including pending invitations) are hard limits checked when one is
+ * added; monthly events are a soft limit with a 10% grace, then ingestion
+ * refuses (modules/billing).
  */
 export function usageSummary(ctx: TenantContext, now = new Date()): Promise<UsageSummary> {
-  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+  const { start: periodStart, end: periodEnd } = usagePeriod(now);
   return tenantTx(ctx, "billing.read", async (db) => {
     const plan = await db.one<{ id: string; name: string }>(
       "select p.id, p.name from platform.organizations o join platform.plans p on p.id = o.plan_id where o.id = $1",
       [ctx.organizationId],
     );
-    const features = await db.query<{ feature: string; value: number | null }>(
+    const features = await db.query<{ feature: string; value: unknown }>(
       "select feature, value from platform.plan_features where plan_id = $1",
       [plan!.id],
     );
-    const limit = (f: string) => {
-      const v = features.find((x) => x.feature === f)?.value;
-      return typeof v === "number" ? v : null;
-    };
-    const events = await db.one<{ n: string }>(
-      "select coalesce(sum(quantity), 0) as n from platform.usage_records where meter_id = 'events' and day >= $1::date",
-      [periodStart.toISOString().slice(0, 10)],
+    const limit = (f: string) => asLimit(features.find((x) => x.feature === f)?.value);
+    const meters = await db.query<{ meter_id: string; n: string }>(
+      `select meter_id, coalesce(sum(quantity), 0) as n from platform.usage_records
+        where meter_id in ('events', 'events_refused') and day >= $1::date and day < $2::date group by meter_id`,
+      [periodStart.toISOString().slice(0, 10), periodEnd.toISOString().slice(0, 10)],
     );
+    const meter = (id: string) => Number(meters.find((m) => m.meter_id === id)?.n ?? 0);
     const apps = await db.one<{ n: string }>("select count(*) as n from platform.apps where status = 'active'");
-    const seats = await db.one<{ n: string }>("select count(*) as n from platform.organization_members");
+    const seats = await seatsUsed(db, ctx.organizationId);
     const prodEnvs = await db.query<{ id: string }>("select id from platform.environments where type = 'production'");
     const mau = prodEnvs.length ? await monthlyActiveUsers(db, prodEnvs.map((e) => e.id), periodStart) : 0;
+    const eventsLimit = limit(LIMIT_FEATURES.events);
+    const appsLimit = limit(LIMIT_FEATURES.apps);
+    const seatsLimit = limit(LIMIT_FEATURES.seats);
+    const events = meter("events");
+    const seatCount = seats.members + seats.pending;
     return {
       plan: { id: plan!.id, name: plan!.name, retentionDays: limit("retention.days") },
       periodStart,
+      periodEnd,
+      eventsRefused: meter("events_refused"),
       lines: [
-        { key: "events", label: "Events this month", used: Number(events!.n), limit: limit("limit.events_per_month") },
-        { key: "monthly_active_users", label: "Monthly active users (production)", used: mau, limit: null },
-        { key: "apps", label: "Apps", used: Number(apps!.n), limit: limit("limit.apps") },
-        { key: "seats", label: "Members", used: Number(seats!.n), limit: limit("limit.seats") },
+        { key: "events", label: "Events this month", used: events, limit: eventsLimit, state: eventState(events, eventsLimit), hardCap: eventsLimit === null ? null : eventHardCap(eventsLimit) },
+        { key: "monthly_active_users", label: "Monthly active users (production)", used: mau, limit: null, state: "ok" },
+        { key: "apps", label: "Apps", used: Number(apps!.n), limit: appsLimit, state: countState(Number(apps!.n), appsLimit) },
+        {
+          key: "seats", label: "Members", used: seatCount, limit: seatsLimit, state: countState(seatCount, seatsLimit),
+          note: seats.pending ? `${seats.members} member${seats.members === 1 ? "" : "s"} and ${seats.pending} pending invitation${seats.pending === 1 ? "" : "s"}` : undefined,
+        },
       ],
     };
   });

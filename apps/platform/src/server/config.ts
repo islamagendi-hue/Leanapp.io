@@ -11,6 +11,8 @@
  *
  * Only variable names and reasons are reported, never values.
  */
+import { encryptionKeyProblem } from "@/lib/secret-box";
+
 export type Deployment = "production" | "preview" | "local";
 
 export interface ConfigIssue {
@@ -69,7 +71,16 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   else if (deployment === "production" && !hasKey) warn("RESEND_API_KEY", "not set; production sends no email");
   if (env.RESEND_API_KEY && !env.RESEND_API_KEY.startsWith("re_")) err("RESEND_API_KEY", "does not look like a Resend key");
 
-  for (const name of ["PUBLIC_APP_URL", "PUBLIC_API_URL"]) {
+  // Payments (docs/billing.md): optional. Without them the billing page says payments aren't connected.
+  const stripeKey = env.STRIPE_SECRET_KEY ?? "";
+  const stripeHook = env.STRIPE_WEBHOOK_SECRET ?? "";
+  if (stripeKey && !/^(sk|rk)_(live|test)_/.test(stripeKey)) warn("STRIPE_SECRET_KEY", "does not look like a Stripe secret key (sk_… or rk_…)");
+  if (stripeHook && !stripeHook.startsWith("whsec_")) warn("STRIPE_WEBHOOK_SECRET", "does not look like a Stripe webhook signing secret (whsec_…)");
+  if (Boolean(stripeKey) !== Boolean(stripeHook)) warn(stripeKey ? "STRIPE_WEBHOOK_SECRET" : "STRIPE_SECRET_KEY", "set both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET; payments stay disconnected until then");
+  else if (deployment === "production" && !stripeKey) warn("STRIPE_SECRET_KEY", "not set; payments are not connected and plans can't be bought");
+  if (deployment === "production" && /^(sk|rk)_test_/.test(stripeKey)) warn("STRIPE_SECRET_KEY", "is a test-mode key in production");
+
+  for (const name of ["PUBLIC_APP_URL", "PUBLIC_API_URL", "PUBLIC_LINK_URL"]) {
     const v = env[name];
     if (!v) continue;
     let url: URL | null = null;
@@ -80,6 +91,11 @@ export function checkConfig(env: Env = process.env): ConfigReport {
     }
     if (url && deployment === "production" && url.protocol !== "https:") err(name, "must use https in production");
   }
+
+  const encProblem = encryptionKeyProblem(env);
+  if (encProblem) err("INTEGRATIONS_ENCRYPTION_KEY", encProblem);
+  else if (deployed && !env.INTEGRATIONS_ENCRYPTION_KEY) warn("INTEGRATIONS_ENCRYPTION_KEY", "not set; ad-network, push, messaging and email credentials and webhooks can't be configured");
+  if (deployed && !env.ATTRIBUTION_IP_HASH_SECRET) warn("ATTRIBUTION_IP_HASH_SECRET", "not set; clicks are recorded without an IP hash, so probabilistic matching is off");
 
   return { deployment, errors, warnings };
 }

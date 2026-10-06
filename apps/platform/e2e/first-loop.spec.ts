@@ -120,8 +120,10 @@ test("account, settings and privacy pages", async ({ page }) => {
   await expect(page.getByText("Saved.")).toBeVisible();
   await page.goto(`/o/${org}/settings/audit`);
   await expect(page.getByText("organization.updated")).toBeVisible();
-  await page.goto(`/o/${org}/settings/usage`);
+  await page.goto(`/o/${org}/settings/usage`); // old link redirects to Plan & billing
   await expect(page.getByText("Events this month")).toBeVisible();
+  await expect(page.getByText("Payments are not connected yet.", { exact: false }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "Upgrade to Starter" })).toBeDisabled();
 
   await page.goto(`${appBase}/privacy`);
   await page.fill('[name="userId"]', "u-42");

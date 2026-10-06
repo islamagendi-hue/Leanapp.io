@@ -24,7 +24,7 @@ export interface ProjectState {
   publishedVersionId: string | null;
 }
 
-async function projectFor(db: Db, appId: string): Promise<ProjectState> {
+export async function projectFor(db: Db, appId: string): Promise<ProjectState> {
   const row = await db.one<{ id: string; status: string; progress: number; plan_id: string; published_version_id: string | null }>(
     `select p.id, p.status, p.progress, t.id as plan_id, t.published_version_id
        from platform.tracking_projects p join platform.tracking_plans t on t.tracking_project_id = p.id
@@ -87,9 +87,11 @@ export interface PlanVersion {
   created_at: Date;
   approved_at: Date | null;
   published_at: Date | null;
+  /** The version a hand-edited draft was copied from. */
+  based_on_version_id: string | null;
 }
 
-const VERSION_COLUMNS = "id, version, status, generator, business_model, activation_event, north_star_event, summary, created_at, approved_at, published_at";
+export const VERSION_COLUMNS = "id, version, status, generator, business_model, activation_event, north_star_event, summary, created_at, approved_at, published_at, based_on_version_id";
 
 export function listVersions(ctx: TenantContext, appId: string): Promise<PlanVersion[]> {
   return tenantTx(ctx, "implementation.read", async (db) => {

@@ -16,6 +16,6 @@ npm test                # unit + integration (DATABASE_URL_TEST is wiped)
 | `lint`, `typecheck` | ESLint; `next typegen` + `tsc` |
 | `test:unit`, `test:integration` | Vitest projects (integration needs Postgres) |
 | `db:migrate` | Apply `db/migrations` to `DATABASE_URL` |
-| `db:seed-rbac` | Regenerate `0002_rbac_seed.sql` from the permission matrix |
+| `db:seed-rbac` | Regenerate the original `0002_rbac_seed.sql` (frozen: new permissions go in new migrations) |
 
 Start with the [developer guide](../../docs/developer-guide.md). All docs: [docs/README.md](../../docs/README.md).

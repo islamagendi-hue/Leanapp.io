@@ -6,7 +6,7 @@ export const metadata = { title: "Audit log" };
 
 const AREAS = [
   ["", "Everything"], ["organization", "Organization"], ["member", "Members"], ["invitation", "Invitations"], ["app", "Apps"],
-  ["sdk_key", "SDK keys"], ["api_key", "API keys"], ["tracking_plan", "Tracking plan"], ["event_mapping", "Mappings"], ["privacy", "Privacy"],
+  ["sdk_key", "SDK keys"], ["api_key", "API keys"], ["tracking_plan", "Tracking plan"], ["event_mapping", "Mappings"], ["privacy", "Privacy"], ["billing", "Billing"],
 ] as const;
 
 function details(m: Record<string, unknown>): string {

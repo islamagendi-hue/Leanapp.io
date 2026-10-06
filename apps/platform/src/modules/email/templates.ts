@@ -36,3 +36,32 @@ export function invitationMessage(to: string, inviter: string, organization: str
     text: `${inviter} invited you to join ${organization} on LeanApp as ${role}.\n\nAccept the invitation:\n\n${link}\n\nThe invitation expires in 7 days.`,
   };
 }
+
+export function usageNoticeMessage(
+  to: string,
+  organization: string,
+  threshold: 80 | 100 | 110,
+  used: number,
+  limit: number,
+  resetsOn: string,
+  link: string,
+): EmailMessage {
+  const n = (x: number) => x.toLocaleString("en-US");
+  const hardCap = Math.floor(limit * 1.1);
+  const subject =
+    threshold === 80 ? `${organization} has used 80% of its monthly events on LeanApp`
+    : threshold === 100 ? `${organization} has reached its monthly event allowance on LeanApp`
+    : `LeanApp is refusing new events for ${organization}`;
+  const body =
+    threshold === 80
+      ? `${organization} has sent ${n(used)} of the ${n(limit)} events its plan includes this month.`
+      : threshold === 100
+        ? `${organization} has sent ${n(used)} events this month, which is its plan's allowance of ${n(limit)}. Events are still accepted for a 10% grace, up to ${n(hardCap)}. After that LeanApp refuses new events (error plan_limit_exceeded) until the allowance resets.`
+        : `${organization} has sent ${n(used)} events this month, past its allowance of ${n(limit)} plus the 10% grace. LeanApp now refuses new events with the error plan_limit_exceeded. The LeanApp SDKs keep unsent events on the device (up to their queue size) and retry later; server-side senders get the same error and should retry too.`;
+  return {
+    kind: `usage_notice_${threshold}`,
+    to,
+    subject,
+    text: `${body}\n\nThe allowance resets on ${resetsOn} (UTC). To raise it, upgrade the plan:\n\n${link}\n\nYou're getting this because you're an owner of ${organization}. We send this notice once per month.`,
+  };
+}

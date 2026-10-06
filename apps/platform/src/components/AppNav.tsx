@@ -7,7 +7,11 @@ type Item = { label: string; href?: string; soon?: boolean };
 type Group = { label: string; items: Item[] };
 
 /** Product navigation. Sections not built yet are listed and labelled, never faked. */
-export function AppNav({ base, appName, privacy = false }: { base: string; appName: string; privacy?: boolean }) {
+export function AppNav({ base, appName, privacy = false, attribution = false, users = false, deepLinks = false, engage = {} }: {
+  base: string; appName: string; privacy?: boolean; attribution?: boolean; users?: boolean; deepLinks?: boolean;
+  /** Engagement sections the member may open. */
+  engage?: { audiences?: boolean; automations?: boolean; integrations?: boolean; webhooks?: boolean };
+}) {
   const path = usePathname();
   const groups: Group[] = [
     { label: "Overview", items: [{ label: "Setup", href: base }] },
@@ -24,26 +28,62 @@ export function AppNav({ base, appName, privacy = false }: { base: string; appNa
       items: [
         { label: "SDK & API keys", href: `${base}/developers/sdk` },
         { label: "Event debugger", href: `${base}/developers/debugger` },
-        { label: "Webhooks", soon: true },
+        ...(engage.webhooks ? [{ label: "Webhooks", href: `${base}/developers/webhooks` }] : []),
       ],
     },
     {
       label: "Analytics",
       items: [
+        { label: "Overview", href: `${base}/analytics` },
         { label: "Events", href: `${base}/analytics/events` },
         { label: "Funnels", href: `${base}/analytics/funnels` },
         { label: "Retention", href: `${base}/analytics/retention` },
-        { label: "Users", soon: true },
+        { label: "Revenue", href: `${base}/analytics/revenue` },
+        { label: "Cohorts", href: `${base}/analytics/cohorts` },
+        ...(users ? [{ label: "Users", href: `${base}/analytics/users` }] : []),
       ],
     },
-    { label: "Attribution", items: [{ label: "Campaigns & sources", soon: true }] },
-    { label: "Engagement", items: [{ label: "Audiences", soon: true }, { label: "Automations", soon: true }, { label: "Integrations", soon: true }] },
-    ...(privacy ? [{ label: "Data", items: [{ label: "Privacy requests", href: `${base}/privacy` }] }] : []),
+    ...(attribution ? [{
+      label: "Attribution",
+      items: [
+        { label: "Overview", href: `${base}/attribution` },
+        { label: "Tracking links", href: `${base}/attribution/links` },
+        { label: "Postbacks", href: `${base}/attribution/postbacks` },
+        { label: "SKAdNetwork", href: `${base}/attribution/skan` },
+        { label: "Settings", href: `${base}/attribution/settings` },
+      ],
+    }] : []),
+    ...(deepLinks ? [{
+      label: "Deep links",
+      items: [
+        { label: "Setup", href: `${base}/deep-links` },
+        ...(attribution ? [{ label: "Link builder", href: `${base}/deep-links/links` }] : []),
+      ],
+    }] : []),
+    {
+      label: "Engagement",
+      items: [
+        ...(engage.audiences ? [{ label: "Audiences", href: `${base}/engage/audiences` }] : []),
+        ...(engage.automations ? [{ label: "Automations", href: `${base}/engage/automations` }] : []),
+        ...(engage.automations ? [{ label: "Email templates", href: `${base}/engage/email-templates` }] : []),
+        ...(engage.integrations ? [{ label: "Integrations", href: `${base}/engage/integrations` }] : []),
+      ],
+    },
+    ...(privacy
+      ? [{
+          label: "Privacy",
+          items: [
+            { label: "Privacy requests", href: `${base}/privacy` },
+            { label: "Consent", href: `${base}/privacy/consent` },
+            { label: "Suppression list", href: `${base}/privacy/suppressions` },
+          ],
+        }]
+      : []),
   ];
   return (
     <nav aria-label="App" className="text-sm">
       <p className="mb-4 truncate px-2 text-base font-bold">{appName}</p>
-      {groups.map((g) => (
+      {groups.filter((g) => g.items.length).map((g) => (
         <div key={g.label} className="mb-4">
           <p className="mb-1 px-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">{g.label}</p>
           <ul>
@@ -52,7 +92,7 @@ export function AppNav({ base, appName, privacy = false }: { base: string; appNa
                 <li key={i.label}>
                   <Link
                     href={i.href}
-                    className={`block rounded-md px-2 py-1.5 ${path === i.href ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
+                    className={`block rounded-md px-2 py-1.5 ${path === i.href || (path.startsWith(`${i.href}/`) && i.href !== base && i.href !== `${base}/analytics` && i.href !== `${base}/deep-links` && i.href !== `${base}/attribution`) ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
                   >
                     {i.label}
                   </Link>

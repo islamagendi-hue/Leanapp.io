@@ -106,7 +106,16 @@ export function revokeSdkKey(ctx: TenantContext, keyId: string) {
 }
 
 /** What a secret key may do. Public SDK keys can only send events. */
-export const API_KEY_SCOPES = ["events:write", "privacy:read", "privacy:write"] as const;
+export const API_KEY_SCOPES = [
+  "events:write",
+  "privacy:read",
+  "privacy:write",
+  // Management API (see docs/api.md)
+  "management:read",
+  "plan:write",
+  "analytics:read",
+  "users:read",
+] as const;
 export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
 
 const apiKeySchema = z.object({

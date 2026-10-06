@@ -44,8 +44,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      - name: RBAC seed is in sync with the permission matrix
-        run: npm run db:seed-rbac && git diff --exit-code db/migrations/0002_rbac_seed.sql
       - run: npm run test:unit
       - run: npm run test:integration
       - name: Migrations apply to an empty database
@@ -71,3 +69,55 @@ jobs:
         run: |
           ../../apps/platform/node_modules/.bin/tsc -p tsconfig.build.json
           test -f dist/index.js && test -f dist/index.d.ts
+
+  sdk-android:
+    name: Android SDK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      # The runner's ANDROID_HOME makes settings.gradle.kts include the Android library module.
+      - name: Core unit tests (JVM, local HTTP server)
+        run: gradle :leanapp-core:test --no-daemon
+      - name: Build the Android library (minSdk 21)
+        run: gradle :leanapp-android:assembleRelease --no-daemon
+
+  sdk-ios:
+    name: iOS SDK
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: sdks/ios
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift --version
+      - name: Unit tests (macOS, URLProtocol stubs)
+        run: swift test
+      - name: Build for the iOS simulator (UIKit code paths)
+        run: swift build --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" --triple arm64-apple-ios13.0-simulator
+
+  sdk-flutter:
+    name: Flutter SDK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.24.5"
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test

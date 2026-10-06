@@ -12,7 +12,7 @@ answers ─► classifier ─► generator ─► draft plan ─► human review
 ## Design choices
 
 - **Deterministic and explainable (generator `rules@1`).** The same answers always produce the same plan, and every event, property and user property carries the reason it was recommended. LLM assistance is planned as a *suggester* on top (naming, journey parsing, custom events), never as the source of truth and never applied without approval. See [ADR-005](adr/ADR-005-implementation-engine.md).
-- **Versioned and approval-gated.** Draft → approved → published → archived. Only drafts can be edited. Publishing archives the previous version. Nothing changes production tracking without a person approving it.
+- **Versioned and approval-gated.** Draft → approved → published → archived. Only drafts can be edited; editing an approved or published plan copies it into a new draft version first ([tracking plan](tracking-plan.md#editing)). Publishing archives the previous version. Nothing changes production tracking without a person approving it, including events added through the management API.
 - **Data, not code paths.** Business models, features, event and property libraries are catalogues; adding a model is adding data.
 
 ## 1. Questionnaire (`questions.ts`)
@@ -73,6 +73,10 @@ A pure function of observed facts in one environment.
 | Automation readiness | 10 | Automation trigger events valid |
 
 Components with nothing planned are excluded and the remaining weights re-normalized. The score also lists missing critical events and failing events.
+
+## 8. Hand edits, diff and export (`editor.ts`, `plan-input.ts`, `diff.ts`)
+
+Custom events and properties, user properties, version diffs and JSON/CSV export. Names follow the catalog's convention (snake_case, object_action, past tense) and are checked against the event library with the same similarity function as mappings. See [tracking plan](tracking-plan.md#editing).
 
 ## Limits today
 

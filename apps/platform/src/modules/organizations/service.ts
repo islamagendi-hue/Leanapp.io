@@ -5,6 +5,7 @@ import { isUniqueViolation, withSystem, type Db } from "@/lib/db";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify } from "@/lib/slug";
 import { audit } from "@/modules/audit/service";
+import { assertCanInvite, assertCanJoin } from "@/modules/billing/enforcement";
 import { sendEmail, type SendResult } from "@/modules/email/service";
 import { invitationMessage } from "@/modules/email/templates";
 import { assertCan, canAssignRole, canManageMember } from "@/modules/rbac/authorize";
@@ -191,6 +192,7 @@ export async function inviteMember(ctx: TenantContext, input: unknown): Promise<
       [r.data.email],
     );
     if (existing) throw new ConflictError("That person is already a member.");
+    await assertCanInvite(db, ctx.organizationId);
     const row = await db.one<{ id: string }>(
       `insert into platform.organization_invitations (organization_id, email, role_id, token_hash, invited_by, expires_at)
        values ($1, $2, $3, $4, $5, now() + interval '7 days') returning id`,
@@ -236,6 +238,8 @@ export async function acceptInvitation(user: { id: string }, token: string): Pro
     if (inv.email.toLowerCase() !== account.email.toLowerCase())
       throw new ForbiddenError(`This invitation was sent to ${inv.email}. Sign in with that email to accept it.`);
     if (!account.email_verified_at) throw new ForbiddenError("Confirm your email address before accepting this invitation.");
+    const already = await db.one("select 1 from platform.organization_members where organization_id = $1 and user_id = $2", [inv.organization_id, user.id]);
+    if (!already) await assertCanJoin(db, inv.organization_id);
     await db.query(
       `insert into platform.organization_members (organization_id, user_id, role_id) values ($1, $2, $3)
        on conflict (organization_id, user_id) do nothing`,

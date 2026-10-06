@@ -30,7 +30,7 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 | Secret API key | `la_sk_{dev,stg,live}_…` | SHA-256 + display prefix; shown once | Servers only. The SDK refuses a secret key on any platform other than `backend`. |
 
 - ✓ Rotation creates a new key and keeps the old one valid for a grace period (default 72h, 0–90 days) so app releases can roll out.
-- ✓ Secret keys have scopes chosen at creation: `events:write` (default), `privacy:read`, `privacy:write`; each endpoint checks the one it needs. Keys created before scopes were enforced keep `events:write` only, so privacy calls need a new key.
+- ✓ Secret keys have scopes chosen at creation: `events:write` (default), `privacy:read` (exports, consent lookups, suppression list), `privacy:write` (deletions, adding and removing suppressions); each endpoint checks the one it needs. Keys created before scopes were enforced keep `events:write` only, so privacy calls need a new key.
 - ✓ Revocation is immediate. Keys check expiry, revocation and that the environment, app and organization are active.
 - ✓ All key operations are audit-logged.
 
@@ -48,7 +48,13 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 - ✓ Deletions run in one transaction under the organization's RLS scope, so a request can't reach another tenant's rows; interrupted jobs are retried by the scheduled worker.
 - ✓ Every export and deletion is recorded in `privacy_requests` and the audit log (who asked, rows deleted per table). The dashboard export is a same-origin form POST, not a GET, because it records a request.
 - ✓ A failed deletion job stores only `internal_error`; the database error goes to the server logs.
-- ○ Consent capture from the SDK, and suppressing events for users who asked to be forgotten.
+- ✓ Consent capture: `setConsent({ analytics, marketing, push, attribution })` in the SDK, stored on the device and recorded per environment (`consent_records` history, `consent_state` current). With `consentDefault: "pending"` the SDK keeps events in memory only (never on disk, never sent) until the user answers; on denial it discards them and clears the unsent queue. Consent changes themselves are always sent, with ids and minimal context only.
+- ✓ Server-side enforcement: ingestion drops events of users and installs whose latest analytics decision is "denied" (one primary-key lookup per batch), even from a secret key or an old SDK, and reports them as `consent_denied` in the debugger. Attribution context is stripped where attribution is denied.
+- ✓ Suppression lists per environment (marketing, push, email, whatsapp): automatic from denied marketing / push consent, manual from the dashboard (`privacy.manage`) or a secret key with `privacy:write`. Automation checks `isSuppressed()` before sending.
+- ✓ End users can opt out themselves: every automation email has an unsubscribe link and RFC 8058 one-click headers (random per-email token, only its hash stored; GET only confirms, POST unsubscribes), and WhatsApp STOP / إيقاف replies or WhatsApp's own marketing opt-out (error 131050) add a `whatsapp` suppression. These have source `unsubscribe` and can't be removed from the dashboard.
+- ✓ WhatsApp webhooks are accepted only with a valid `X-Hub-Signature-256` (HMAC-SHA256 with the customer's app secret, constant-time compare); the verify token is shown once and stored hashed. Phone numbers aren't stored on delivery records (only a hash of environment + number).
+- ✓ Consent history, current consent and suppressions are part of exports and deletions, with the shared-device rule. Changes to suppression lists are audit-logged.
+- ○ Consent and suppression management is owner/admin only (`privacy.manage`); a separate permission for marketers is a later decision.
 
 ## Web
 
