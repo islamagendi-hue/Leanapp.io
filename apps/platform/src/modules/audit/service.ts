@@ -44,7 +44,13 @@ export type AuditAction =
   | "billing.subscription_updated"
   | "billing.plan_changed"
   | "billing.invoice_paid"
-  | "billing.payment_failed";
+  | "billing.payment_failed"
+  | "attribution.settings_updated"
+  | "attribution.link_created"
+  | "attribution.link_updated"
+  | "attribution.postback_created"
+  | "attribution.postback_updated"
+  | "attribution.postback_deleted";
 
 export interface AuditEntry {
   organizationId: string | null;

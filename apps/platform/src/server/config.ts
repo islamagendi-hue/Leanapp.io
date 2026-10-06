@@ -11,6 +11,8 @@
  *
  * Only variable names and reasons are reported, never values.
  */
+import { encryptionKeyProblem } from "@/lib/secret-box";
+
 export type Deployment = "production" | "preview" | "local";
 
 export interface ConfigIssue {
@@ -89,6 +91,11 @@ export function checkConfig(env: Env = process.env): ConfigReport {
     }
     if (url && deployment === "production" && url.protocol !== "https:") err(name, "must use https in production");
   }
+
+  const encProblem = encryptionKeyProblem(env);
+  if (encProblem) err("INTEGRATIONS_ENCRYPTION_KEY", encProblem);
+  else if (deployed && !env.INTEGRATIONS_ENCRYPTION_KEY) warn("INTEGRATIONS_ENCRYPTION_KEY", "not set; ad-network postback credentials cannot be saved");
+  if (deployed && !env.ATTRIBUTION_IP_HASH_SECRET) warn("ATTRIBUTION_IP_HASH_SECRET", "not set; clicks are recorded without an IP hash, so probabilistic matching is off");
 
   return { deployment, errors, warnings };
 }

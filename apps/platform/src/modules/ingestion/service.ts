@@ -1,6 +1,8 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { isUniqueViolation, withSystem } from "@/lib/db";
+import { hashIp } from "@/lib/secret-box";
+import { INSTALL_EVENTS, SERVER_CONTEXT_KEY } from "@/modules/attribution/pure";
 import type { IngestionPrincipal } from "@/modules/credentials/service";
 import { eventAllowance, noteEventsAccepted } from "@/modules/billing/enforcement";
 import { retryAfterSeconds } from "@/modules/billing/limits";
@@ -40,7 +42,7 @@ export const PLAN_GRACE_HEADER = "X-LeanApp-Plan-Limit";
 export async function ingest(
   principal: IngestionPrincipal,
   payload: unknown,
-  opts: { mode: "single" | "batch"; idempotencyKey?: string | null; now?: Date },
+  opts: { mode: "single" | "batch"; idempotencyKey?: string | null; now?: Date; clientIp?: string | null },
 ): Promise<IngestResult> {
   const now = opts.now ?? new Date();
   const idemKey = opts.idempotencyKey?.trim().slice(0, 200) || null;
@@ -112,6 +114,14 @@ export async function ingest(
 
   // Backend (secret key) events are attributed to the backend source.
   const source = principal.kind === "api" ? "backend" : "mobile_sdk";
+
+  // Server-set context: clients can't supply it. Installs from apps get a keyed
+  // hash of the sender's IP for opt-in probabilistic attribution; the raw IP is never stored.
+  const ipHash = principal.kind === "sdk" ? hashIp(principal.appId, opts.clientIp) : null;
+  for (const v of valid) {
+    delete v.context[SERVER_CONTEXT_KEY];
+    if (ipHash && INSTALL_EVENTS.has(v.event_name)) v.context[SERVER_CONTEXT_KEY] = { ip_hash: ipHash };
+  }
 
   try {
     const body = await withSystem(async (db) => {

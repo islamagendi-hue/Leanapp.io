@@ -68,6 +68,26 @@ Analytics.reset(); // on logout
 | Context | `platform`, `sdk`, `app_version`, `locale`, `language`, `timezone`, screen size, attribution; extra via `context` option | |
 | Early calls | Calls made before storage loads are buffered in order | |
 
+## Attribution context
+
+What every SDK must send so the [attribution engine](attribution.md) can match installs deterministically. All of it goes in the event's `context`; the server accepts it today (`context.attribution` is a string map, `context.campaign` a map of strings, numbers and booleans, keys ≤ 60 characters, values ≤ 1,000).
+
+| Field | Where | When | Used for |
+| --- | --- | --- | --- |
+| `app_installed` event | event name | first launch after install, once per install (`anonymous_id`) | the install itself; no `app_installed`, no install attribution |
+| `context.device.id` | context | always, when the platform allows a stable install-independent id | reinstall detection |
+| `context.campaign.install_referrer` | Android | on `app_installed` (hold it until the Play Install Referrer API answers, ~10 s max) | LeanApp links put `click_id=lac_…&utm_source=…&utm_campaign=…&deep_link=…` in the Play referrer: exact match |
+| `context.campaign.referrer_click_timestamp_seconds`, `install_begin_timestamp_seconds`, `google_play_instant` | Android | with the referrer | lookback check on the store click |
+| `context.attribution.deep_link_url` | all | on the app open caused by a deep / universal link, and on `app_installed` when a deferred deep link is known | `click_id` and `utm_*` in the URL |
+| `context.attribution.click_id` | all | when the app was opened from a URL with `click_id` | exact match (install) and re-engagement (later opens) |
+| `context.attribution.gclid` / `gbraid` / `wbraid` / `fbclid` / `ttclid` / `ScCid` / `twclid` / `msclkid` | all | when present in the opening URL or referrer | ad-network deterministic match and network postbacks |
+| `context.attribution.utm_source` … `utm_content` | all | when present | campaign labels |
+| `context.platform` + `context.os_version` | all | always | probabilistic matching (Android only, opt-in) needs `android` and the OS version |
+
+The JS SDK's `captureAttribution(url)` already fills `utm_*`, the ad-network click ids and `click_id`. It does not yet set `deep_link_url` or read the Play referrer (React Native needs a native module for that). The native SDKs (Android, iOS, Flutter) send `context.campaign` from the Play Install Referrer API as listed above.
+
+The server adds an IP hash (`context._server.ip_hash`) to `app_installed` events sent with a public SDK key; anything a client sends under `_server` is dropped.
+
 ## Native SDK contract (planned)
 
 Same method names and semantics. Additionally: automatic `app_installed` / `app_opened` / `app_updated`, install referrer (Android), SKAdNetwork / AdAttributionKit conversion values (iOS), background flush on app pause, and storage in SQLite/Room/Core Data.

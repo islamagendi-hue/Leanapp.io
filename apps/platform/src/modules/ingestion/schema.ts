@@ -56,6 +56,8 @@ export const contextSchema = z
     network: z.object({ carrier: z.string().max(100).optional(), wifi: z.boolean().optional() }).partial().optional(),
     screen: z.object({ width: z.number().optional(), height: z.number().optional(), density: z.number().optional() }).partial().optional(),
     attribution: z.record(z.string().max(60), z.string().max(1000)).optional(),
+    // Native SDKs: Play Install Referrer details (install_referrer, referrer_click_timestamp_seconds, …). See docs/sdk.md.
+    campaign: z.record(z.string().max(60), z.union([z.string().max(1000), z.number().finite(), z.boolean(), z.null()])).optional(),
     consent: z.record(z.string().max(30), z.boolean()).optional(),
   })
   .passthrough();

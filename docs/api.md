@@ -40,6 +40,7 @@ A key without the scope an endpoint needs gets `403 forbidden`; a public SDK key
 | POST | `/v1/privacy/exports` | secret key, `privacy:read` | Everything stored about an end user, as JSON: `{ user_id?, anonymous_id? }` |
 | POST | `/v1/privacy/deletions` | secret key, `privacy:write` | Delete an end user's data: `{ user_id?, anonymous_id? }` → `202 { id, status }` |
 | GET | `/v1/privacy/deletions/{id}` | secret key, `privacy:write` | Deletion status, with rows deleted per table |
+| GET, HEAD | `/l/{code}` | none | Tracking link: records the click and redirects (`302`) to the App Store, Google Play (click id in `referrer`) or the web fallback; `404` for unknown codes. See [attribution](attribution.md#tracking-links) |
 | GET | `/v1/app` | secret key, `management:read` | The key's app with the key's environment (other environments are not listed) |
 | GET | `/v1/environment` | secret key, `management:read` | The key's environment |
 | GET | `/v1/tracking-plan` | secret key, `management:read` | The published tracking plan (`leanapp.tracking_plan/v1` JSON, same as the dashboard export); 404 until one is published |
@@ -47,7 +48,7 @@ A key without the scope an endpoint needs gets `403 forbidden`; a public SDK key
 | GET | `/v1/analytics/events?days=7\|30\|90` | secret key, `analytics:read` | Events with count and distinct people, most frequent first |
 | GET | `/v1/analytics/trend?event=&days=&breakdown=` | secret key, `analytics:read` | Daily counts and people for one event, optional breakdown (`platform`, `app_version`, `country`, `property:<name>`) |
 | GET | `/v1/users/{user_id}` | secret key, `users:read` | An end user of the key's environment: properties, first/last seen, linked installs, event count |
-| GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue, retry privacy deletions, send plan usage notices (Vercel Cron) |
+| GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue, retry privacy deletions, send plan usage notices, deliver attribution postbacks (Vercel Cron) |
 | POST | `/api/webhooks/stripe` | `Stripe-Signature` | Stripe webhooks (see [billing](billing.md)); `503` until payments are configured, `400 invalid_signature` on a bad or stale signature |
 
 Everything else in the dashboard (questionnaire, plan editing, approval and publishing, keys, members) runs through server actions on top of the same modules. The dashboard also serves `GET /o/{org}/apps/{app}/implementation/plan/export?version=&format=json|csv` (session cookie) for plan downloads. Planned for the secret-key API: editing and removing plan events and properties, mappings, funnels and retention, keys and members.

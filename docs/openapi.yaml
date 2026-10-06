@@ -23,6 +23,8 @@ tags:
       every endpoint answers for that app and environment only. Scopes: `management:read`,
       `plan:write`, `analytics:read`, `users:read`. Rate limit: 600 requests per minute per
       environment (`MANAGEMENT_API_REQUESTS_PER_MINUTE`).
+  - name: Attribution
+    description: Public tracking-link redirect.
   - name: System
     description: Health and operations.
 paths:
@@ -501,6 +503,38 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/RateLimited" }
+  /l/{code}:
+    get:
+      operationId: followTrackingLink
+      tags: [Attribution]
+      summary: Follow a tracking link
+      description: |
+        Records a click (not for crawlers, link previews, prefetches, paused links or rate-limited senders) and redirects:
+        iOS to the App Store, Android to Google Play with the click id in `referrer`, others to the web fallback.
+        Campaign labels can be overridden with `utm_campaign`, `utm_term`, `utm_content`; ad-network click ids are stored with the click.
+      security: []
+      servers: [{ url: https://api.leanapp.io }]
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema: { type: string, pattern: "^[A-Za-z0-9_-]{6,32}$" }
+        - { name: utm_campaign, in: query, required: false, schema: { type: string } }
+        - { name: utm_term, in: query, required: false, schema: { type: string } }
+        - { name: utm_content, in: query, required: false, schema: { type: string } }
+        - { name: gclid, in: query, required: false, schema: { type: string } }
+        - { name: ttclid, in: query, required: false, schema: { type: string } }
+        - { name: ScCid, in: query, required: false, schema: { type: string } }
+        - { name: fbclid, in: query, required: false, schema: { type: string } }
+      responses:
+        "302":
+          description: Redirect to the store or web fallback
+          headers:
+            Location: { schema: { type: string, format: uri } }
+        "404":
+          description: Unknown link
+        "503":
+          description: Temporary failure; retry
 components:
   securitySchemes:
     bearerKey:
