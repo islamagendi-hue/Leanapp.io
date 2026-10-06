@@ -72,6 +72,8 @@ export interface ConnectionHealth {
   eventsToday: number;
   activeUsersToday: number;
   rejectedToday: number;
+  /** Part of rejectedToday: valid events not stored because the user denied analytics consent (reason consent_denied). */
+  consentDeniedToday: number;
   sdkVersions: { sdk: string; events: number }[];
   platforms: { platform: string; events: number }[];
   appVersions: { app_version: string; events: number }[];
@@ -86,8 +88,9 @@ export function connectionHealth(ctx: TenantContext, environmentId: string): Pro
          from platform.events where environment_id = $1 and received_at > now() - interval '30 days'`,
       [environmentId],
     );
-    const rejected = await db.one<{ n: string }>(
-      "select coalesce(sum(rejected_count), 0) as n from platform.event_batches where environment_id = $1 and received_at >= date_trunc('day', now())",
+    const rejected = await db.one<{ n: string; consent: string }>(
+      `select coalesce(sum(rejected_count), 0) as n, coalesce(sum(consent_denied_count), 0) as consent
+         from platform.event_batches where environment_id = $1 and received_at >= date_trunc('day', now())`,
       [environmentId],
     );
     const breakdown = (col: string) =>
@@ -106,6 +109,7 @@ export function connectionHealth(ctx: TenantContext, environmentId: string): Pro
       eventsToday: Number(s?.today ?? 0),
       activeUsersToday: Number(s?.users ?? 0),
       rejectedToday: Number(rejected?.n ?? 0),
+      consentDeniedToday: Number(rejected?.consent ?? 0),
       sdkVersions: sdk.map((r) => ({ sdk: r.k, events: Number(r.n) })),
       platforms: platforms.map((r) => ({ platform: r.k, events: Number(r.n) })),
       appVersions: versions.map((r) => ({ app_version: r.k, events: Number(r.n) })),

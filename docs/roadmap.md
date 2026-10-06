@@ -14,6 +14,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Auth (email/password, sessions), organizations, invitations, 5 roles, audit log | ✓ |
 | Email verification, password reset and change, session management, invitation emails | ✓ (sending needs `RESEND_API_KEY` and a verified domain) |
 | End-user data export and deletion (dashboard and secret-key API) | ✓ |
+| Consent capture (SDK `setConsent`, server-side enforcement, dashboard overview and lookup) and suppression lists (dashboard, API, automatic from consent) | ✓ Phase 2, pulled forward |
 | Analytics v1: events, funnels, retention (Postgres) | ✓ |
 | Organization settings, plan & usage (limits shown, not enforced), audit log viewer | ✓ |
 | Scheduled cleanup: plan retention (report by default, `EVENT_RETENTION=enforce` to delete) and operational purges | ✓ |
@@ -39,7 +40,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Audiences and automation (push, in-app, webhooks) | 3–4 | [Audiences](audiences.md), [Automation](automation.md) |
 | Billing provider, limit enforcement | 3 | [Billing](billing.md) |
 | OAuth, MFA, SSO | 2–4 | Schema ready |
-| Privacy: consent capture and suppression lists | 2 | Export and deletion are built (dashboard and API) |
+| Privacy: consent for native SDKs; a marketer-level permission for suppression lists; suppression of hashed ids that survives deletion | 2 | JS SDK consent, server enforcement and suppression lists are built ([API](api.md#consent-and-suppression)). Native SDKs must implement the same `setConsent` contract |
 | LLM-assisted plan suggestions, Arabic free-text classification | 2 | Suggestions only, always approval-gated |
 | Plan editing: custom events/properties, version diff, export | 2 | |
 | Public management API with secret keys | 2 | |
@@ -49,6 +50,6 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 
 1. **Phase 1** (PR #1): foundation and first-event loop, plus the production basics pulled forward: email and account security, privacy export and deletion, retention and cleanup jobs, settings, audit log, CSP and structured logs, browser tests, analytics v1.
 2. **Phase 1.5**: deploy (waits on the owner's database, Vercel, DNS and email decisions), monitoring, design-partner onboarding (5 MENA apps).
-3. **Phase 2**: native SDKs, analytics beyond v1, consent, plan editing, LLM suggestions, Arabic UI.
+3. **Phase 2**: native SDKs, analytics beyond v1, consent (✓ JS SDK and platform), plan editing, LLM suggestions, Arabic UI.
 4. **Phase 3**: attribution with TikTok, Snapchat, Meta, Google; billing.
 5. **Phase 4**: audiences and automation.

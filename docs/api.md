@@ -10,7 +10,7 @@ Base URL: `https://api.leanapp.io` (production). The dashboard is `https://app.l
 | Ingestion from servers | Secret key `la_sk_…` | same |
 | Management API | Dashboard session cookie (`la_session`) | cookie; writes must be `Content-Type: application/json` |
 
-Secret keys act on their environment within the permissions (scopes) chosen when the key is created: `events:write` (send events; the default), `privacy:read` (exports) and `privacy:write` (deletions and their status). A key without the scope an endpoint needs gets `403 forbidden`. Secret-key access to the rest of the management API (for CI and infrastructure-as-code) is planned.
+Secret keys act on their environment within the permissions (scopes) chosen when the key is created: `events:write` (send events; the default), `privacy:read` (exports, consent lookups, listing suppressions) and `privacy:write` (deletions and their status, adding and removing suppressions). A key without the scope an endpoint needs gets `403 forbidden`. Secret-key access to the rest of the management API (for CI and infrastructure-as-code) is planned.
 
 ## Endpoints (built)
 
@@ -27,6 +27,10 @@ Secret keys act on their environment within the permissions (scopes) chosen when
 | POST | `/v1/privacy/exports` | secret key, `privacy:read` | Everything stored about an end user, as JSON: `{ user_id?, anonymous_id? }` |
 | POST | `/v1/privacy/deletions` | secret key, `privacy:write` | Delete an end user's data: `{ user_id?, anonymous_id? }` → `202 { id, status }` |
 | GET | `/v1/privacy/deletions/{id}` | secret key, `privacy:write` | Deletion status, with rows deleted per table |
+| GET | `/v1/privacy/consent?user_id=&anonymous_id=` | secret key, `privacy:read` | Current consent per purpose, consent history and suppressions of an end user |
+| GET | `/v1/privacy/suppressions?channel=&user_id=&limit=&cursor=` | secret key, `privacy:read` | Suppression list, newest first, paged by `next_cursor` |
+| POST | `/v1/privacy/suppressions` | secret key, `privacy:write` | Suppress a user: `{ user_id \| anonymous_id, channel \| channels, reason? }` → `201` |
+| DELETE | `/v1/privacy/suppressions?user_id=&channel=` | secret key, `privacy:write` | Remove manual/API suppressions (`channel` repeatable) |
 | GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue and retry privacy deletions (Vercel Cron) |
 
 Everything else in the dashboard (questionnaire, plans, keys, members) runs through server actions on top of the same modules. They become public REST endpoints as the management API grows (planned: plans, mappings, keys, members, and export).
@@ -38,6 +42,7 @@ Everything else in the dashboard (questionnaire, plans, keys, members) runs thro
 - **Errors:** `400 invalid_json | invalid_batch`, `401 invalid_api_key`, `403 forbidden` (secret key without `events:write`), `413 payload_too_large`, `429 rate_limited` (+ `Retry-After` seconds), `500`.
 - **Limits:** see [events](events.md).
 - `source` is set by the server: `backend` for secret keys, `mobile_sdk` for public keys.
+- **Consent:** an event of `type: "consent"` with `consent: { analytics?, marketing?, push?, attribution? }` (booleans, at least one) records the user's decision instead of being stored as an event; it counts as accepted and is free. Events from a user or install whose latest analytics decision is "denied" (including a denial earlier in the same batch) are not stored and are listed in `rejected[]` with `reason: "consent_denied"`; a single event dropped this way still returns `200`. Where attribution is denied, `context.attribution` is removed. See [Consent](#consent-and-suppression).
 
 ## Privacy requests
 
@@ -49,7 +54,25 @@ Requests act on the secret key's environment only. Which rows belong to the subj
 
 Exports cover events, sessions, profile, installs, identity links, push tokens, attribution, consent, notifications, audience memberships and automation runs, up to 10,000 rows per table (`truncated` names any table that hit the limit). Deletions run as a job right after the `202`; the scheduled worker retries a failed or interrupted job up to 3 times. Both are rate-limited to 1,000 requests per hour per environment and recorded in the audit log. Owners and admins can do the same from the dashboard (app → Privacy requests).
 
+Exports and deletions include consent history (`consent_records`), current consent (`consent_state`) and suppressions, following the same shared-device rule: a shared install's `anon:` entries are kept. Deleting a user also removes their suppressions; suppress them again if you keep their id in your own systems.
+
 Deletion doesn't stop new data: stop sending events for the user first (for example `Analytics.reset()` in the SDK, and stop server-side events).
+
+## Consent and suppression
+
+**Recording consent.** The SDK's `setConsent()` sends a `consent` event (see [SDK](sdk.md#consent)); a server sends the same event with a secret key (`events:write`):
+
+```json
+{ "type": "consent", "user_id": "user_123", "event_id": "consent-user_123-42", "consent": { "marketing": false } }
+```
+
+Each purpose is appended to the history (`consent_records`, deduplicated by `event_id`) and becomes the current state when it is newer than what is stored (by the event's `timestamp`), so a late retry never overrides a newer decision.
+
+**User keys and stitching.** Consent is kept per environment under user keys: the `user_id`, or `anon:<anonymous_id>` for an install. A change carrying both ids is stored under both. To decide about an event, the server looks at the event's user key and install key and takes the most recent decision. The SDK records the device's answers again when a user signs in (`identify`, `alias`) and after `reset()`, so consent given before login follows the user.
+
+**Suppression lists.** Per environment, a user key can be suppressed on `marketing` (no marketing message on any medium), `push` or `email` (nothing on that medium). Sources: the dashboard (Privacy → Suppression list), the API, and consent: denying marketing or push adds an automatic `marketing` / `push` entry, and granting again removes only those automatic entries. Removing through the dashboard or API never removes an automatic entry while consent is denied (the response lists those in `still_suppressed_by_consent`). Adds and removals are in the audit log.
+
+**For automation.** `src/modules/privacy/consent.ts` exports `isSuppressed(environmentId, userKey, channel)`, `suppressedKeys(...)` for batches and `consentState(environmentId, userKey)`; automation must call `isSuppressed` before each send.
 
 ## Errors
 

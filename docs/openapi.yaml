@@ -16,7 +16,7 @@ tags:
   - name: Management
     description: Dashboard-session API for organizations, apps and the debugger.
   - name: Privacy
-    description: End-user data export and deletion (secret key).
+    description: End-user data export and deletion, consent and suppression lists (secret key).
   - name: System
     description: Health and operations.
 paths:
@@ -274,6 +274,133 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/privacy/consent:
+    get:
+      operationId: getConsent
+      tags: [Privacy]
+      summary: An end user's current consent, history and suppressions in the key's environment
+      description: Needs a secret key with the `privacy:read` scope. Consent is recorded with a `consent` event (POST /v1/events).
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: user_id, in: query, schema: { type: string, maxLength: 256 } }
+        - { name: anonymous_id, in: query, schema: { type: string, maxLength: 256 } }
+      responses:
+        "200":
+          description: Current consent per purpose (true, false, or null for no decision), stitched across the user and install keys
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_keys: { type: array, items: { type: string } }
+                  consent:
+                    type: object
+                    properties:
+                      analytics: { type: [boolean, "null"] }
+                      marketing: { type: [boolean, "null"] }
+                      push: { type: [boolean, "null"] }
+                      attribution: { type: [boolean, "null"] }
+                  updated_at: { type: [string, "null"], format: date-time }
+                  history:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        purpose: { type: string, enum: [analytics, marketing, push, attribution] }
+                        granted: { type: boolean }
+                        source: { type: string, enum: [sdk, api, dashboard] }
+                        user_id: { type: [string, "null"] }
+                        anonymous_id: { type: [string, "null"] }
+                        recorded_at: { type: string, format: date-time }
+                        received_at: { type: string, format: date-time }
+                  suppressions: { type: array, items: { $ref: "#/components/schemas/Suppression" } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/privacy/suppressions:
+    get:
+      operationId: listSuppressions
+      tags: [Privacy]
+      summary: The key's environment's suppression list, newest first
+      description: Needs a secret key with the `privacy:read` scope.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: channel, in: query, schema: { type: string, enum: [marketing, push, email] } }
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: anonymous_id, in: query, schema: { type: string } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: cursor, in: query, description: next_cursor of the previous page, schema: { type: string } }
+      responses:
+        "200":
+          description: One page
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { type: array, items: { $ref: "#/components/schemas/Suppression" } }
+                  next_cursor: { type: [string, "null"] }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: addSuppression
+      tags: [Privacy]
+      summary: Suppress an end user on one or more channels
+      description: Needs a secret key with the `privacy:write` scope. Repeating an add only updates the reason.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: One of user_id or anonymous_id, and channel or channels.
+              properties:
+                user_id: { type: string, maxLength: 256 }
+                anonymous_id: { type: string, maxLength: 256 }
+                channel: { type: string, enum: [marketing, push, email] }
+                channels: { type: array, items: { type: string, enum: [marketing, push, email] } }
+                reason: { type: string, maxLength: 500 }
+      responses:
+        "201":
+          description: Suppressed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_key: { type: string }
+                  channels: { type: array, items: { type: string } }
+                  suppressed: { type: boolean }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+    delete:
+      operationId: removeSuppression
+      tags: [Privacy]
+      summary: Remove manual and API suppressions of an end user
+      description: Needs a secret key with the `privacy:write` scope. Entries from denied consent stay until the user grants consent again.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: user_id, in: query, schema: { type: string } }
+        - { name: anonymous_id, in: query, schema: { type: string } }
+        - { name: channel, in: query, required: true, description: Repeat for several channels., schema: { type: string, enum: [marketing, push, email] } }
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  user_key: { type: string }
+                  removed: { type: integer }
+                  still_suppressed_by_consent: { type: array, items: { type: string } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
 components:
   securitySchemes:
     bearerKey:
@@ -340,7 +467,7 @@ components:
       type: object
       description: At least one of anonymous_id or user_id is required. event_name is required for track.
       properties:
-        type: { type: string, enum: [track, screen, identify, alias, push_token], default: track }
+        type: { type: string, enum: [track, screen, identify, alias, push_token, consent], default: track }
         event_name: { type: string, maxLength: 100, pattern: "^[A-Za-z][A-Za-z0-9_ .:\\-]*$" }
         event_id: { type: string, maxLength: 200 }
         timestamp: { type: string, format: date-time }
@@ -359,6 +486,16 @@ components:
             token: { type: string, minLength: 10, maxLength: 4096 }
             provider: { type: string, enum: [fcm, apns] }
             permission: { type: string, enum: [granted, denied, provisional, unknown] }
+        consent:
+          type: object
+          description: Required for type consent; the purposes that changed. Recorded as consent, never stored as an event.
+          additionalProperties: false
+          minProperties: 1
+          properties:
+            analytics: { type: boolean }
+            marketing: { type: boolean }
+            push: { type: boolean }
+            attribution: { type: boolean }
     Context:
       type: object
       additionalProperties: true
@@ -402,6 +539,10 @@ components:
             properties:
               index: { type: integer }
               event_id: { type: string }
+              reason:
+                type: string
+                enum: [consent_denied]
+                description: Present when a valid event was not stored because the user denied analytics consent.
               errors:
                 type: array
                 items:
@@ -465,6 +606,7 @@ components:
         eventsToday: { type: integer }
         activeUsersToday: { type: integer }
         rejectedToday: { type: integer }
+        consentDeniedToday: { type: integer, description: Part of rejectedToday (reason consent_denied). }
     PrivacySubject:
       type: object
       description: At least one of user_id and anonymous_id.
@@ -487,12 +629,20 @@ components:
             skipped_anonymous_ids: { type: array, items: { type: string }, description: The subject's installs another user is linked to as well; their anonymous activity is left out. }
         data:
           type: object
-          description: Rows per table (events, sessions, profiles, installs, identity_links, push_tokens, attribution_touchpoints, attribution_events, consent_records, notifications, audience_memberships, automation_runs).
+          description: Rows per table (events, sessions, profiles, installs, identity_links, push_tokens, attribution_touchpoints, attribution_events, consent_records, consent_state, suppressions, notifications, audience_memberships, automation_runs).
           additionalProperties: { type: array, items: { type: object } }
         truncated:
           type: array
           description: Tables that hit the 10,000-row limit.
           items: { type: string }
+    Suppression:
+      type: object
+      properties:
+        user_key: { type: string, description: "user_id, or anon:<anonymous_id>" }
+        channel: { type: string, enum: [marketing, push, email] }
+        source: { type: string, enum: [manual, api, consent] }
+        reason: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
     DeletionStatus:
       type: object
       required: [id, status, subject, created_at, rows_deleted, details]
