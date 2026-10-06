@@ -2,6 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 import { log } from "@/lib/log";
 import { purgeRateLimitBuckets } from "@/lib/rate-limit";
 import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
+import { runAttributionJobs } from "@/modules/attribution/delivery";
 import { runDeletionJobs } from "@/modules/privacy/service";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { checkConfig } from "@/server/config";
@@ -11,6 +12,8 @@ export const maxDuration = 60;
 
 /** No new processing batch starts after this much wall time (of maxDuration). */
 const PROCESSING_BUDGET_MS = 35_000;
+/** Postback delivery stops starting new requests after this much wall time. */
+const ATTRIBUTION_BUDGET_MS = 48_000;
 
 function authorized(req: Request): boolean {
   const secret = process.env.CRON_SECRET;
@@ -39,7 +42,9 @@ export async function GET(req: Request) {
   const { processed, failed } = await processPendingEvents({ limit: 20_000, deadline: started + PROCESSING_BUDGET_MS });
   const purged = { rate_limit_buckets: await purgeRateLimitBuckets(), ...(await purgeOperationalData()) };
   const retention = await applyEventRetention();
-  const summary = { processed, failed, deletions, purged, retention: { mode: retention.mode, organizations: retention.organizations.length } };
+  // Attribution postbacks and click fingerprint cleanup, only while time is left.
+  const attribution = Date.now() < started + ATTRIBUTION_BUDGET_MS ? await runAttributionJobs({ deadline: started + ATTRIBUTION_BUDGET_MS }) : null;
+  const summary = { processed, failed, deletions, purged, retention: { mode: retention.mode, organizations: retention.organizations.length }, attribution };
   log.info("cron.completed", summary);
-  return Response.json({ processed, failed, deletions, purged, retention });
+  return Response.json({ processed, failed, deletions, purged, retention, attribution });
 }

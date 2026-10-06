@@ -72,7 +72,8 @@ export async function handleIngest(req: Request, mode: "single" | "batch"): Prom
       errorCode = "rate_limited";
       return json(429, { error: errorCode, message: "Event rate limit exceeded for this environment." }, { "Retry-After": String(wait) });
     }
-    const result = await ingest(principal, payload, { mode, idempotencyKey: req.headers.get("idempotency-key") });
+    const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
+    const result = await ingest(principal, payload, { mode, idempotencyKey: req.headers.get("idempotency-key"), clientIp });
     status = result.status;
     after(() => processPendingEvents({ environmentId: principal.environmentId, limit: 1000 }).catch((e) => log.error("processing.failed", { environment_id: principal.environmentId, error: e })));
     return json(result.status, result.body, result.replayed ? { "Idempotent-Replayed": "true" } : {});
