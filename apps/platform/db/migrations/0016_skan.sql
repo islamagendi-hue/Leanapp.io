@@ -1,6 +1,6 @@
 -- SKAdNetwork / AdAttributionKit postbacks and conversion-value schemas
 -- (docs/attribution.md). Nothing here changes existing rows.
--- (File name assigned as 0016_mmp_skan; MMP import was dropped from scope.)
+-- (File name assigned as 0016_skan; MMP import was dropped from scope.)
 
 -- SKAdNetwork routing and readiness (per app).
 alter table platform.attribution_settings

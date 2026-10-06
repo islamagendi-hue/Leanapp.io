@@ -82,7 +82,7 @@ App → Attribution: clicks, installs (attributed / organic / probabilistic / re
 
 ## SKAdNetwork / AdAttributionKit
 
-Code: `skan.ts` (parsing and Apple signature verification, pure), `skan-schema.ts` (conversion value schema, pure), `skan-service.ts` (receiver, settings, schema, reports). Migration `0016_mmp_skan.sql`. Dashboard: app → Attribution → SKAdNetwork; the overview lists postbacks per network and source identifier.
+Code: `skan.ts` (parsing and Apple signature verification, pure), `skan-schema.ts` (conversion value schema, pure), `skan-service.ts` (receiver, settings, schema, reports). Migration `0016_skan.sql`. Dashboard: app → Attribution → SKAdNetwork; the overview lists postbacks per network and source identifier.
 
 **Receiving postback copies.** The app sets `NSAdvertisingAttributionReportEndpoint` (SKAdNetwork) and `AdAttributionKit → AttributionCopyEndpoint` in Info.plist to `https://<domain>`. Apple uses only the registrable domain and posts to `/.well-known/skadnetwork/report-attribution/` and `/.well-known/appattribution/report-attribution/` (trailing slash; `next.config.ts` sets `skipTrailingSlashRedirect` and `proxy.ts` keeps the usual redirect for every other path). `SKAN_REPORT_DOMAIN` names the domain whose root routes those paths to this deployment; customers on their own domain forward the two paths unchanged.
 
