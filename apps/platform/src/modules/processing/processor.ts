@@ -9,8 +9,9 @@ import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
  * Asynchronous event processing (the "queue" consumer).
  *
  * Postgres is the queue in phase 1: unprocessed rows are claimed with
- * FOR UPDATE SKIP LOCKED, so concurrent workers (the after() hook on each
- * ingestion request plus the scheduled job) never process the same event twice.
+ * FOR UPDATE SKIP LOCKED in small committed batches, and workers (the after()
+ * hook on each ingestion request plus the scheduled job) are serialized per
+ * environment, so no event is processed twice and workers never deadlock.
  *
  * Per event, exactly once:
  *   1. identity: anonymous users, identified users (+ traits), identity links
@@ -41,20 +42,67 @@ export interface EventRow {
 
 const SYSTEM_NAMES = new Set(Object.values(SYSTEM_EVENT_NAMES).concat(["app_installed", "app_opened", "app_updated", "deep_link_opened", "push_opened"]));
 
-export async function processPendingEvents(opts: { limit?: number; environmentId?: string } = {}): Promise<{ processed: number; failed: number }> {
-  const limit = Math.min(opts.limit ?? 500, 2000);
+/** Events claimed per transaction: small enough that locks are held briefly and progress is committed often. */
+const BATCH_SIZE = 100;
+/** Transient failures (deadlock, serialization) are retried this many times before the event is marked failed. */
+export const MAX_PROCESSING_ATTEMPTS = 5;
+const TRANSIENT = new Set(["40P01", "40001"]);
+
+/**
+ * Drains unprocessed events, one environment at a time and BATCH_SIZE events
+ * per transaction. Workers are serialized per environment with a transaction
+ * advisory lock: the upserts below share rows (sessions, users, identity links,
+ * implementation status) across events, so two workers on one environment
+ * would contend and could deadlock. A worker that finds an environment locked
+ * skips it; the holder drains it. Stops at `limit` events or `deadline` (epoch ms).
+ */
+export async function processPendingEvents(
+  opts: { limit?: number; environmentId?: string; deadline?: number } = {},
+): Promise<{ processed: number; failed: number }> {
+  const limit = Math.min(opts.limit ?? 500, 20_000);
+  const environments = opts.environmentId
+    ? [opts.environmentId]
+    : (await withSystem((db) =>
+        db.query<{ environment_id: string }>(
+          "select environment_id from platform.events where processed_at is null group by environment_id order by min(id)",
+        ),
+      )).map((r) => r.environment_id);
+  let processed = 0;
+  let failed = 0;
+  let claimed = 0;
+  for (const environmentId of environments) {
+    while (claimed < limit && !(opts.deadline && Date.now() >= opts.deadline)) {
+      const size = Math.min(BATCH_SIZE, limit - claimed);
+      const r = await processBatch(environmentId, size);
+      if (!r) break; // another worker holds this environment
+      processed += r.processed;
+      failed += r.failed;
+      claimed += r.claimed;
+      if (r.claimed < size) break;
+    }
+  }
+  return { processed, failed };
+}
+
+async function processBatch(environmentId: string, size: number): Promise<{ claimed: number; processed: number; failed: number } | null> {
   return withSystem(async (db) => {
-    const rows = await db.query<EventRow>(
+    const lock = await db.one<{ ok: boolean }>(
+      "select pg_try_advisory_xact_lock(hashtextextended('platform.events.processing:' || $1, 0)) as ok",
+      [environmentId],
+    );
+    if (!lock?.ok) return null;
+    const rows = await db.query<EventRow & { processing_attempts: number }>(
       `select id, organization_id, app_id, environment_id, type, event_name, "timestamp", anonymous_id, user_id, session_id,
-              platform, app_version, source, properties, user_properties, context
+              platform, app_version, source, properties, user_properties, context, processing_attempts
          from platform.events
-        where processed_at is null ${opts.environmentId ? "and environment_id = $2" : ""}
+        where processed_at is null and environment_id = $1
         order by id
-        limit $1
+        limit $2
         for update skip locked`,
-      opts.environmentId ? [limit, opts.environmentId] : [limit],
+      [environmentId, size],
     );
     const plans = new Map<string, PublishedPlan | null>();
+    let processed = 0;
     let failed = 0;
     for (const e of rows) {
       if (!plans.has(e.app_id)) plans.set(e.app_id, await loadPublishedPlan(db, e.app_id));
@@ -63,13 +111,23 @@ export async function processPendingEvents(opts: { limit?: number; environmentId
       try {
         await processOne(db, e, plans.get(e.app_id) ?? null);
         await db.query("release savepoint ev");
+        processed++;
       } catch (err) {
         await db.query("rollback to savepoint ev");
-        failed++;
-        await db.query("update platform.events set processed_at = now(), processing_error = $2 where id = $1", [e.id, String((err as Error).message).slice(0, 500)]);
+        const message = String((err as Error).message).slice(0, 500);
+        if (TRANSIENT.has((err as { code?: string }).code ?? "") && e.processing_attempts + 1 < MAX_PROCESSING_ATTEMPTS) {
+          // Left unprocessed: the next batch (or the next worker) retries it.
+          await db.query("update platform.events set processing_attempts = processing_attempts + 1, processing_error = $2 where id = $1", [e.id, message]);
+        } else {
+          failed++;
+          await db.query(
+            "update platform.events set processed_at = now(), processing_attempts = processing_attempts + 1, processing_error = $2 where id = $1",
+            [e.id, message],
+          );
+        }
       }
     }
-    return { processed: rows.length - failed, failed };
+    return { claimed: rows.length, processed, failed };
   });
 }
 
@@ -165,7 +223,7 @@ async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null) {
 
   // 4. Plan
   const canonical = await applyPlan(db, e, plan, true);
-  await db.query("update platform.events set processed_at = now(), canonical_name = $2 where id = $1", [
+  await db.query("update platform.events set processed_at = now(), processing_error = null, canonical_name = $2 where id = $1", [
     e.id,
     canonical !== e.event_name ? canonical : null,
   ]);
