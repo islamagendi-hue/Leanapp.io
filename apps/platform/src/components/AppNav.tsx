@@ -7,7 +7,7 @@ type Item = { label: string; href?: string; soon?: boolean };
 type Group = { label: string; items: Item[] };
 
 /** Product navigation. Sections not built yet are listed and labelled, never faked. */
-export function AppNav({ base, appName, privacy = false, attribution = false }: { base: string; appName: string; privacy?: boolean; attribution?: boolean }) {
+export function AppNav({ base, appName, privacy = false, attribution = false, users = false }: { base: string; appName: string; privacy?: boolean; attribution?: boolean; users?: boolean }) {
   const path = usePathname();
   const groups: Group[] = [
     { label: "Overview", items: [{ label: "Setup", href: base }] },
@@ -30,10 +30,13 @@ export function AppNav({ base, appName, privacy = false, attribution = false }: 
     {
       label: "Analytics",
       items: [
+        { label: "Overview", href: `${base}/analytics` },
         { label: "Events", href: `${base}/analytics/events` },
         { label: "Funnels", href: `${base}/analytics/funnels` },
         { label: "Retention", href: `${base}/analytics/retention` },
-        { label: "Users", soon: true },
+        { label: "Revenue", href: `${base}/analytics/revenue` },
+        { label: "Cohorts", href: `${base}/analytics/cohorts` },
+        ...(users ? [{ label: "Users", href: `${base}/analytics/users` }] : []),
       ],
     },
     ...(attribution ? [{
@@ -60,7 +63,7 @@ export function AppNav({ base, appName, privacy = false, attribution = false }: 
                 <li key={i.label}>
                   <Link
                     href={i.href}
-                    className={`block rounded-md px-2 py-1.5 ${path === i.href ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
+                    className={`block rounded-md px-2 py-1.5 ${path === i.href || (path.startsWith(`${i.href}/`) && i.href !== base && i.href !== `${base}/analytics`) ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
                   >
                     {i.label}
                   </Link>

@@ -15,6 +15,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Email verification, password reset and change, session management, invitation emails | ✓ (sending needs `RESEND_API_KEY` and a verified domain) |
 | End-user data export and deletion (dashboard and secret-key API) | ✓ |
 | Analytics v1: events, funnels, retention (Postgres) | ✓ |
+| Analytics: revenue per currency (refunds netted, no FX), saved cohorts as report filters, user profiles with timeline, saved reports | ✓ |
 | Organization settings, audit log viewer | ✓ |
 | Billing: plan limits enforced (apps, seats incl. invitations, monthly events with 10% grace then `429 plan_limit_exceeded`), 80/100/110% owner emails and banners, Stripe Checkout, Customer Portal, signed idempotent webhooks, subscriptions and invoices, Plan & billing page | ✓ code built; payments ✗ not connected: needs a Stripe account, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, a Price per plan in `plans.stripe_price_id` ([billing](billing.md)) |
 | Scheduled cleanup: plan retention (report by default, `EVENT_RETENTION=enforce` to delete) and operational purges | ✓ |
@@ -37,7 +38,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Production deployment and monitoring (Sentry or similar, uptime) | 1.5 | Owner decisions in [deployment](deployment.md) |
 | Email provider account | 1.5 | Code is built; needs a Resend API key and leanapp.io verified as a sending domain |
 | Native SDKs: Android, iOS, Flutter | 2 | API is specified in [SDK](sdk.md) |
-| Analytics: cohorts, revenue, user profiles, saved reports | 2 | Events, funnels and retention v1 are built ([analytics](analytics.md)) |
+| Analytics: activation reports, revenue by channel/campaign, cohort AND/OR trees, CSV export | 2–3 | Cohorts, revenue, user profiles and saved reports are built ([analytics](analytics.md)); channel/campaign needs the attribution engine |
 | ClickHouse event store, Redis | 2 | When volume requires ([ADR-002](adr/ADR-002-event-store.md)) |
 | Attribution: SKAdNetwork / AdAttributionKit, view-through, cost import / ROAS, MMP import, first-touch and linear models | 3 | Engine, links, matching, conversions, postbacks and dashboard are built ([attribution](attribution.md)) |
 | Ad-network postbacks verified live (TikTok, Snap, Meta, Google Ads) | 3 | Request code is built behind encrypted per-postback credentials but untested against the networks: needs a customer's TikTok App ID + Events API token, Snap App ID + CAPI token, Meta dataset ID + system user token, Google Ads customer ID, conversion action, developer token and OAuth client + refresh token. Production also needs `INTEGRATIONS_ENCRYPTION_KEY` and `ATTRIBUTION_IP_HASH_SECRET` |

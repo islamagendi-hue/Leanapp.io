@@ -6,11 +6,13 @@ export function TrendChart({ days, series, label }: { days: string[]; series: { 
   const H = 220;
   const pad = { l: 40, r: 12, t: 12, b: 26 };
   const max = Math.max(1, ...series.flatMap((s) => s.counts));
-  const step = Math.pow(10, Math.floor(Math.log10(max)));
+  const min = Math.min(0, ...series.flatMap((s) => s.counts)); // below zero only for net amounts (e.g. refunds)
+  const step = Math.pow(10, Math.floor(Math.log10(Math.max(max, -min))));
   const top = Math.ceil(max / step) * step;
+  const bottom = Math.floor(min / step) * step;
   const x = (i: number) => pad.l + (days.length <= 1 ? 0 : (i / (days.length - 1)) * (W - pad.l - pad.r));
-  const y = (v: number) => pad.t + (1 - v / top) * (H - pad.t - pad.b);
-  const ticks = [0, top / 2, top];
+  const y = (v: number) => pad.t + (1 - (v - bottom) / (top - bottom)) * (H - pad.t - pad.b);
+  const ticks = bottom < 0 ? [bottom, 0, top] : [0, top / 2, top];
   const labelEvery = Math.max(1, Math.ceil(days.length / 8));
   return (
     <figure className="space-y-2">

@@ -50,7 +50,12 @@ export type AuditAction =
   | "attribution.link_updated"
   | "attribution.postback_created"
   | "attribution.postback_updated"
-  | "attribution.postback_deleted";
+  | "attribution.postback_deleted"
+  | "cohort.created"
+  | "cohort.updated"
+  | "cohort.deleted"
+  | "saved_report.created"
+  | "saved_report.deleted";
 
 export interface AuditEntry {
   organizationId: string | null;
