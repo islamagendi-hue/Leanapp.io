@@ -2,6 +2,8 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { isUniqueViolation, withSystem } from "@/lib/db";
 import type { IngestionPrincipal } from "@/modules/credentials/service";
+import { eventAllowance, noteEventsAccepted } from "@/modules/billing/enforcement";
+import { retryAfterSeconds } from "@/modules/billing/limits";
 import { recordUsage } from "@/modules/usage/service";
 import { batchSchema, normalizeEvent, type NormalizedEvent, type NormalizeIssue } from "./schema";
 
@@ -17,7 +19,12 @@ export interface IngestResult {
   status: number;
   body: IngestResponse | { error: string; message: string; details?: unknown };
   replayed?: boolean;
+  /** Extra response headers (Retry-After on plan_limit_exceeded, the grace marker). */
+  headers?: Record<string, string>;
 }
+
+/** Response header set while the organization is past its monthly event allowance but inside the grace. */
+export const PLAN_GRACE_HEADER = "X-LeanApp-Plan-Limit";
 
 /**
  * Validates, de-duplicates and durably stores events, then returns. All
@@ -59,6 +66,21 @@ export async function ingest(
   } else {
     rawEvents = [payload];
   }
+
+  // Monthly plan allowance: refused (never silently dropped) once the grace is used up.
+  const allowance = await eventAllowance(principal.organizationId, now);
+  if (allowance.state === "blocked") {
+    await withSystem((db) => recordUsage(db, principal.organizationId, "events_refused", rawEvents.length, now));
+    return {
+      status: 429,
+      body: {
+        error: "plan_limit_exceeded",
+        message: `This organization has used its monthly event allowance (${allowance.limit} events plus 10% grace). Events are refused until the allowance resets on ${allowance.periodEnd.toISOString().slice(0, 10)} or the plan is upgraded.`,
+      },
+      headers: { "Retry-After": String(retryAfterSeconds(now)) },
+    };
+  }
+  const graceHeaders = allowance.state === "over" ? { [PLAN_GRACE_HEADER]: "grace" } : undefined;
 
   const batchId = randomUUID();
   const rejected: IngestResponse["rejected"] = [];
@@ -132,8 +154,9 @@ export async function ingest(
       return response;
     });
     // 207-style semantics without 207: the batch was processed; per-event errors are in the body.
+    if (body.accepted) noteEventsAccepted(principal.organizationId, body.accepted, now);
     const status = opts.mode === "single" && rejected.length ? 400 : 200;
-    return { status, body };
+    return { status, body, headers: graceHeaders };
   } catch (err) {
     // Concurrent retry with the same Idempotency-Key: the other request won; replay its response.
     if (idemKey && isUniqueViolation(err)) {

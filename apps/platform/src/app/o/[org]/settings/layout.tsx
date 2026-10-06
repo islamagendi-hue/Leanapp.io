@@ -9,7 +9,7 @@ export default async function SettingsLayout(props: LayoutProps<"/o/[org]/settin
   const tabs = [
     { label: "General", href: base, show: true },
     { label: "Members", href: `${base}/members`, show: can(ctx.role, "members.read") },
-    { label: "Plan & usage", href: `${base}/usage`, show: can(ctx.role, "billing.read") },
+    { label: "Plan & billing", href: `${base}/billing`, show: can(ctx.role, "billing.read") },
     { label: "Audit log", href: `${base}/audit`, show: can(ctx.role, "audit.read") },
   ].filter((t) => t.show);
   return (

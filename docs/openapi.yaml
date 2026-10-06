@@ -57,7 +57,7 @@ paths:
         "400": { $ref: "#/components/responses/IngestRejected" }
         "401": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
-        "429": { $ref: "#/components/responses/RateLimited" }
+        "429": { $ref: "#/components/responses/IngestLimited" }
     options:
       operationId: ingestEventPreflight
       tags: [Ingestion]
@@ -95,7 +95,7 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
-        "429": { $ref: "#/components/responses/RateLimited" }
+        "429": { $ref: "#/components/responses/IngestLimited" }
     options:
       operationId: ingestBatchPreflight
       tags: [Ingestion]
@@ -171,7 +171,12 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/App" }
         "401": { $ref: "#/components/responses/Error" }
-        "403": { $ref: "#/components/responses/Error" }
+        "403":
+          description: "`forbidden`, or `plan_limit_exceeded` when the organization already has as many apps as its plan includes"
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "409": { $ref: "#/components/responses/Error" }
         "422": { $ref: "#/components/responses/Error" }
   /v1/organizations/{org}/environments/{env}/events:
     parameters:
@@ -307,6 +312,9 @@ components:
       headers:
         Idempotent-Replayed:
           schema: { type: string, enum: ["true"] }
+        X-LeanApp-Plan-Limit:
+          description: Present while the organization is past its monthly event allowance but inside the 10% grace.
+          schema: { type: string, enum: ["grace"] }
       content:
         application/json:
           schema: { $ref: "#/components/schemas/IngestResult" }
@@ -315,6 +323,17 @@ components:
       content:
         application/json:
           schema: { $ref: "#/components/schemas/IngestResult" }
+    IngestLimited:
+      description: >-
+        `rate_limited` (too many events per minute for this environment) or `plan_limit_exceeded`
+        (the organization used its monthly event allowance plus the 10% grace; nothing in the request
+        was stored). Retry after `Retry-After` seconds.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
     RateLimited:
       description: Rate limit exceeded
       headers:

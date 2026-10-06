@@ -4,6 +4,7 @@ import { isUniqueViolation } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify } from "@/lib/slug";
 import { audit } from "@/modules/audit/service";
+import { assertCanAddApp } from "@/modules/billing/enforcement";
 import { insertSdkKey } from "@/modules/credentials/service";
 import type { EnvironmentType } from "@/modules/credentials/keys";
 import { validTimezone } from "@/modules/organizations/service";
@@ -54,6 +55,7 @@ export async function createApp(ctx: TenantContext, input: unknown): Promise<{ i
   const slug = slugify(data.name);
   try {
     return await tenantTx(ctx, "apps.create", async (db) => {
+      await assertCanAddApp(db, ctx.organizationId);
       const org = await db.one<{ timezone: string; default_currency: string }>(
         "select timezone, default_currency from platform.organizations where id = $1",
         [ctx.organizationId],

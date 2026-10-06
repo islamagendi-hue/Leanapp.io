@@ -12,6 +12,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
   "Access-Control-Allow-Headers": "Authorization, Content-Type, Idempotency-Key, X-Api-Key",
+  "Access-Control-Expose-Headers": "Retry-After, Idempotent-Replayed, X-LeanApp-Plan-Limit",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -74,8 +75,9 @@ export async function handleIngest(req: Request, mode: "single" | "batch"): Prom
     }
     const result = await ingest(principal, payload, { mode, idempotencyKey: req.headers.get("idempotency-key") });
     status = result.status;
+    if (status >= 400 && "error" in result.body) errorCode = result.body.error;
     after(() => processPendingEvents({ environmentId: principal.environmentId, limit: 1000 }).catch((e) => log.error("processing.failed", { environment_id: principal.environmentId, error: e })));
-    return json(result.status, result.body, result.replayed ? { "Idempotent-Replayed": "true" } : {});
+    return json(result.status, result.body, { ...result.headers, ...(result.replayed ? { "Idempotent-Replayed": "true" } : {}) });
   } catch (err) {
     log.error("ingest.failed", { environment_id: principal.environmentId, error: err });
     errorCode = "internal_error";
