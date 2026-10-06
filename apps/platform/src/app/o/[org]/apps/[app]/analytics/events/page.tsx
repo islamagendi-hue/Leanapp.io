@@ -69,13 +69,13 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
 
           <section className="card overflow-x-auto p-0">
             <table className="table">
-              <thead><tr><th>Event</th><th className="text-right">Events</th><th className="text-right">People</th></tr></thead>
+              <thead><tr><th>Event</th><th className="text-end">Events</th><th className="text-end">People</th></tr></thead>
               <tbody>
                 {events.map((e) => (
                   <tr key={e.name}>
                     <td className="font-mono text-sm"><Link className={e.name === selected ? "font-bold" : "underline"} href={link(e.name)}>{e.name}</Link></td>
-                    <td className="text-right tabular-nums">{num(e.count)}</td>
-                    <td className="text-right tabular-nums">{num(e.people)}</td>
+                    <td className="text-end tabular-nums">{num(e.count)}</td>
+                    <td className="text-end tabular-nums">{num(e.people)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { connection } from "next/server";
+import { getLocale } from "@/lib/locale";
 import "./globals.css";
 
 const dubai = localFont({
@@ -22,13 +23,21 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export const viewport: Viewport = { themeColor: "#f4f2ec", width: "device-width", initialScale: 1 };
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f2ec" },
+    { media: "(prefers-color-scheme: dark)", color: "#0e1311" },
+  ],
+  width: "device-width",
+  initialScale: 1,
+};
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Every page renders per request so Next.js can apply the CSP nonce set in proxy.ts.
   await connection();
+  const { lang, dir } = await getLocale();
   return (
-    <html lang="en" className={`${dubai.variable} ${plexMono.variable}`}>
+    <html lang={lang} dir={dir} className={`${dubai.variable} ${plexMono.variable}`}>
       <body className="min-h-dvh antialiased">{children}</body>
     </html>
   );
