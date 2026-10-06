@@ -1,0 +1,517 @@
+openapi: 3.1.0
+info:
+  title: LeanApp API
+  version: 1.0.0
+  description: |
+    Ingestion and management API for LeanApp (leanapp.io).
+    Only endpoints that exist today are listed. See docs/api.md for planned endpoints.
+servers:
+  - url: https://api.leanapp.io
+    description: Production (not yet deployed)
+  - url: http://localhost:3100
+    description: Local development
+tags:
+  - name: Ingestion
+    description: Events from apps (public key) and servers (secret key).
+  - name: Management
+    description: Dashboard-session API for organizations, apps and the debugger.
+  - name: Privacy
+    description: End-user data export and deletion (secret key).
+  - name: System
+    description: Health and operations.
+paths:
+  /v1/health:
+    get:
+      operationId: getHealth
+      tags: [System]
+      summary: Liveness and database reachability
+      security: []
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, enum: [ok] }
+                  database: { type: string, enum: [ok] }
+                  latency_ms: { type: integer }
+        "503":
+          description: Database unreachable
+  /v1/events:
+    post:
+      operationId: ingestEvent
+      tags: [Ingestion]
+      summary: Ingest one event
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Event" }
+      responses:
+        "200": { $ref: "#/components/responses/Ingested" }
+        "400": { $ref: "#/components/responses/IngestRejected" }
+        "401": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    options:
+      operationId: ingestEventPreflight
+      tags: [Ingestion]
+      summary: CORS preflight
+      security: []
+      responses:
+        "204": { description: Preflight accepted }
+  /v1/events/batch:
+    post:
+      operationId: ingestBatch
+      tags: [Ingestion]
+      summary: Ingest up to 500 events
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [batch]
+              properties:
+                batch:
+                  type: array
+                  minItems: 1
+                  maxItems: 500
+                  items: { $ref: "#/components/schemas/Event" }
+                sent_at:
+                  type: string
+                  format: date-time
+                  description: Device time when the request was sent; used to correct clock skew.
+      responses:
+        "200": { $ref: "#/components/responses/Ingested" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    options:
+      operationId: ingestBatchPreflight
+      tags: [Ingestion]
+      summary: CORS preflight
+      security: []
+      responses:
+        "204": { description: Preflight accepted }
+  /v1/organizations:
+    get:
+      operationId: listOrganizations
+      tags: [Management]
+      summary: Organizations the signed-in user belongs to
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: Organizations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  organizations:
+                    type: array
+                    items: { $ref: "#/components/schemas/Organization" }
+        "401": { $ref: "#/components/responses/Error" }
+  /v1/organizations/{org}/apps:
+    parameters:
+      - $ref: "#/components/parameters/Org"
+    get:
+      operationId: listApps
+      tags: [Management]
+      summary: List apps
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: Apps
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  apps:
+                    type: array
+                    items: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+    post:
+      operationId: createApp
+      tags: [Management]
+      summary: Create an app with development, staging and production environments
+      security: [{ session: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, platforms]
+              properties:
+                name: { type: string, minLength: 2, maxLength: 80 }
+                platforms:
+                  type: array
+                  minItems: 1
+                  items: { type: string, enum: [android, ios, react_native, flutter, web, backend] }
+                description: { type: string, maxLength: 500 }
+                category: { type: string, maxLength: 60 }
+                timezone: { type: string, description: "IANA time zone, e.g. Asia/Riyadh" }
+                defaultCurrency: { type: string, pattern: "^[A-Z]{3}$" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/App" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+  /v1/organizations/{org}/environments/{env}/events:
+    parameters:
+      - $ref: "#/components/parameters/Org"
+      - name: env
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+      - name: after
+        in: query
+        description: Return events with an id greater than this (debugger paging).
+        schema: { type: string, pattern: "^[0-9]+$" }
+    get:
+      operationId: getDebuggerFeed
+      tags: [Management]
+      summary: Event debugger feed and connection health
+      security: [{ session: [] }]
+      responses:
+        "200":
+          description: Newest events first, plus health
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  events: { type: array, items: { $ref: "#/components/schemas/DebugEvent" } }
+                  health: { $ref: "#/components/schemas/ConnectionHealth" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+  /v1/privacy/exports:
+    post:
+      operationId: exportSubjectData
+      tags: [Privacy]
+      summary: Export everything stored about an end user in the key's environment
+      description: Needs a secret key with the `privacy:read` scope.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrivacySubject" }
+      responses:
+        "200":
+          description: The subject's data
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/SubjectExport" }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/privacy/deletions:
+    post:
+      operationId: requestDeletion
+      tags: [Privacy]
+      summary: Delete an end user's data in the key's environment
+      description: Needs a secret key with the `privacy:write` scope.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/PrivacySubject" }
+      responses:
+        "202":
+          description: Queued; poll the Location for the result
+          headers:
+            Location:
+              schema: { type: string }
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, status]
+                properties:
+                  id: { type: string, format: uuid }
+                  status: { type: string, enum: [received] }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/privacy/deletions/{id}:
+    get:
+      operationId: getDeletion
+      tags: [Privacy]
+      summary: Status of a deletion request
+      description: Needs a secret key with the `privacy:write` scope.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Deletion status
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/DeletionStatus" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+components:
+  securitySchemes:
+    bearerKey:
+      type: http
+      scheme: bearer
+      description: Public SDK key (la_pk_…) or secret key (la_sk_…).
+    headerKey:
+      type: apiKey
+      in: header
+      name: X-Api-Key
+    session:
+      type: apiKey
+      in: cookie
+      name: la_session
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: Same value on every retry of the same request; the stored response is replayed.
+      schema: { type: string, maxLength: 200 }
+    Org:
+      name: org
+      in: path
+      required: true
+      description: Organization slug
+      schema: { type: string }
+  responses:
+    Ingested:
+      description: Accepted (possibly partially)
+      headers:
+        Idempotent-Replayed:
+          schema: { type: string, enum: ["true"] }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/IngestResult" }
+    IngestRejected:
+      description: The single event was invalid
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/IngestResult" }
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+  schemas:
+    Error:
+      type: object
+      required: [error, message]
+      properties:
+        error: { type: string }
+        message: { type: string }
+        details: {}
+    Event:
+      type: object
+      description: At least one of anonymous_id or user_id is required. event_name is required for track.
+      properties:
+        type: { type: string, enum: [track, screen, identify, alias, push_token], default: track }
+        event_name: { type: string, maxLength: 100, pattern: "^[A-Za-z][A-Za-z0-9_ .:\\-]*$" }
+        event_id: { type: string, maxLength: 200 }
+        timestamp: { type: string, format: date-time }
+        anonymous_id: { type: string, maxLength: 200 }
+        user_id: { type: string, maxLength: 200 }
+        previous_id: { type: string, maxLength: 200 }
+        session_id: { type: string, maxLength: 200 }
+        schema_version: { type: integer, minimum: 1, default: 1 }
+        properties: { type: object, additionalProperties: true }
+        user_properties: { type: object, additionalProperties: true }
+        context: { $ref: "#/components/schemas/Context" }
+        push_token:
+          type: object
+          required: [token, provider]
+          properties:
+            token: { type: string, minLength: 10, maxLength: 4096 }
+            provider: { type: string, enum: [fcm, apns] }
+            permission: { type: string, enum: [granted, denied, provisional, unknown] }
+    Context:
+      type: object
+      additionalProperties: true
+      properties:
+        platform: { type: string, enum: [android, ios, react_native, flutter, web, backend] }
+        app_version: { type: string }
+        app_build: { type: string }
+        os_version: { type: string }
+        device:
+          type: object
+          properties:
+            id: { type: string }
+            model: { type: string }
+            manufacturer: { type: string }
+            type: { type: string }
+        locale: { type: string }
+        language: { type: string }
+        timezone: { type: string }
+        country: { type: string, maxLength: 2 }
+        sdk:
+          type: object
+          properties:
+            name: { type: string }
+            version: { type: string }
+        attribution:
+          type: object
+          additionalProperties: { type: string }
+        consent:
+          type: object
+          additionalProperties: { type: boolean }
+    IngestResult:
+      type: object
+      properties:
+        batch_id: { type: string, format: uuid }
+        accepted: { type: integer }
+        duplicates: { type: integer }
+        rejected:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              event_id: { type: string }
+              errors:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    field: { type: string }
+                    message: { type: string }
+        warnings:
+          type: array
+          items:
+            type: object
+            properties:
+              index: { type: integer }
+              warnings:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    field: { type: string }
+                    message: { type: string }
+    Organization:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [owner, admin, developer, analyst, marketer] }
+    App:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        slug: { type: string }
+        name: { type: string }
+    DebugEvent:
+      type: object
+      properties:
+        id: { type: string }
+        event_id: { type: string }
+        type: { type: string }
+        event_name: { type: string }
+        canonical_name: { type: [string, "null"] }
+        timestamp: { type: string, format: date-time }
+        received_at: { type: string, format: date-time }
+        user_id: { type: [string, "null"] }
+        anonymous_id: { type: [string, "null"] }
+        properties: { type: object }
+        context: { type: object }
+        processed: { type: boolean }
+        validation:
+          type: [object, "null"]
+          properties:
+            valid: { type: boolean }
+            planned: { type: boolean }
+            errors: { type: array, items: { type: object } }
+            warnings: { type: array, items: { type: object } }
+    ConnectionHealth:
+      type: object
+      properties:
+        connected: { type: boolean }
+        lastEventAt: { type: [string, "null"], format: date-time }
+        eventsToday: { type: integer }
+        activeUsersToday: { type: integer }
+        rejectedToday: { type: integer }
+    PrivacySubject:
+      type: object
+      description: At least one of user_id and anonymous_id.
+      properties:
+        user_id: { type: string, maxLength: 256 }
+        anonymous_id: { type: string, maxLength: 256 }
+    SubjectExport:
+      type: object
+      required: [request_id, generated_at, environment_id, subject, data, truncated]
+      properties:
+        request_id: { type: string, format: uuid }
+        generated_at: { type: string, format: date-time }
+        environment_id: { type: string, format: uuid }
+        subject:
+          type: object
+          properties:
+            user_id: { type: [string, "null"] }
+            anonymous_id: { type: [string, "null"] }
+            matched_anonymous_ids: { type: array, items: { type: string }, description: Installs whose anonymous activity is included. }
+            skipped_anonymous_ids: { type: array, items: { type: string }, description: The subject's installs another user is linked to as well; their anonymous activity is left out. }
+        data:
+          type: object
+          description: Rows per table (events, sessions, profiles, installs, identity_links, push_tokens, attribution_touchpoints, attribution_events, consent_records, notifications, audience_memberships, automation_runs).
+          additionalProperties: { type: array, items: { type: object } }
+        truncated:
+          type: array
+          description: Tables that hit the 10,000-row limit.
+          items: { type: string }
+    DeletionStatus:
+      type: object
+      required: [id, status, subject, created_at, rows_deleted, details]
+      properties:
+        id: { type: string, format: uuid }
+        status: { type: string, enum: [received, processing, completed, rejected] }
+        subject:
+          type: object
+          properties:
+            user_id: { type: [string, "null"] }
+            anonymous_id: { type: [string, "null"] }
+        created_at: { type: string, format: date-time }
+        completed_at: { type: [string, "null"], format: date-time }
+        rows_deleted: { type: integer }
+        details:
+          type: object
+          description: Rows deleted per table.
+          additionalProperties: { type: integer }
+        skipped_anonymous_ids:
+          type: array
+          description: The subject's installs another user is linked to as well; their anonymous activity was kept.
+          items: { type: string }
