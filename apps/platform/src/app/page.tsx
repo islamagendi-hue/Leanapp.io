@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { Logo } from "@/components/Logo";
 import { currentUser } from "@/server/session";
 
 export const metadata = { title: { absolute: "LeanApp: one SDK for mobile growth" } };
@@ -28,7 +29,7 @@ export default async function Home() {
   return (
     <div className="min-h-dvh">
       <header className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5">
-        <span className="text-lg font-bold">LeanApp</span>
+        <Link href="/" aria-label="LeanApp home"><Logo /></Link>
         <nav className="flex items-center gap-4 text-sm">
           {user ? (
             <Link href="/onboarding" className="btn">Open dashboard</Link>

@@ -9,8 +9,8 @@
 import { LeanAppClient, type AnalyticsOptions, type FlushResult, type Properties } from "./client.js";
 import type { Attribution } from "./attribution.js";
 
-export { LeanAppClient, DEFAULT_ENDPOINT, SDK_NAME, SDK_VERSION } from "./client.js";
-export type { AnalyticsOptions, FlushResult, Platform, Properties, WireEvent } from "./client.js";
+export { LeanAppClient, DEFAULT_ENDPOINT, SDK_NAME, SDK_VERSION, storagePrefix } from "./client.js";
+export type { AnalyticsOptions, AppStateLike, FlushResult, Platform, Properties, WireEvent } from "./client.js";
 export { ATTRIBUTION_PARAMS, parseAttribution, type Attribution } from "./attribution.js";
 export { asyncStorageAdapter, localStorageAdapter, memoryStorage, type StorageAdapter } from "./storage.js";
 

@@ -23,11 +23,13 @@ Until the native SDKs ship, native apps can send events with the REST API from t
 ```ts
 import { Analytics, asyncStorageAdapter } from "@leanapp/analytics";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { AppState } from "react-native";
 
 Analytics.initialize({
   apiKey: "la_pk_live_…",          // from Developers → SDK & API keys
   appVersion: "2.4.0",
   storage: asyncStorageAdapter(AsyncStorage), // browsers default to localStorage
+  appState: AppState,              // React Native: send the queue when the app goes to the background
 });
 
 Analytics.captureAttribution(initialDeepLinkUrl); // utm_* and click ids (gclid, fbclid, ttclid, ScCid, …)
@@ -54,7 +56,8 @@ Analytics.reset(); // on logout
 | Concern | Behaviour | Default |
 | --- | --- | --- |
 | Batching | Send when `flushAt` events are queued or every `flushIntervalMs` | 20 events / 10s, ≤100 per request |
-| Queue | Persisted after every change; namespaced per key so dev and production never mix | max 1,000, oldest dropped |
+| Queue | Persisted after every change; namespaced per key kind and environment (`leanapp:la_pk_live:`) so dev and production never mix and rotating a key keeps the anonymous id and queue. Data under the 0.1.0 key-specific namespace is moved once on start | max 1,000, oldest dropped |
+| Background / close | Browsers: on `visibilitychange` → hidden and `pagehide`, one `fetch` with `keepalive` sends as much of the queue as fits the browser's 64 KiB keepalive budget; the rest stays queued for the next visit. `sendBeacon` is not used because it cannot send the `Authorization` header. React Native: pass `appState: AppState` and the queue is flushed on `background` (the SDK does not import `react-native`). Turn the browser behaviour off with `flushOnHide: false` | on in browsers |
 | TTL | Older queued events are dropped before sending | 7 days (server rejects > 31 days) |
 | Retry | Network errors and 5xx: exponential backoff with jitter (1s → 5min); `429` honours `Retry-After` | |
 | Idempotency | `Idempotency-Key` derived from the batch's events, same on every retry | |

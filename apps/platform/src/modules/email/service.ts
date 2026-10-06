@@ -90,5 +90,5 @@ export function textToHtml(text: string): string {
     .split(/\n{2,}/)
     .map((p) => `<p style="margin:0 0 16px">${escapeHtml(p).replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1">$1</a>').replace(/\n/g, "<br>")}</p>`)
     .join("");
-  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;line-height:1.5;color:#151515;max-width:560px">${paras}<p style="margin:24px 0 0;color:#777;font-size:13px">LeanApp · leanapp.io</p></div>`;
+  return `<div style="font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;font-size:15px;line-height:1.5;color:#0e1311;max-width:560px">${paras}<p style="margin:24px 0 0;color:#777;font-size:13px">LeanApp · leanapp.io</p></div>`;
 }

@@ -53,12 +53,12 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
           <section className="card overflow-x-auto p-0">
             <table className="table">
               <thead>
-                <tr><th>Start day</th><th className="text-right">People</th>{RETENTION_DAYS.map((d) => <th key={d} className="text-center">Day {d}</th>)}</tr>
+                <tr><th>Start day</th><th className="text-end">People</th>{RETENTION_DAYS.map((d) => <th key={d} className="text-center">Day {d}</th>)}</tr>
               </thead>
               <tbody>
                 <tr className="font-medium">
                   <td>All cohorts</td>
-                  <td className="text-right tabular-nums">{r.people.toLocaleString("en-US")}</td>
+                  <td className="text-end tabular-nums">{r.people.toLocaleString("en-US")}</td>
                   {r.overall.map((rate, i) => {
                     const c = cell(rate);
                     return <td key={i} className={`text-center tabular-nums ${c.className}`} style={c.style}>{rate === null ? "–" : pct(rate)}</td>;
@@ -67,7 +67,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
                 {r.cohorts.map((co) => (
                   <tr key={co.day}>
                     <td className="whitespace-nowrap">{co.day}</td>
-                    <td className="text-right tabular-nums">{co.size.toLocaleString("en-US")}</td>
+                    <td className="text-end tabular-nums">{co.size.toLocaleString("en-US")}</td>
                     {co.returned.map((n, i) => {
                       const rate = n === null ? null : n / co.size;
                       const c = cell(rate);

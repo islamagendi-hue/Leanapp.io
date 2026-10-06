@@ -88,13 +88,13 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
           {result.breakdown && (
             <div className="overflow-x-auto">
               <table className="table">
-                <thead><tr><th>Platform</th>{result.steps.map((s, i) => <th key={i} className="text-right">{i + 1}. {s.name}</th>)}<th className="text-right">Overall</th></tr></thead>
+                <thead><tr><th>Platform</th>{result.steps.map((s, i) => <th key={i} className="text-end">{i + 1}. {s.name}</th>)}<th className="text-end">Overall</th></tr></thead>
                 <tbody>
                   {result.breakdown.map((g) => (
                     <tr key={g.key}>
                       <td>{g.key}</td>
-                      {g.people.map((n, i) => <td key={i} className="text-right tabular-nums">{n.toLocaleString("en-US")}</td>)}
-                      <td className="text-right tabular-nums">{g.people[0] ? pct(g.people.at(-1)! / g.people[0]) : "–"}</td>
+                      {g.people.map((n, i) => <td key={i} className="text-end tabular-nums">{n.toLocaleString("en-US")}</td>)}
+                      <td className="text-end tabular-nums">{g.people[0] ? pct(g.people.at(-1)! / g.people[0]) : "–"}</td>
                     </tr>
                   ))}
                 </tbody>
