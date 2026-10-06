@@ -86,6 +86,7 @@ export async function processPendingEvents(
 
 async function processBatch(environmentId: string, size: number): Promise<{ claimed: number; processed: number; failed: number } | null> {
   return withSystem(async (db) => {
+    // Same key as recomputeImplementation, which waits for it instead of skipping.
     const lock = await db.one<{ ok: boolean }>(
       "select pg_try_advisory_xact_lock(hashtextextended('platform.events.processing:' || $1, 0)) as ok",
       [environmentId],
@@ -222,7 +223,7 @@ async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null) {
   }
 
   // 4. Plan
-  const canonical = await applyPlan(db, e, plan, true);
+  const canonical = await applyPlan(db, e, plan);
   await db.query("update platform.events set processed_at = now(), processing_error = null, canonical_name = $2 where id = $1", [
     e.id,
     canonical !== e.event_name ? canonical : null,
@@ -231,9 +232,9 @@ async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null) {
 
 /**
  * Validates one event against the published plan and updates implementation
- * status. Returns the canonical event name. Also used by recompute.
+ * status. Returns the canonical event name.
  */
-export async function applyPlan(db: Db, e: EventRow, plan: PublishedPlan | null, suggest: boolean): Promise<string> {
+async function applyPlan(db: Db, e: EventRow, plan: PublishedPlan | null): Promise<string> {
   const canonical = plan?.mappings.get(e.event_name) ?? e.event_name;
   const spec = plan?.specs.get(canonical);
   let valid: boolean | null = null;
@@ -266,7 +267,7 @@ export async function applyPlan(db: Db, e: EventRow, plan: PublishedPlan | null,
     [e.organization_id, e.app_id, e.environment_id, canonical, valid ? "validated" : "received", e.timestamp,
      valid ? 1 : 0, valid === false ? 1 : 0, e.source],
   );
-  if (suggest && plan && plan.specs.size && !spec && !SYSTEM_NAMES.has(e.event_name)) {
+  if (plan && plan.specs.size && !spec && !SYSTEM_NAMES.has(e.event_name)) {
     const s = suggestMapping(e.event_name, [...plan.specs.keys()]);
     if (s) {
       await db.query(
@@ -280,31 +281,113 @@ export async function applyPlan(db: Db, e: EventRow, plan: PublishedPlan | null,
 }
 
 /**
- * Rebuilds implementation status and validation results for an app from
- * recent events after the plan or mappings change (publish, mapping accepted).
- * Bounded window; identity and sessions are untouched (they never depend on the plan).
+ * Re-derives what depends on the plan and mappings after they change (publish,
+ * mapping accepted), in a handful of set-based statements so it fits in the
+ * request that made the change:
+ *   - status rows received under a now-mapped name are merged into the
+ *     canonical name; lifetime counters (received_count, first/last received,
+ *     sources) are never reset;
+ *   - recent events (bounded window) get their canonical name, validation
+ *     results and valid/invalid counts re-evaluated against the new plan;
+ *     rows with no recent events keep their counts;
+ *   - status is re-derived from the counts, and deprecated where needed.
+ * Identity and sessions are untouched (they never depend on the plan). Holds
+ * the app's processing locks so it never races the event processor.
  */
 export async function recomputeImplementation(db: Db, appId: string, opts: { days?: number; maxEvents?: number } = {}): Promise<number> {
-  const plan = await loadPublishedPlan(db, appId);
-  await db.query("delete from platform.tracking_implementation_status where app_id = $1", [appId]);
   await db.query(
-    "delete from platform.tracking_validation_results where environment_id in (select id from platform.environments where app_id = $1)",
+    "select pg_advisory_xact_lock(hashtextextended('platform.events.processing:' || id::text, 0)) from platform.environments where app_id = $1 order by id",
     [appId],
   );
-  const rows = await db.query<EventRow>(
-    `select id, organization_id, app_id, environment_id, type, event_name, "timestamp", anonymous_id, user_id, session_id,
-            platform, app_version, source, properties, user_properties, context
+  const plan = await loadPublishedPlan(db, appId);
+
+  // 1. Merge status rows of mapped names into their canonical name.
+  await db.query(
+    `with moved as (
+       delete from platform.tracking_implementation_status s
+        using platform.event_mappings m
+        where m.app_id = $1 and m.status = 'accepted' and m.from_name <> m.to_name
+          and s.app_id = $1 and s.event_name = m.from_name
+       returning s.organization_id, s.app_id, s.environment_id, m.to_name, s.first_received_at, s.last_received_at,
+                 s.received_count, s.valid_count, s.invalid_count, s.last_sources)
+     insert into platform.tracking_implementation_status as t
+       (organization_id, app_id, environment_id, event_name, status, first_received_at, last_received_at, received_count, valid_count, invalid_count, last_sources)
+     select organization_id, app_id, environment_id, to_name, 'received', min(first_received_at), max(last_received_at),
+            sum(received_count), sum(valid_count), sum(invalid_count),
+            array(select distinct x from moved m2, unnest(m2.last_sources) x where m2.environment_id = moved.environment_id and m2.to_name = moved.to_name)
+       from moved group by organization_id, app_id, environment_id, to_name
+     on conflict (environment_id, event_name) do update set
+       first_received_at = least(t.first_received_at, excluded.first_received_at),
+       last_received_at = greatest(t.last_received_at, excluded.last_received_at),
+       received_count = t.received_count + excluded.received_count,
+       valid_count = t.valid_count + excluded.valid_count,
+       invalid_count = t.invalid_count + excluded.invalid_count,
+       last_sources = (select array(select distinct unnest(t.last_sources || excluded.last_sources))),
+       updated_at = now()`,
+    [appId],
+  );
+
+  // 2. Re-validate the recent window in memory.
+  const rows = await db.query<Pick<EventRow, "id" | "organization_id" | "environment_id" | "event_name" | "user_id" | "properties" | "user_properties">>(
+    `select id, organization_id, environment_id, event_name, user_id, properties, user_properties
        from platform.events
       where app_id = $1 and processed_at is not null and received_at > now() - make_interval(days => $2)
       order by id desc limit $3`,
-    [appId, opts.days ?? 30, opts.maxEvents ?? 20000],
+    [appId, opts.days ?? 30, opts.maxEvents ?? 5000],
   );
-  for (const e of rows.reverse()) {
-    const canonical = await applyPlan(db, e, plan, false);
-    await db.query("update platform.events set canonical_name = $2 where id = $1", [e.id, canonical !== e.event_name ? canonical : null]);
+  const ids: string[] = [];
+  const canonicals: (string | null)[] = [];
+  const invalid: { organization_id: string; environment_id: string; event_row_id: string; event_name: string; errors: unknown }[] = [];
+  const counts = new Map<string, { environment_id: string; event_name: string; valid: number; invalid: number }>();
+  for (const e of rows) {
+    const canonical = plan?.mappings.get(e.event_name) ?? e.event_name;
+    ids.push(e.id);
+    canonicals.push(canonical !== e.event_name ? canonical : null);
+    const key = `${e.environment_id}:${canonical}`;
+    if (!counts.has(key)) counts.set(key, { environment_id: e.environment_id, event_name: canonical, valid: 0, invalid: 0 });
+    const spec = plan?.specs.get(canonical);
+    if (!spec) continue;
+    const result = validateEvent(spec, { properties: e.properties, user_id: e.user_id, user_properties: e.user_properties });
+    if (result.valid) counts.get(key)!.valid++;
+    else {
+      counts.get(key)!.invalid++;
+      invalid.push({ organization_id: e.organization_id, environment_id: e.environment_id, event_row_id: e.id, event_name: canonical, errors: result.errors });
+    }
   }
+  await db.query(
+    `update platform.events e set canonical_name = v.c
+       from unnest($1::bigint[], $2::text[]) as v(id, c)
+      where e.id = v.id and e.canonical_name is distinct from v.c`,
+    [ids, canonicals],
+  );
+  // Results from an older plan version, or for the events re-validated here, are replaced.
+  await db.query(
+    `delete from platform.tracking_validation_results
+      where environment_id in (select id from platform.environments where app_id = $1)
+        and (plan_version_id is distinct from $2 or event_row_id = any($3::bigint[]))`,
+    [appId, plan?.versionId || null, ids],
+  );
+  if (invalid.length && plan) {
+    await db.query(
+      `insert into platform.tracking_validation_results (organization_id, environment_id, event_row_id, event_name, plan_version_id, valid, errors)
+       select v.organization_id, v.environment_id, v.event_row_id, v.event_name, $2, false, v.errors
+         from jsonb_to_recordset($1) as v(organization_id uuid, environment_id uuid, event_row_id bigint, event_name text, errors jsonb)`,
+      [JSON.stringify(invalid), plan.versionId],
+    );
+  }
+  await db.query(
+    `update platform.tracking_implementation_status s set valid_count = v.valid, invalid_count = v.invalid, updated_at = now()
+       from jsonb_to_recordset($2) as v(environment_id uuid, event_name text, valid bigint, invalid bigint)
+      where s.app_id = $1 and s.environment_id = v.environment_id and s.event_name = v.event_name`,
+    [appId, JSON.stringify([...counts.values()])],
+  );
+
+  // 3. Status from the counts; received events the new plan no longer contains are deprecated.
+  await db.query(
+    "update platform.tracking_implementation_status set status = case when valid_count > 0 then 'validated' else 'received' end where app_id = $1",
+    [appId],
+  );
   if (plan?.versionId) {
-    // Received events that the new plan no longer contains are deprecated.
     await db.query(
       `update platform.tracking_implementation_status s set status = 'deprecated'
         where s.app_id = $1 and not exists (select 1 from platform.tracking_events t where t.plan_version_id = $2 and t.event_name = s.event_name)

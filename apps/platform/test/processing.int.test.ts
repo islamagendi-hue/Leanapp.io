@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { withSystem } from "@/lib/db";
 import { authenticateIngestionKey, listKeys } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
-import { MAX_PROCESSING_ATTEMPTS, processPendingEvents } from "@/modules/processing/processor";
+import { MAX_PROCESSING_ATTEMPTS, processPendingEvents, recomputeImplementation } from "@/modules/processing/processor";
 import { makeTenant } from "./helpers";
 
 type T = Awaited<ReturnType<typeof makeTenant>>;
@@ -115,5 +115,42 @@ describe("concurrent processing", () => {
         await db.query("drop function platform.test_poison()");
       });
     }
+  });
+});
+
+describe("recompute", () => {
+  it("re-keys mapped names without losing lifetime counters", async () => {
+    const env = t.environments[0];
+    const status = () =>
+      withSystem((db) =>
+        db.query<{ event_name: string; received_count: string; first_received_at: Date }>(
+          "select event_name, received_count, first_received_at from platform.tracking_implementation_status where environment_id = $1 and event_name like 'step_%' order by event_name",
+          [env.id],
+        ),
+      );
+    const before = await status();
+    expect(before.map((r) => Number(r.received_count))).toEqual([60, 60, 60, 60, 60]);
+    // Half the history falls outside the recompute window.
+    await withSystem(async (db) => {
+      await db.query("update platform.events set received_at = now() - interval '60 days' where environment_id = $1 and id % 2 = 0", [env.id]);
+      await db.query(
+        "insert into platform.event_mappings (organization_id, app_id, from_name, to_name, status) values ($1, $2, 'step_4', 'step_3', 'accepted')",
+        [t.org.id, t.app.id],
+      );
+    });
+    await withSystem((db) => recomputeImplementation(db, t.app.id));
+    const after = await status();
+    expect(after.map((r) => [r.event_name, Number(r.received_count)])).toEqual([["step_0", 60], ["step_1", 60], ["step_2", 60], ["step_3", 120]]);
+    expect(after[0].first_received_at).toEqual(before[0].first_received_at);
+    const canonical = await withSystem((db) =>
+      db.one<{ mapped: string; old: string }>(
+        `select count(*) filter (where canonical_name = 'step_3' and received_at > now() - interval '30 days') as mapped,
+                count(*) filter (where canonical_name is null and received_at < now() - interval '30 days') as old
+           from platform.events where environment_id = $1 and event_name = 'step_4'`,
+        [env.id],
+      ),
+    );
+    expect(Number(canonical?.mapped)).toBeGreaterThan(0);
+    expect(Number(canonical?.old)).toBeGreaterThan(0); // outside the window: left as is
   });
 });
