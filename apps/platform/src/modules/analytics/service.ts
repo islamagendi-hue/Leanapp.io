@@ -2,7 +2,9 @@ import "server-only";
 import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
+import type { Permission } from "@/modules/rbac/permissions";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
+import { cohortDefinitionSchema, cohortSql, evCte, Params } from "./sql";
 
 /**
  * Analytics v1 on Postgres (ADR-002): event trends, funnels and retention for
@@ -21,6 +23,7 @@ import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 
 export const RANGES = [7, 30, 90] as const;
 export type RangeDays = (typeof RANGES)[number];
+export const RANGE_SCHEMA = z.unknown().transform(rangeDays);
 export const BREAKDOWNS = ["platform", "app_version", "country"] as const;
 
 const STATEMENT_TIMEOUT = "15s";
@@ -33,36 +36,11 @@ function rangeDays(v: unknown): RangeDays {
 
 const eventName = z.string().trim().min(1).max(200);
 
-/**
- * Identity stitching for a row of platform.events aliased `e`: the person is
- * the user_id, else the one user its install is linked to, else the anonymous
- * id. Shared by analytics and usage (MAU) so both count the same people.
- */
-export const PERSON = {
-  expr: "coalesce(e.user_id, l.user_id, 'anon:' || e.anonymous_id)",
-  join: `left join lateral (
-        select min(il.user_id) as user_id from platform.identity_links il
-         where il.environment_id = e.environment_id and il.anonymous_id = e.anonymous_id
-        having count(*) = 1
-      ) l on e.user_id is null and e.anonymous_id is not null`,
-};
+export { PERSON } from "./sql";
 
-/**
- * The events of the range with one row per event and its person, as a CTE.
- * $1 environment, $2 range start. Adds `name`, `person` and `ts`; `id` orders events with equal timestamps.
- */
-const EV = `
-  ev as (
-    select coalesce(e.canonical_name, e.event_name) as name,
-           ${PERSON.expr} as person,
-           e."timestamp" as ts, e.id, e.platform, e.app_version, e.properties, e.context
-      from platform.events e
-      ${PERSON.join}
-     where e.environment_id = $1 and e."timestamp" >= $2 and e.type = 'track'
-       and coalesce(e.user_id, e.anonymous_id) is not null
-  )`;
+const cohortId = z.uuid().optional().catch(undefined);
 
-function rangeStart(days: number, now = new Date()): Date {
+export function rangeStart(days: number, now = new Date()): Date {
   return new Date(now.getTime() - days * 86_400_000);
 }
 
@@ -74,11 +52,39 @@ export function dayList(days: number, timezone: string, now = new Date()): strin
   return [...out];
 }
 
-function query<T>(ctx: TenantContext, fn: (db: Db) => Promise<T>): Promise<T> {
-  return tenantTx(ctx, "analytics.read", async (db) => {
+/** A tenant transaction (RLS + permission check) with the analytics statement timeout. */
+export function analyticsTx<T>(ctx: TenantContext, fn: (db: Db) => Promise<T>, permission: Permission = "analytics.read"): Promise<T> {
+  return tenantTx(ctx, permission, async (db) => {
     await db.query(`set local statement_timeout = '${STATEMENT_TIMEOUT}'`);
     return fn(db);
   });
+}
+const query = analyticsTx;
+
+/** A saved cohort's definition; the cohort must belong to the report's environment (RLS keeps it in the organization). */
+export async function loadCohortDefinition(db: Db, environmentId: string, id: string) {
+  const row = await db.one<{ definition: unknown }>(
+    "select definition from platform.analytics_cohorts where id = $1 and environment_id = $2",
+    [id, environmentId],
+  );
+  if (!row) throw new ValidationError("That cohort doesn't exist in this environment.");
+  return cohortDefinitionSchema.parse(row.definition);
+}
+
+/**
+ * The `ev` CTE (and the cohort CTE when filtering) with its bind values:
+ * `base` must start with [environment id, range start].
+ */
+export async function eventsSource(
+  db: Db,
+  scope: { environmentId: string; timezone?: string },
+  cohort: string | undefined,
+  base: unknown[],
+): Promise<{ sql: string; p: Params }> {
+  const p = new Params(base);
+  if (!cohort) return { sql: evCte(), p };
+  const def = await loadCohortDefinition(db, scope.environmentId, cohort);
+  return { sql: evCte(cohortSql(def, p, { timezone: scope.timezone ?? "UTC" })), p };
 }
 
 // ── Event list ──────────────────────────────────────────────────────────────
@@ -89,12 +95,17 @@ export interface EventTotal {
 }
 
 /** Every event seen in the range with its count and distinct people, most frequent first. */
-export async function topEvents(ctx: TenantContext, scope: { environmentId: string; days: unknown }): Promise<EventTotal[]> {
+export async function topEvents(
+  ctx: TenantContext,
+  scope: { environmentId: string; days: unknown; timezone?: string; cohortId?: unknown },
+): Promise<EventTotal[]> {
   const days = rangeDays(scope.days);
+  const cohort = cohortId.parse(scope.cohortId);
   return query(ctx, async (db) => {
+    const src = await eventsSource(db, scope, cohort, [scope.environmentId, rangeStart(days)]);
     const rows = await db.query<{ name: string; count: string; people: string }>(
-      `with ${EV} select name, count(*) as count, count(distinct person) as people from ev group by name order by count(*) desc, name limit 200`,
-      [scope.environmentId, rangeStart(days)],
+      `with ${src.sql} select name, count(*) as count, count(distinct person) as people from ev group by name order by count(*) desc, name limit 200`,
+      src.p.values,
     );
     return rows.map((r) => ({ name: r.name, count: Number(r.count), people: Number(r.people) }));
   });
@@ -120,6 +131,7 @@ export const trendSchema = z.object({
   event: eventName,
   days: z.unknown().transform(rangeDays),
   breakdown: z.union([z.enum(BREAKDOWNS), z.string().regex(/^property:[A-Za-z0-9_.$-]{1,64}$/)]).optional().catch(undefined),
+  cohortId,
 });
 
 function groupExpr(breakdown: string | undefined): { sql: string; param?: string } {
@@ -134,20 +146,22 @@ function groupExpr(breakdown: string | undefined): { sql: string; param?: string
 export async function eventTrend(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Trend> {
   const r = trendSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose an event.");
-  const { event, days, breakdown } = r.data;
+  const { event, days, breakdown, cohortId: cohort } = r.data;
   const group = groupExpr(breakdown);
   return query(ctx, async (db) => {
     const params: unknown[] = [scope.environmentId, rangeStart(days), scope.timezone, ...(group.param ? [group.param] : []), event];
     const nameParam = `$${params.length}`;
+    const src = await eventsSource(db, scope, cohort, params);
     const rows = await db.query<{ g: string; d: string; count: string; people: string }>(
-      `with ${EV}
+      `with ${src.sql}
        select ${group.sql} as g, (ts at time zone $3)::date as d, count(*) as count, count(distinct person) as people
          from ev where name = ${nameParam} group by 1, 2`,
-      params,
+      src.p.values,
     );
+    const totalsSrc = await eventsSource(db, scope, cohort, [scope.environmentId, rangeStart(days), event]);
     const totals = await db.one<{ count: string; people: string }>(
-      `with ${EV} select count(*) as count, count(distinct person) as people from ev where name = $3`,
-      [scope.environmentId, rangeStart(days), event],
+      `with ${totalsSrc.sql} select count(*) as count, count(distinct person) as people from ev where name = $3`,
+      totalsSrc.p.values,
     );
     const dayKeys = dayList(days, scope.timezone);
     const byGroup = new Map<string, number>();
@@ -184,6 +198,7 @@ export const funnelSchema = z.object({
   windowDays: z.coerce.number().int().min(1).max(30).catch(7),
   days: z.unknown().transform(rangeDays),
   breakdown: z.enum(["platform"]).optional().catch(undefined),
+  cohortId,
 });
 
 export interface FunnelStep {
@@ -209,10 +224,10 @@ export interface Funnel {
  * converts on each later step done after the previous one, within the window
  * from entering.
  */
-export async function funnel(ctx: TenantContext, scope: { environmentId: string }, input: unknown): Promise<Funnel> {
+export async function funnel(ctx: TenantContext, scope: { environmentId: string; timezone?: string }, input: unknown): Promise<Funnel> {
   const r = funnelSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
-  const { steps, windowDays, days, breakdown } = r.data;
+  const { steps, windowDays, days, breakdown, cohortId: cohort } = r.data;
   // $1 env, $2 range start, $3 window (days), $4.. step names.
   const stepParam = (i: number) => `$${4 + i}`;
   const ctes = [
@@ -237,9 +252,10 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string 
     )
     .join(" union all ");
   return query(ctx, async (db) => {
+    const src = await eventsSource(db, scope, cohort, [scope.environmentId, rangeStart(days), windowDays, ...steps]);
     const rows = await db.query<{ step: number; g: string; people: string; median: number | null }>(
-      `with ${EV}, ${ctes.join(", ")} ${select}`,
-      [scope.environmentId, rangeStart(days), windowDays, ...steps],
+      `with ${src.sql}, ${ctes.join(", ")} ${select}`,
+      src.p.values,
     );
     const people = steps.map((_, k) => rows.filter((x) => Number(x.step) === k).reduce((n, x) => n + Number(x.people), 0));
     // Without a breakdown there is one group, so its median is the overall median. Medians of groups can't be combined.
@@ -271,6 +287,7 @@ export const retentionSchema = z.object({
   startEvent: eventName,
   returnEvent: eventName,
   days: z.unknown().transform(rangeDays),
+  cohortId,
 });
 
 export interface RetentionCohort {
@@ -295,10 +312,11 @@ export interface Retention {
 export async function retention(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Retention> {
   const r = retentionSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose a start and a return event.");
-  const { startEvent, returnEvent, days } = r.data;
+  const { startEvent, returnEvent, days, cohortId: cohort } = r.data;
   return query(ctx, async (db) => {
+    const src = await eventsSource(db, scope, cohort, [scope.environmentId, rangeStart(days), scope.timezone, startEvent, returnEvent, [...RETENTION_DAYS]]);
     const rows = await db.query<{ d0: string; n: number | null; size: string; returned: string }>(
-      `with ${EV},
+      `with ${src.sql},
         starts as (select person, min((ts at time zone $3)::date) as d0 from ev where name = $4 group by person),
         returns as (select distinct person, (ts at time zone $3)::date as d from ev where name = $5),
         sizes as (select d0, count(*) as size from starts group by d0)
@@ -307,7 +325,7 @@ export async function retention(ctx: TenantContext, scope: { environmentId: stri
          join sizes z on z.d0 = s.d0
          left join returns r on r.person = s.person and r.d - s.d0 = any($6)
         group by s.d0, n, z.size`,
-      [scope.environmentId, rangeStart(days), scope.timezone, startEvent, returnEvent, [...RETENTION_DAYS]],
+      src.p.values,
     );
     const today = dayList(0, scope.timezone).at(-1)!;
     const elapsed = (d0: string) => Math.round((Date.parse(today) - Date.parse(d0)) / 86_400_000);
