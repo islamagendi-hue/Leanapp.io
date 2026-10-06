@@ -45,6 +45,9 @@ A key without the scope an endpoint needs gets `403 forbidden`; a public SDK key
 | POST | `/v1/privacy/suppressions` | secret key, `privacy:write` | Suppress a user: `{ user_id \| anonymous_id, channel \| channels, reason? }` → `201` |
 | DELETE | `/v1/privacy/suppressions?user_id=&channel=` | secret key, `privacy:write` | Remove manual/API suppressions (`channel` repeatable) |
 | GET, HEAD | `/l/{code}` | none | Tracking link: records the click and redirects (`302`) to the App Store, Google Play (click id in `referrer`) or the web fallback; `404` for unknown codes. See [attribution](attribution.md#tracking-links) |
+| POST | `/.well-known/skadnetwork/report-attribution/` | Apple signature | SKAdNetwork developer postback copies (2.1–4.x): signature verified with Apple's P-256 key, routed by `app-id` to the app with that App Store id (production); `200 { ok, duplicate }`, `400 invalid_signature`, `404 unknown_app` (unclaimed id; the device retries). See [attribution](attribution.md#skadnetwork--adattributionkit) |
+| POST | `/.well-known/appattribution/report-attribution/` | Apple JWS | AdAttributionKit developer postback copies (`jws-string` ES256, key by `kid`); production key → production, development keys → development |
+| GET | `/v1/skan/conversion-schema` | key (SDK or secret) | The app's conversion value schema: `{ schema \| null, revision, updated_at }` |
 | GET | `/v1/app` | secret key, `management:read` | The key's app with the key's environment (other environments are not listed) |
 | GET | `/v1/environment` | secret key, `management:read` | The key's environment |
 | GET | `/v1/tracking-plan` | secret key, `management:read` | The published tracking plan (`leanapp.tracking_plan/v1` JSON, same as the dashboard export); 404 until one is published |
