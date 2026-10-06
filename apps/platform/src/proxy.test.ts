@@ -15,6 +15,10 @@ describe("proxy", () => {
     expect(api.headers.get("content-security-policy")).toBeNull();
     expect(api.headers.get("x-request-id")).toBe("client-req-0001");
 
+    // Link redirects (and the in-app browser page with its own nonce CSP) and well-known JSON files get no page CSP.
+    expect(proxy(new NextRequest("https://api.leanapp.io/l/shop/AbCdEfGh")).headers.get("content-security-policy")).toBeNull();
+    expect(proxy(new NextRequest("https://api.leanapp.io/.well-known/apple-app-site-association")).headers.get("content-security-policy")).toBeNull();
+
     const bad = proxy(new NextRequest("https://api.leanapp.io/v1/events", { headers: { "x-request-id": "<script>" } }));
     expect(bad.headers.get("x-request-id")).not.toBe("<script>");
   });

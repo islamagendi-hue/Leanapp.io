@@ -51,6 +51,7 @@ export type AuditAction =
   | "attribution.postback_created"
   | "attribution.postback_updated"
   | "attribution.postback_deleted"
+  | "deep_links.config_updated"
   | "cohort.created"
   | "cohort.updated"
   | "cohort.deleted"
