@@ -1,0 +1,20 @@
+name: leanapp_analytics
+description: LeanApp analytics SDK for Flutter - events, identity, sessions, attribution and an offline queue with retries.
+version: 0.1.0
+homepage: https://leanapp.io
+publish_to: none
+
+environment:
+  sdk: ">=3.1.0 <4.0.0"
+  flutter: ">=3.13.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ">=1.1.0 <2.0.0"
+  shared_preferences: ^2.2.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
