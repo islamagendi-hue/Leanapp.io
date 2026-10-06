@@ -4,6 +4,7 @@ import { purgeRateLimitBuckets } from "@/lib/rate-limit";
 import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
 import { runDeletionJobs } from "@/modules/privacy/service";
 import { processPendingEvents } from "@/modules/processing/processor";
+import { checkConfig } from "@/server/config";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -22,6 +23,11 @@ function authorized(req: Request): boolean {
  */
 export async function GET(req: Request) {
   if (!authorized(req)) return new Response("Unauthorized", { status: 401 });
+  const config = checkConfig();
+  if (config.errors.length) {
+    log.error("cron.refused", { errors: config.errors.map((e) => e.variable) });
+    return Response.json({ error: "configuration_invalid", variables: config.errors.map((e) => e.variable) }, { status: 503 });
+  }
   let processed = 0;
   let failed = 0;
   for (let i = 0; i < 10; i++) {

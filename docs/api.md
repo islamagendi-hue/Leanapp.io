@@ -16,7 +16,7 @@ Secret keys can ingest events and file privacy requests for their environment. S
 
 | Method | Path | Auth | Purpose |
 | --- | --- | --- | --- |
-| GET | `/v1/health` | none | Liveness and database reachability |
+| GET | `/v1/health` | none | Liveness, configuration check (variable names only) and database reachability; 503 when either fails |
 | POST | `/v1/events` | key | Ingest one event (body is the event) |
 | POST | `/v1/events/batch` | key | Ingest up to 500 events: `{ batch: [...], sent_at? }` |
 | OPTIONS | `/v1/events`, `/v1/events/batch` | none | CORS preflight |
