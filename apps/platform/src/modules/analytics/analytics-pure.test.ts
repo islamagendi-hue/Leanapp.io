@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
+import { cohortInputFromForm, describeCohort, formDefaults } from "./cohort-form";
 import { inputFromParams, paramsFromConfig, toSearch } from "./report-params";
 import { catalogRules, revenueRules, ruleFor } from "./revenue-rules";
-import { cohortDefinitionSchema, cohortSql, evCte, Params, propertyFilterSchema, propertyPredicate } from "./sql";
+import { cohortDefinitionSchema, cohortSql, evCte, Params, PROPERTY_OP_LABELS, propertyFilterSchema, propertyPredicate } from "./sql";
 
 describe("revenue rules", () => {
   it("derives revenue and refund events from the catalog", () => {
@@ -87,5 +88,21 @@ describe("report params", () => {
     expect(paramsFromConfig("retention", { startEvent: "a", returnEvent: "b", days: 30 }).toString()).toBe("start=a&return=b&days=30");
     expect(inputFromParams("revenue", toSearch({ by: "platform" }))).toMatchObject({ breakdown: "platform" });
     expect(paramsFromConfig("revenue", { days: 90, breakdown: "event" }).toString()).toBe("by=event&days=90");
+  });
+});
+
+describe("cohort form", () => {
+  const form = (o: Record<string, string>) => new Map(Object.entries(o)) as unknown as FormData;
+
+  it("skips empty conditions and round-trips a definition", () => {
+    const input = cohortInputFromForm(form({ name: "Gold", event: "", upName: "plan", upOp: "eq", upValue: "gold" }));
+    expect(input.definition).toEqual({ event: undefined, userProperty: { name: "plan", op: "eq", value: "gold" } });
+    const full = cohortInputFromForm(form({
+      name: "Big", event: "purchase_completed", minCount: "2", rangeKind: "between", from: "2026-09-01", to: "2026-09-30", epName: "revenue", epOp: "gt", epValue: "100",
+    }));
+    const def = cohortDefinitionSchema.parse(full.definition);
+    expect(formDefaults(def)).toMatchObject({ event: "purchase_completed", minCount: "2", rangeKind: "between", from: "2026-09-01", ep: { name: "revenue", op: "gt", value: "100" } });
+    expect(describeCohort(def, PROPERTY_OP_LABELS)).toBe("Did purchase_completed at least 2 times between 2026-09-01 and 2026-09-30 where revenue > 100");
+    expect(describeCohort(cohortDefinitionSchema.parse(input.definition), PROPERTY_OP_LABELS)).toBe("People whose user property plan is gold");
   });
 });

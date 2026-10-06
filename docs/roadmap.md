@@ -15,6 +15,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Email verification, password reset and change, session management, invitation emails | ✓ (sending needs `RESEND_API_KEY` and a verified domain) |
 | End-user data export and deletion (dashboard and secret-key API) | ✓ |
 | Analytics v1: events, funnels, retention (Postgres) | ✓ |
+| Analytics: revenue per currency (refunds netted, no FX), saved cohorts as report filters, user profiles with timeline, saved reports | ✓ |
 | Organization settings, plan & usage (limits shown, not enforced), audit log viewer | ✓ |
 | Scheduled cleanup: plan retention (report by default, `EVENT_RETENTION=enforce` to delete) and operational purges | ✓ |
 | Apps with dev/staging/production environments, public and secret keys, rotation, revocation | ✓ |
@@ -33,7 +34,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Production deployment and monitoring (Sentry or similar, uptime) | 1.5 | Owner decisions in [deployment](deployment.md) |
 | Email provider account | 1.5 | Code is built; needs a Resend API key and leanapp.io verified as a sending domain |
 | Native SDKs: Android, iOS, Flutter | 2 | API is specified in [SDK](sdk.md) |
-| Analytics: cohorts, revenue, user profiles, saved reports | 2 | Events, funnels and retention v1 are built ([analytics](analytics.md)) |
+| Analytics: activation reports, revenue by channel/campaign, cohort AND/OR trees, CSV export | 2–3 | Cohorts, revenue, user profiles and saved reports are built ([analytics](analytics.md)); channel/campaign needs the attribution engine |
 | ClickHouse event store, Redis | 2 | When volume requires ([ADR-002](adr/ADR-002-event-store.md)) |
 | Attribution engine, links, ad-network postbacks, MMP import | 3 | [Attribution](attribution.md) |
 | Audiences and automation (push, in-app, webhooks) | 3–4 | [Audiences](audiences.md), [Automation](automation.md) |

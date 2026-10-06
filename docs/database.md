@@ -31,6 +31,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | Integrations | `integrations` (credentials by `secret_ref` only), `webhooks`, `webhook_deliveries` |
 | Operations | `audit_logs` (append-only for tenants), `api_request_logs`, `rate_limit_buckets` |
 | Privacy | `consent_records`, `privacy_requests`, `data_deletion_jobs` |
+| Analytics | `analytics_cohorts` (saved cohort definitions; members computed on demand), `analytics_saved_reports` |
 
 Tables for attribution, engagement and integrations exist so the data model is settled early; the features that write to them are planned (see [roadmap](roadmap.md)). Of the privacy tables, `privacy_requests` and `data_deletion_jobs` are in use; `consent_records` is not written yet.
 

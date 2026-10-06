@@ -7,7 +7,7 @@ import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { cohortDefinitionSchema, cohortSql, evCte, Params } from "./sql";
 
 /**
- * Analytics v1 on Postgres (ADR-002): event trends, funnels and retention for
+ * Analytics on Postgres (ADR-002): event trends, funnels and retention for
  * one environment. Every query runs under the organization's RLS scope with a
  * statement timeout, so a heavy query can't hold the database.
  *
@@ -19,6 +19,8 @@ import { cohortDefinitionSchema, cohortSql, evCte, Params } from "./sql";
  *   the install is linked to exactly one user (identity_links), otherwise it
  *   stays its own anonymous person. Shared devices are never merged.
  * - Days are calendar days in the app's timezone; ranges end now.
+ * - Any report can be limited to a saved cohort (`cohortId`, see ./cohorts.ts).
+ * Revenue, profiles, cohorts and saved reports live in sibling files.
  */
 
 export const RANGES = [7, 30, 90] as const;
