@@ -34,20 +34,30 @@ function rangeDays(v: unknown): RangeDays {
 const eventName = z.string().trim().min(1).max(200);
 
 /**
+ * Identity stitching for a row of platform.events aliased `e`: the person is
+ * the user_id, else the one user its install is linked to, else the anonymous
+ * id. Shared by analytics and usage (MAU) so both count the same people.
+ */
+export const PERSON = {
+  expr: "coalesce(e.user_id, l.user_id, 'anon:' || e.anonymous_id)",
+  join: `left join lateral (
+        select min(il.user_id) as user_id from platform.identity_links il
+         where il.environment_id = e.environment_id and il.anonymous_id = e.anonymous_id
+        having count(*) = 1
+      ) l on e.user_id is null and e.anonymous_id is not null`,
+};
+
+/**
  * The events of the range with one row per event and its person, as a CTE.
- * $1 environment, $2 range start. Adds `name`, `person` and `ts`.
+ * $1 environment, $2 range start. Adds `name`, `person` and `ts`; `id` orders events with equal timestamps.
  */
 const EV = `
   ev as (
     select coalesce(e.canonical_name, e.event_name) as name,
-           coalesce(e.user_id, l.user_id, 'anon:' || e.anonymous_id) as person,
-           e."timestamp" as ts, e.platform, e.app_version, e.properties, e.context
+           ${PERSON.expr} as person,
+           e."timestamp" as ts, e.id, e.platform, e.app_version, e.properties, e.context
       from platform.events e
-      left join lateral (
-        select min(il.user_id) as user_id from platform.identity_links il
-         where il.environment_id = e.environment_id and il.anonymous_id = e.anonymous_id
-        having count(*) = 1
-      ) l on e.user_id is null and e.anonymous_id is not null
+      ${PERSON.join}
      where e.environment_id = $1 and e."timestamp" >= $2 and e.type = 'track'
        and coalesce(e.user_id, e.anonymous_id) is not null
   )`;
@@ -70,8 +80,6 @@ function query<T>(ctx: TenantContext, fn: (db: Db) => Promise<T>): Promise<T> {
     return fn(db);
   });
 }
-
-const iso = (d: Date | string) => (typeof d === "string" ? d.slice(0, 10) : d.toISOString().slice(0, 10));
 
 // ── Event list ──────────────────────────────────────────────────────────────
 export interface EventTotal {
@@ -131,7 +139,7 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
   return query(ctx, async (db) => {
     const params: unknown[] = [scope.environmentId, rangeStart(days), scope.timezone, ...(group.param ? [group.param] : []), event];
     const nameParam = `$${params.length}`;
-    const rows = await db.query<{ g: string; d: string | Date; count: string; people: string }>(
+    const rows = await db.query<{ g: string; d: string; count: string; people: string }>(
       `with ${EV}
        select ${group.sql} as g, (ts at time zone $3)::date as d, count(*) as count, count(distinct person) as people
          from ev where name = ${nameParam} group by 1, 2`,
@@ -152,7 +160,7 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
       return series.get(key)!;
     };
     for (const row of rows) {
-      const i = dayKeys.indexOf(iso(row.d));
+      const i = dayKeys.indexOf(row.d);
       if (i < 0) continue;
       const s = ensure(keep.has(row.g) ? row.g : "Other");
       s.counts[i] += Number(row.count);
@@ -208,13 +216,16 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string 
   // $1 env, $2 range start, $3 window (days), $4.. step names.
   const stepParam = (i: number) => `$${4 + i}`;
   const ctes = [
-    `s0 as (select distinct on (person) person, ts as t, ts as t0, ${breakdown ? "coalesce(platform, '(none)')" : "'all'"} as g
-            from ev where name = ${stepParam(0)} order by person, ts)`,
+    `s0 as (select distinct on (person) person, ts as t, id, ts as t0, ${breakdown ? "coalesce(platform, '(none)')" : "'all'"} as g
+            from ev where name = ${stepParam(0)} order by person, ts, id)`,
+    // Each step is the earliest matching event strictly after the previous step's
+    // event (ties on timestamp broken by id), so a repeated step needs a second event.
     ...steps.slice(1).map(
       (_, k) => `s${k + 1} as (
-        select p.person, min(ev.ts) as t, p.t0, p.g from s${k} p
-          join ev on ev.person = p.person and ev.name = ${stepParam(k + 1)} and ev.ts >= p.t and ev.ts <= p.t0 + make_interval(days => $3)
-         group by p.person, p.t0, p.g)`,
+        select distinct on (p.person) p.person, ev.ts as t, ev.id, p.t0, p.g from s${k} p
+          join ev on ev.person = p.person and ev.name = ${stepParam(k + 1)}
+                 and (ev.ts > p.t or (ev.ts = p.t and ev.id > p.id)) and ev.ts <= p.t0 + make_interval(days => $3)
+         order by p.person, ev.ts, ev.id)`,
     ),
   ];
   const select = steps
@@ -286,7 +297,7 @@ export async function retention(ctx: TenantContext, scope: { environmentId: stri
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose a start and a return event.");
   const { startEvent, returnEvent, days } = r.data;
   return query(ctx, async (db) => {
-    const rows = await db.query<{ d0: string | Date; n: number | null; size: string; returned: string }>(
+    const rows = await db.query<{ d0: string; n: number | null; size: string; returned: string }>(
       `with ${EV},
         starts as (select person, min((ts at time zone $3)::date) as d0 from ev where name = $4 group by person),
         returns as (select distinct person, (ts at time zone $3)::date as d from ev where name = $5),
@@ -302,7 +313,7 @@ export async function retention(ctx: TenantContext, scope: { environmentId: stri
     const elapsed = (d0: string) => Math.round((Date.parse(today) - Date.parse(d0)) / 86_400_000);
     const byDay = new Map<string, RetentionCohort>();
     for (const row of rows) {
-      const day = iso(row.d0);
+      const day = row.d0;
       if (!byDay.has(day)) {
         byDay.set(day, { day, size: Number(row.size), returned: RETENTION_DAYS.map((n) => (n < elapsed(day) ? 0 : null)) });
       }

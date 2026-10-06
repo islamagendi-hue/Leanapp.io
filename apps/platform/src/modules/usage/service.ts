@@ -1,5 +1,6 @@
 import "server-only";
 import type { Db } from "@/lib/db";
+import { PERSON } from "@/modules/analytics/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 
 export type UsageMetric = "events" | "monthly_active_users" | "automation_runs" | "push_messages" | "api_requests" | "storage" | "seats";
@@ -19,12 +20,18 @@ export async function recordUsage(db: Db, organizationId: string, metric: UsageM
   );
 }
 
-/** Monthly active users are counted from the event stream, not a counter, so they are reproducible. */
+/**
+ * Monthly active users are counted from the event stream, not a counter, so they
+ * are reproducible. People are stitched like analytics: an install linked to one
+ * user counts as that user, not as an extra anonymous person.
+ */
 export async function monthlyActiveUsers(db: Db, environmentIds: string[], monthStart: Date): Promise<number> {
   const row = await db.one<{ n: string }>(
-    `select count(distinct coalesce(user_id, 'anon:' || anonymous_id)) as n
-       from platform.events
-      where environment_id = any($1) and "timestamp" >= $2 and "timestamp" < ($2::timestamptz + interval '1 month')`,
+    `select count(distinct ${PERSON.expr}) as n
+       from platform.events e
+       ${PERSON.join}
+      where e.environment_id = any($1) and e."timestamp" >= $2 and e."timestamp" < ($2::timestamptz + interval '1 month')
+        and coalesce(e.user_id, e.anonymous_id) is not null`,
     [environmentIds, monthStart],
   );
   return Number(row?.n ?? 0);
