@@ -15,7 +15,8 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Email verification, password reset and change, session management, invitation emails | ✓ (sending needs `RESEND_API_KEY` and a verified domain) |
 | End-user data export and deletion (dashboard and secret-key API) | ✓ |
 | Analytics v1: events, funnels, retention (Postgres) | ✓ |
-| Organization settings, plan & usage (limits shown, not enforced), audit log viewer | ✓ |
+| Organization settings, audit log viewer | ✓ |
+| Billing: plan limits enforced (apps, seats incl. invitations, monthly events with 10% grace then `429 plan_limit_exceeded`), 80/100/110% owner emails and banners, Stripe Checkout, Customer Portal, signed idempotent webhooks, subscriptions and invoices, Plan & billing page | ✓ code built; payments ✗ not connected: needs a Stripe account, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, a Price per plan in `plans.stripe_price_id` ([billing](billing.md)) |
 | Scheduled cleanup: plan retention (report by default, `EVENT_RETENTION=enforce` to delete) and operational purges | ✓ |
 | Apps with dev/staging/production environments, public and secret keys, rotation, revocation | ✓ |
 | Ingestion API (single + batch, idempotent, limits, rate limits, clock skew) | ✓ |
@@ -37,7 +38,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | ClickHouse event store, Redis | 2 | When volume requires ([ADR-002](adr/ADR-002-event-store.md)) |
 | Attribution engine, links, ad-network postbacks, MMP import | 3 | [Attribution](attribution.md) |
 | Audiences and automation (push, in-app, webhooks) | 3–4 | [Audiences](audiences.md), [Automation](automation.md) |
-| Billing provider, limit enforcement | 3 | [Billing](billing.md) |
+| Connect payments (Stripe account, prices, webhook); MENA methods (Mada, SAR invoicing) | 1.5–3 | Code built and tested; waits for the owner's business entity and pricing ([billing](billing.md)) |
 | OAuth, MFA, SSO | 2–4 | Schema ready |
 | Privacy: consent capture and suppression lists | 2 | Export and deletion are built (dashboard and API) |
 | LLM-assisted plan suggestions, Arabic free-text classification | 2 | Suggestions only, always approval-gated |

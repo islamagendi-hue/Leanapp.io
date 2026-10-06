@@ -27,7 +27,8 @@ Secret keys act on their environment within the permissions (scopes) chosen when
 | POST | `/v1/privacy/exports` | secret key, `privacy:read` | Everything stored about an end user, as JSON: `{ user_id?, anonymous_id? }` |
 | POST | `/v1/privacy/deletions` | secret key, `privacy:write` | Delete an end user's data: `{ user_id?, anonymous_id? }` → `202 { id, status }` |
 | GET | `/v1/privacy/deletions/{id}` | secret key, `privacy:write` | Deletion status, with rows deleted per table |
-| GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue and retry privacy deletions (Vercel Cron) |
+| GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue, retry privacy deletions, send plan usage notices (Vercel Cron) |
+| POST | `/api/webhooks/stripe` | `Stripe-Signature` | Stripe webhooks (see [billing](billing.md)); `503` until payments are configured, `400 invalid_signature` on a bad or stale signature |
 
 Everything else in the dashboard (questionnaire, plans, keys, members) runs through server actions on top of the same modules. They become public REST endpoints as the management API grows (planned: plans, mappings, keys, members, and export).
 
@@ -35,7 +36,8 @@ Everything else in the dashboard (questionnaire, plans, keys, members) runs thro
 
 - **Idempotency:** each event's `event_id` is unique per environment; duplicates count as `duplicates`, not errors. Send `Idempotency-Key` to make a whole request safely retryable; a replay returns the original response with `Idempotent-Replayed: true`.
 - **Partial success:** batches return `200` with `accepted`, `duplicates`, `rejected[]` (by index) and `warnings[]`. A single event sent to `/v1/events` that fails validation returns `400` with the same body.
-- **Errors:** `400 invalid_json | invalid_batch`, `401 invalid_api_key`, `403 forbidden` (secret key without `events:write`), `413 payload_too_large`, `429 rate_limited` (+ `Retry-After` seconds), `500`.
+- **Errors:** `400 invalid_json | invalid_batch`, `401 invalid_api_key`, `403 forbidden` (secret key without `events:write`), `413 payload_too_large`, `429 rate_limited` (+ `Retry-After` seconds), `429 plan_limit_exceeded` (the organization used its monthly event allowance plus the 10% grace; + `Retry-After`; nothing in the request is stored, retry later), `500`.
+- **Plan allowance:** past 100% of the monthly allowance (inside the grace) responses carry `X-LeanApp-Plan-Limit: grace`. See [billing](billing.md).
 - **Limits:** see [events](events.md).
 - `source` is set by the server: `backend` for secret keys, `mobile_sdk` for public keys.
 
@@ -61,12 +63,12 @@ Deletion doesn't stop new data: stop sending events for the user first (for exam
 | --- | --- |
 | 400 | `invalid_json`, `invalid_batch` |
 | 401 | `unauthorized`, `invalid_api_key` |
-| 403 | `forbidden` |
+| 403 | `forbidden`, `plan_limit_exceeded` (creating an app or inviting a member beyond the plan) |
 | 404 | `not_found` (also returned for organizations you are not a member of) |
 | 409 | `conflict` |
 | 413 | `payload_too_large` |
 | 422 | `validation_error` |
-| 429 | `rate_limited` |
+| 429 | `rate_limited`, `plan_limit_exceeded` (ingestion past the monthly allowance and grace) |
 
 ## Versioning
 
