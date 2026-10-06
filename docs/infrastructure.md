@@ -35,7 +35,7 @@ All three can point at one Vercel project initially. Splitting ingestion into it
 
 ## Configuration
 
-Environment variables only, documented in `apps/platform/.env.example`: `DATABASE_URL`, `DATABASE_SSL`, `CRON_SECRET`, `PUBLIC_API_URL`, `PUBLIC_APP_URL`, `INGEST_EVENTS_PER_MINUTE`. Production values are set in Vercel project settings, never committed.
+Environment variables only, documented in `apps/platform/.env.example`: `DATABASE_URL`, `DATABASE_SSL`, `CRON_SECRET`, `PUBLIC_API_URL`, `PUBLIC_APP_URL`, `INGEST_EVENTS_PER_MINUTE`, `MANAGEMENT_API_REQUESTS_PER_MINUTE`. Production values are set in Vercel project settings, never committed.
 
 ## Scaling path
 
