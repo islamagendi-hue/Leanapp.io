@@ -17,6 +17,8 @@ tags:
     description: Dashboard-session API for organizations, apps and the debugger.
   - name: Privacy
     description: End-user data export and deletion (secret key).
+  - name: In-app
+    description: In-app messages queued by automations, polled by the app with its public key.
   - name: System
     description: Health and operations.
 paths:
@@ -274,6 +276,86 @@ paths:
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
+  /v1/in-app:
+    get:
+      operationId: listInAppMessages
+      tags: [In-app]
+      summary: Pending in-app messages for an end user
+      description: |
+        At most 10 messages, newest first, that are not clicked, dismissed or expired, in the key's environment.
+        Pass `user_id`, `anonymous_id` or both. A public key can't prove who the user is: don't put
+        sensitive data in in-app messages.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: user_id, in: query, required: false, schema: { type: string, maxLength: 256 } }
+        - { name: anonymous_id, in: query, required: false, schema: { type: string, maxLength: 256 } }
+      responses:
+        "200":
+          description: Messages to show
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [messages]
+                properties:
+                  messages:
+                    type: array
+                    items: { $ref: "#/components/schemas/InAppMessage" }
+        "401": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    options:
+      operationId: listInAppMessagesPreflight
+      tags: [In-app]
+      summary: CORS preflight
+      security: []
+      responses:
+        "204": { description: Preflight accepted }
+  /v1/in-app/{id}/events:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: recordInAppEvent
+      tags: [In-app]
+      summary: Record an impression, click or dismissal
+      description: Click and dismiss are final; the message is no longer returned. Only for a message addressed to the given user in the key's environment.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [action]
+              properties:
+                action: { type: string, enum: [impression, click, dismiss] }
+                user_id: { type: string, maxLength: 256 }
+                anonymous_id: { type: string, maxLength: 256 }
+      responses:
+        "200":
+          description: New status
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status: { type: string, enum: [displayed, clicked, dismissed] }
+        "400": { $ref: "#/components/responses/Error" }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    options:
+      operationId: recordInAppEventPreflight
+      tags: [In-app]
+      summary: CORS preflight
+      security: []
+      responses:
+        "204": { description: Preflight accepted }
 components:
   securitySchemes:
     bearerKey:
@@ -515,3 +597,15 @@ components:
           type: array
           description: The subject's installs another user is linked to as well; their anonymous activity was kept.
           items: { type: string }
+    InAppMessage:
+      type: object
+      required: [id, title, body, button_text, deep_link, data, created_at, expires_at]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        body: { type: string }
+        button_text: { type: [string, "null"] }
+        deep_link: { type: [string, "null"] }
+        data: { type: object, additionalProperties: true }
+        created_at: { type: string, format: date-time }
+        expires_at: { type: string, format: date-time }

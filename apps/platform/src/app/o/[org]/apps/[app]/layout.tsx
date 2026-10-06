@@ -8,7 +8,14 @@ export default async function AppLayout(props: LayoutProps<"/o/[org]/apps/[app]"
   return (
     <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[220px_1fr]">
       <aside className="lg:sticky lg:top-20 lg:self-start">
-        <AppNav base={`/o/${org}/apps/${app}`} appName={a.name} privacy={can(ctx.role, "privacy.manage")} />
+        <AppNav base={`/o/${org}/apps/${app}`} appName={a.name} privacy={can(ctx.role, "privacy.manage")}
+          engage={{
+            audiences: can(ctx.role, "audiences.read"),
+            automations: can(ctx.role, "automations.read"),
+            integrations: can(ctx.role, "integrations.read"),
+            webhooks: can(ctx.role, "webhooks.manage"),
+          }}
+        />
       </aside>
       <main className="min-w-0">{props.children}</main>
     </div>

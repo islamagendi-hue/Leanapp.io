@@ -65,6 +65,36 @@ Analytics.reset(); // on logout
 | Context | `platform`, `sdk`, `app_version`, `locale`, `language`, `timezone`, screen size, attribution; extra via `context` option | |
 | Early calls | Calls made before storage loads are buffered in order | |
 
+## In-app messages
+
+Automations can queue in-app messages for a user (see [automation](automation.md)). The SDKs don't show them yet, so apps can use these two endpoints directly with the **public** key until SDK support lands. `sdks/javascript` doesn't call them yet.
+
+**Fetch pending messages:** `GET /v1/in-app?user_id=…&anonymous_id=…`, with `Authorization: Bearer la_pk_…`.
+
+- Pass the current `user_id`, the `anonymous_id`, or both.
+- The response holds at most 10 messages, newest first, that haven't been clicked, dismissed or expired:
+
+```json
+{ "messages": [ { "id": "uuid", "title": "…", "body": "…", "button_text": "Open", "deep_link": "myapp://cart",
+  "data": {}, "created_at": "…", "expires_at": "…" } ] }
+```
+
+**Report what happened:** `POST /v1/in-app/{id}/events` with `{ "action": "impression" | "click" | "dismiss", "user_id"?: "…", "anonymous_id"?: "…" }`.
+
+- The response is `{ "status": "displayed" | "clicked" | "dismissed" }`.
+- `click` and `dismiss` are final: the message stops being returned.
+- An impression keeps the message pending, so the app can show it again until the user acts. Apps should de-duplicate by `id`.
+
+Behaviour of both endpoints:
+
+- They work only within the key's environment.
+- A message that belongs to another user or environment returns `404`.
+- CORS is open, no cookies are used, and responses aren't cached.
+- They share a per-environment rate limit (`429` with `Retry-After`).
+- A suggested polling interval is when the app opens or comes to the foreground, and at most once a minute.
+
+**Security caveat:** a public key ships inside the app, so it can't prove who the end user is. Anyone with the key and a user's id can read that user's pending in-app messages. Don't put secrets or sensitive personal data in in-app messages.
+
 ## Native SDK contract (planned)
 
 Same method names and semantics. Additionally: automatic `app_installed` / `app_opened` / `app_updated`, install referrer (Android), SKAdNetwork / AdAttributionKit conversion values (iOS), background flush on app pause, and storage in SQLite/Room/Core Data.

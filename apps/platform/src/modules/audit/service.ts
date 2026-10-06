@@ -36,7 +36,22 @@ export type AuditAction =
   | "event_mapping.rejected"
   | "privacy.export"
   | "privacy.deletion_requested"
-  | "privacy.deletion_completed";
+  | "privacy.deletion_completed"
+  | "audience.created"
+  | "audience.updated"
+  | "audience.activated"
+  | "audience.archived"
+  | "automation.created"
+  | "automation.updated"
+  | "automation.activated"
+  | "automation.paused"
+  | "automation.archived"
+  | "webhook.created"
+  | "webhook.updated"
+  | "webhook.secret_rotated"
+  | "webhook.deleted"
+  | "integration.configured"
+  | "integration.removed";
 
 export interface AuditEntry {
   organizationId: string | null;

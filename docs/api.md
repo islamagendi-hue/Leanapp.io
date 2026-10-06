@@ -27,7 +27,12 @@ Secret keys act on their environment within the permissions (scopes) chosen when
 | POST | `/v1/privacy/exports` | secret key, `privacy:read` | Everything stored about an end user, as JSON: `{ user_id?, anonymous_id? }` |
 | POST | `/v1/privacy/deletions` | secret key, `privacy:write` | Delete an end user's data: `{ user_id?, anonymous_id? }` → `202 { id, status }` |
 | GET | `/v1/privacy/deletions/{id}` | secret key, `privacy:write` | Deletion status, with rows deleted per table |
-| GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue and retry privacy deletions (Vercel Cron) |
+| GET | `/v1/in-app?user_id=&anonymous_id=` | key | Pending in-app messages for an end user ([SDK](sdk.md#in-app-messages)) |
+| POST | `/v1/in-app/{id}/events` | key | Record `impression`, `click` or `dismiss` for an in-app message |
+| OPTIONS | `/v1/in-app`, `/v1/in-app/{id}/events` | none | CORS preflight |
+| GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue, retry privacy deletions, then run engagement (audience recompute, automation triggers and steps, webhook deliveries) (Vercel Cron) |
+
+Outgoing webhooks (signature, retries, payloads) are described in [webhooks](webhooks.md).
 
 Everything else in the dashboard (questionnaire, plans, keys, members) runs through server actions on top of the same modules. They become public REST endpoints as the management API grows (planned: plans, mappings, keys, members, and export).
 
@@ -47,7 +52,7 @@ Requests act on the secret key's environment only. Which rows belong to the subj
 - anonymous activity (no `user_id`) from the given `anonymous_id` and from installs linked to the `user_id`, as long as no other user is linked to the install. On a device shared between users that activity can't be attributed, so it is kept and the install is listed in `skipped_anonymous_ids` (in the export's `subject`, and in the deletion status). An `anonymous_id` sent without a `user_id` is taken as is;
 - other users' identified activity is never touched, even on the same install.
 
-Exports cover events, sessions, profile, installs, identity links, push tokens, attribution, consent, notifications, audience memberships and automation runs, up to 10,000 rows per table (`truncated` names any table that hit the limit). Deletions run as a job right after the `202`; the scheduled worker retries a failed or interrupted job up to 3 times. Both are rate-limited to 1,000 requests per hour per environment and recorded in the audit log. Owners and admins can do the same from the dashboard (app → Privacy requests).
+Exports cover events, sessions, profile, installs, identity links, push tokens, attribution, consent, notifications, in-app messages, audience memberships and transitions, and automation runs, up to 10,000 rows per table (`truncated` names any table that hit the limit). Deletions run as a job right after the `202`; the scheduled worker retries a failed or interrupted job up to 3 times. Both are rate-limited to 1,000 requests per hour per environment and recorded in the audit log. Owners and admins can do the same from the dashboard (app → Privacy requests).
 
 Deletion doesn't stop new data: stop sending events for the user first (for example `Analytics.reset()` in the SDK, and stop server-side events).
 

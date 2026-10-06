@@ -69,6 +69,11 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   else if (deployment === "production" && !hasKey) warn("RESEND_API_KEY", "not set; production sends no email");
   if (env.RESEND_API_KEY && !env.RESEND_API_KEY.startsWith("re_")) err("RESEND_API_KEY", "does not look like a Resend key");
 
+  // Customer credentials (push, email provider) and webhook signing secrets are encrypted with this key.
+  const encKey = env.INTEGRATIONS_ENCRYPTION_KEY ?? "";
+  if (encKey && encKey.length < 32) err("INTEGRATIONS_ENCRYPTION_KEY", "must be at least 32 characters");
+  else if (!encKey && deployed) warn("INTEGRATIONS_ENCRYPTION_KEY", "not set; webhooks, push and email integrations can't be configured");
+
   for (const name of ["PUBLIC_APP_URL", "PUBLIC_API_URL"]) {
     const v = env[name];
     if (!v) continue;

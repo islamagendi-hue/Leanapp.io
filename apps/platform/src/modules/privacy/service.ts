@@ -115,6 +115,12 @@ const SUBJECT_TABLES: { table: string; label: string; where: string; order?: str
     label: "audience_memberships",
     where: "user_key = any($4) and audience_id in (select id from platform.audiences where environment_id = $1)",
   },
+  { table: "in_app_messages", label: "in_app_messages", where: "environment_id = $1 and user_key = any($4)" },
+  {
+    table: "audience_events",
+    label: "audience_events",
+    where: "user_key = any($4) and audience_id in (select id from platform.audiences where environment_id = $1)",
+  },
   {
     table: "automation_runs",
     label: "automation_runs",

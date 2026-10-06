@@ -11,10 +11,11 @@ Nothing is deployed yet. These are the steps; the ones marked **owner** need the
    - `CRON_SECRET` (random, 32+ chars: `openssl rand -base64 32`)
    - `PUBLIC_API_URL=https://api.leanapp.io`, `PUBLIC_APP_URL=https://app.leanapp.io`
    - `EVENT_RETENTION=enforce` only once you have decided to delete customer events past their plan's retention (free plan: 30 days). Leave it unset to report instead of delete.
+   - `INTEGRATIONS_ENCRYPTION_KEY` (random, 32+ chars: `openssl rand -base64 48`). It encrypts customers' push and email credentials and webhook signing secrets. Without it those features stay off; changing it makes stored credentials unreadable, so customers would have to re-enter them and rotate webhook secrets.
    - `RESEND_API_KEY` and `EMAIL_FROM` (e.g. `LeanApp <no-reply@leanapp.io>`, on a domain verified in Resend). Without them production sends no email: verification and password reset won't arrive, and invitations fall back to a link the inviter shares.
 4. Apply migrations from CI or a trusted machine with the production `DATABASE_URL`: `cd apps/platform && npm run db:migrate`. Migrations are idempotent per file and recorded in `platform.schema_migrations`.
 5. **owner:** DNS for leanapp.io: `app` and `api` CNAME to Vercel, apex per Vercel's instructions. Add the domains in the Vercel project.
-6. Vercel Cron is declared in `apps/platform/vercel.json` (every 5 minutes). On the Hobby plan Vercel only allows daily cron jobs; processing still happens after every ingestion request via `after()`, so a daily safety net is acceptable at low volume.
+6. Vercel Cron is declared in `apps/platform/vercel.json` (every 5 minutes). On the Hobby plan Vercel only allows daily cron jobs; processing still happens after every ingestion request via `after()`, so a daily safety net is acceptable at low volume. Audiences, automations and webhook deliveries run only in the cron job, so they need the 5-minute schedule (Vercel Pro or an external scheduler calling the endpoint with `CRON_SECRET`).
 
 ## Release flow
 

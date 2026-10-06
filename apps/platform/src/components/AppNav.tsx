@@ -7,7 +7,11 @@ type Item = { label: string; href?: string; soon?: boolean };
 type Group = { label: string; items: Item[] };
 
 /** Product navigation. Sections not built yet are listed and labelled, never faked. */
-export function AppNav({ base, appName, privacy = false }: { base: string; appName: string; privacy?: boolean }) {
+export function AppNav({ base, appName, privacy = false, engage = {} }: {
+  base: string; appName: string; privacy?: boolean;
+  /** Engagement sections the member may open. */
+  engage?: { audiences?: boolean; automations?: boolean; integrations?: boolean; webhooks?: boolean };
+}) {
   const path = usePathname();
   const groups: Group[] = [
     { label: "Overview", items: [{ label: "Setup", href: base }] },
@@ -24,7 +28,7 @@ export function AppNav({ base, appName, privacy = false }: { base: string; appNa
       items: [
         { label: "SDK & API keys", href: `${base}/developers/sdk` },
         { label: "Event debugger", href: `${base}/developers/debugger` },
-        { label: "Webhooks", soon: true },
+        ...(engage.webhooks ? [{ label: "Webhooks", href: `${base}/developers/webhooks` }] : []),
       ],
     },
     {
@@ -37,13 +41,20 @@ export function AppNav({ base, appName, privacy = false }: { base: string; appNa
       ],
     },
     { label: "Attribution", items: [{ label: "Campaigns & sources", soon: true }] },
-    { label: "Engagement", items: [{ label: "Audiences", soon: true }, { label: "Automations", soon: true }, { label: "Integrations", soon: true }] },
+    {
+      label: "Engagement",
+      items: [
+        ...(engage.audiences ? [{ label: "Audiences", href: `${base}/engage/audiences` }] : []),
+        ...(engage.automations ? [{ label: "Automations", href: `${base}/engage/automations` }] : []),
+        ...(engage.integrations ? [{ label: "Integrations", href: `${base}/engage/integrations` }] : []),
+      ],
+    },
     ...(privacy ? [{ label: "Data", items: [{ label: "Privacy requests", href: `${base}/privacy` }] }] : []),
   ];
   return (
     <nav aria-label="App" className="text-sm">
       <p className="mb-4 truncate px-2 text-base font-bold">{appName}</p>
-      {groups.map((g) => (
+      {groups.filter((g) => g.items.length).map((g) => (
         <div key={g.label} className="mb-4">
           <p className="mb-1 px-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">{g.label}</p>
           <ul>
@@ -52,7 +63,7 @@ export function AppNav({ base, appName, privacy = false }: { base: string; appNa
                 <li key={i.label}>
                   <Link
                     href={i.href}
-                    className={`block rounded-md px-2 py-1.5 ${path === i.href ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
+                    className={`block rounded-md px-2 py-1.5 ${path === i.href || (i.href !== base && path.startsWith(`${i.href}/`)) ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
                   >
                     {i.label}
                   </Link>

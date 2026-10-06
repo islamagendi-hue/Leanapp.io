@@ -1,6 +1,6 @@
 # Roadmap, current state and gap analysis
 
-_Last updated 2026-10-05._
+_Last updated 2026-10-06._
 
 ## Starting point (before this work)
 
@@ -36,7 +36,10 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Analytics: cohorts, revenue, user profiles, saved reports | 2 | Events, funnels and retention v1 are built ([analytics](analytics.md)) |
 | ClickHouse event store, Redis | 2 | When volume requires ([ADR-002](adr/ADR-002-event-store.md)) |
 | Attribution engine, links, ad-network postbacks, MMP import | 3 | [Attribution](attribution.md) |
-| Audiences and automation (push, in-app, webhooks) | 3–4 | [Audiences](audiences.md), [Automation](automation.md) |
+| Live push verification | 4 | FCM and APNs are built and tested against local mocks only. Verifying them needs a Firebase service-account JSON for a test project, an Apple `.p8` key with its Key ID, Team ID and bundle id, and a device token for each |
+| Customer email sending | 4 | Built on the customer's own Resend key; untested against live Resend |
+| Engagement extras | 4+ | Prayer-time quiet hours, Ramadan scheduling, holdout groups, conversion attribution to automations, per-user timezones, real-time audience evaluation, ad-network audience export |
+| In-app message UI in the SDKs | 2–4 | The API contract is in [SDK](sdk.md#in-app-messages); `sdks/javascript` isn't changed yet |
 | Billing provider, limit enforcement | 3 | [Billing](billing.md) |
 | OAuth, MFA, SSO | 2–4 | Schema ready |
 | Privacy: consent capture and suppression lists | 2 | Export and deletion are built (dashboard and API) |
@@ -52,3 +55,16 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 3. **Phase 2**: native SDKs, analytics beyond v1, consent, plan editing, LLM suggestions, Arabic UI.
 4. **Phase 3**: attribution with TikTok, Snapchat, Meta, Google; billing.
 5. **Phase 4**: audiences and automation.
+
+## Phase 4: audiences and automation (built)
+
+| Area | Status |
+| --- | --- |
+| Audiences: and/or/not builder, parameterized SQL compiler, preview, activation, scheduled recompute with enter/exit transitions, size history ([audiences](audiences.md)) | ✓ |
+| Automations: event, audience and schedule triggers; delay, branch, webhook, push, in-app, email, user property and event steps; frequency caps, quiet hours, versioning, run logs ([automation](automation.md)) | ✓ |
+| Webhooks: HMAC-SHA256 signed, retries with backoff, delivery log, test send, SSRF protection ([webhooks](webhooks.md)) | ✓ |
+| Push: FCM HTTP v1 and APNs with encrypted per-environment credentials; invalid tokens deactivated | ◐ tested against local mocks only, **not verified with live FCM / APNs** |
+| Email from automations (customer's Resend key) | ◐ built, needs the customer's key |
+| In-app messages: `GET /v1/in-app` and an impression/click/dismiss endpoint | ✓ API; SDK UI not built |
+| Consent | ◐ opt-out based (recorded `consent_records` opt-outs and marketing opt-out requests); no capture API yet |
+| Prayer-time quiet hours, Ramadan scheduling, holdouts, conversion attribution | ✗ |

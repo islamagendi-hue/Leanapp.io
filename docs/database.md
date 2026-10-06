@@ -27,12 +27,12 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | Data plane | `event_batches` (idempotency + request stats), `events`, `anonymous_users`, `app_users`, `identity_links`, `sessions`, `push_tokens` |
 | Implementation | `tracking_projects`, `tracking_questions`, `tracking_answers`, `tracking_plans`, `tracking_plan_versions`, `tracking_events`, `tracking_event_properties`, `tracking_user_properties`, `tracking_attribution_rules`, `tracking_implementation_status`, `tracking_validation_results`, `event_mappings`, `implementation_templates`, `implementation_dependencies` |
 | Attribution | `attribution_settings`, `campaigns`, `attribution_touchpoints`, `attribution_events`, `attribution_conversions` |
-| Engagement | `audiences`, `audience_conditions`, `audience_members`, `automations`, `automation_triggers`, `automation_actions`, `automation_runs`, `notifications` |
-| Integrations | `integrations` (credentials by `secret_ref` only), `webhooks`, `webhook_deliveries` |
+| Engagement | `audiences`, `audience_members`, `audience_events`, `audience_snapshots`, `automations`, `automation_versions`, `automation_runs`, `notifications`, `in_app_messages` (unused: `audience_conditions`, `automation_triggers`, `automation_actions`; definitions are JSON) |
+| Integrations | `integrations` (push and email credentials in `secret_ciphertext`, AES-256-GCM with `INTEGRATIONS_ENCRYPTION_KEY`), `webhooks` (signing secret hashed and encrypted), `webhook_deliveries` |
 | Operations | `audit_logs` (append-only for tenants), `api_request_logs`, `rate_limit_buckets` |
 | Privacy | `consent_records`, `privacy_requests`, `data_deletion_jobs` |
 
-Tables for attribution, engagement and integrations exist so the data model is settled early; the features that write to them are planned (see [roadmap](roadmap.md)). Of the privacy tables, `privacy_requests` and `data_deletion_jobs` are in use; `consent_records` is not written yet.
+Attribution tables exist so the data model is settled early; the features that write to them are planned (see [roadmap](roadmap.md)). Engagement and integration tables are in use ([audiences](audiences.md), [automation](automation.md), [webhooks](webhooks.md)). Of the privacy tables, `privacy_requests` and `data_deletion_jobs` are in use; `consent_records` is not written yet (automations read it to honour recorded opt-outs).
 
 ## Key constraints
 
