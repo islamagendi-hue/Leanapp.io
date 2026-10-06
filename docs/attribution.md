@@ -1,6 +1,8 @@
 # Attribution
 
-**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, and settings. Not built: SKAdNetwork / AdAttributionKit, view-through (impression) attribution, ad-network cost import, MMP import (AppsFlyer / Adjust / Branch), first-touch and linear reporting models.
+LeanApp is its own mobile measurement partner: it does not import AppsFlyer, Adjust or Branch data. The target design (installs and attribution as first-class records, the go.leanapp.io link service, deferred deep links, SKAN, network integrations, MVP vs later and what can't be replicated) is in [attribution architecture](attribution-architecture.md). This page describes what is built today.
+
+**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, and settings. Not built: SKAdNetwork / AdAttributionKit, view-through (impression) attribution, ad-network cost import, first-touch and linear reporting models.
 
 Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migration `0012_attribution.sql`. Dashboard: app → Attribution (Overview, Tracking links, Postbacks, Settings).
 
@@ -90,6 +92,5 @@ See [SDK: attribution context](sdk.md#attribution-context): `app_installed` with
 - View-through attribution: needs impression data from ad networks (`view_lookback_hours` is stored for it).
 - Cost import and ROAS; FX conversion of revenue.
 - First-touch and linear models in reports (data supports them; last touch is what is computed).
-- Importing AppsFlyer / Adjust / Branch data; `attribution_settings.authoritative_source` is not used yet.
 - Live verification of the TikTok, Snap, Meta and Google postbacks: needs a customer's ad accounts, app ids and tokens.
 - Management API endpoints for links and postbacks (dashboard only for now).
