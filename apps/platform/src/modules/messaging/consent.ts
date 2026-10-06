@@ -1,5 +1,6 @@
 import "server-only";
 import type { Db } from "@/lib/db";
+import { audit } from "@/modules/audit/service";
 import { consentState, suppressedKeys, type Channel as SuppressionChannel } from "@/modules/privacy/consent";
 
 /**
@@ -33,4 +34,29 @@ export async function messagingBlocked(db: Db, environmentId: string, userKey: s
   if (state.marketing === false) return "consent_denied";
   if (channel === "push" && state.push === false) return "consent_denied";
   return null;
+}
+
+/**
+ * Adds a suppression the end user asked for themselves (email unsubscribe
+ * link, WhatsApp STOP reply or WhatsApp's own marketing opt-out). Source
+ * `unsubscribe`: not removable from the dashboard, since the person chose it.
+ * Idempotent. Runs in the caller's (system) transaction.
+ */
+export async function recordUnsubscribe(
+  db: Db,
+  s: { organizationId: string; environmentId: string; userKey: string; channel: Exclude<SuppressionChannel, "marketing">; reason: string },
+): Promise<boolean> {
+  const row = await db.one(
+    `insert into platform.suppressions (organization_id, environment_id, user_key, channel, source, reason)
+     values ($1, $2, $3, $4, 'unsubscribe', $5)
+     on conflict (environment_id, user_key, channel, source) do nothing returning 1`,
+    [s.organizationId, s.environmentId, s.userKey, s.channel, s.reason.slice(0, 500)],
+  );
+  if (row) {
+    await audit(db, {
+      organizationId: s.organizationId, actorUserId: null, actorType: "system", action: "privacy.suppression_added",
+      targetType: "suppression", targetId: s.userKey, metadata: { environment_id: s.environmentId, channels: [s.channel], source: "unsubscribe", reason: s.reason },
+    });
+  }
+  return Boolean(row);
 }

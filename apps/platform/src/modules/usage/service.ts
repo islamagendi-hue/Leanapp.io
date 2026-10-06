@@ -5,7 +5,7 @@ import { seatsUsed } from "@/modules/billing/enforcement";
 import { asLimit, countState, eventHardCap, eventState, LIMIT_FEATURES, usagePeriod, type LimitState } from "@/modules/billing/limits";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 
-export type UsageMetric = "events" | "events_refused" | "monthly_active_users" | "automation_runs" | "push_messages" | "api_requests" | "storage" | "seats";
+export type UsageMetric = "events" | "events_refused" | "monthly_active_users" | "automation_runs" | "push_messages" | "whatsapp_messages" | "email_messages" | "api_requests" | "storage" | "seats";
 
 /**
  * UsageService.record(organizationId, metric, quantity): the single entry point

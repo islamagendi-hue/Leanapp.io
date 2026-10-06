@@ -4,7 +4,7 @@ import type { Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
-import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedWebhooks, type AutomationDefinition } from "./definition";
+import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, referencedWhatsAppTemplates, type AutomationDefinition } from "./definition";
 import { nextScheduled } from "./time";
 
 /**
@@ -118,6 +118,21 @@ async function checkReferences(db: Db, environmentId: string, d: AutomationDefin
   for (const id of referencedWebhooks(d)) {
     const w = await db.one("select id from platform.webhooks where id = $1 and environment_id = $2", [id, environmentId]);
     if (!w) throw new ValidationError("A webhook step points to a webhook that doesn't exist in this environment.");
+  }
+  for (const id of referencedEmailTemplates(d)) {
+    const t = await db.one("select id from platform.email_templates where id = $1 and environment_id = $2", [id, environmentId]);
+    if (!t) throw new ValidationError("An email step points to a template that doesn't exist in this environment.");
+  }
+  for (const s of referencedWhatsAppTemplates(d)) {
+    const t = await db.one<{ status: string; body_params: number; header_params: number }>(
+      "select status, body_params, header_params from platform.whatsapp_templates where environment_id = $1 and name = $2 and language = $3",
+      [environmentId, s.template, s.language],
+    );
+    if (!t) throw new ValidationError(`The WhatsApp template "${s.template}" (${s.language}) isn't synced in this environment. Sync templates on Engage → Integrations.`);
+    if (t.body_params !== s.bodyParams.length || t.header_params !== s.headerParams.length) {
+      throw new ValidationError(`The WhatsApp template "${s.template}" needs ${t.body_params} body and ${t.header_params} header variables.`);
+    }
+    if (opts.requireActive && t.status !== "APPROVED") throw new ValidationError(`The WhatsApp template "${s.template}" is ${t.status.toLowerCase()}, not approved by WhatsApp yet.`);
   }
 }
 

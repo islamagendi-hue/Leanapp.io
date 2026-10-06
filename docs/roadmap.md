@@ -48,6 +48,9 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Connect payments (Stripe account, prices, webhook); MENA methods (Mada, SAR invoicing) | 1.5–3 | Code built and tested; waits for the owner's business entity and pricing ([billing](billing.md)) |
 | Live push verification | 4 | FCM and APNs are built and tested against local mocks only. Verifying them needs a Firebase service-account JSON for a test project, an Apple `.p8` key with its Key ID, Team ID and bundle id, and a device token for each |
 | Customer email sending | 4 | Built on the customer's own Resend key; untested against live Resend |
+| Live WhatsApp verification | 4 | Built and tested against a local mock of the Graph API. Verifying needs a Meta app with WhatsApp, a phone number ID, WABA ID, permanent system-user token, app secret, an approved template and a test recipient |
+| SMS channel | 4+ | Not built. Twilio's Messages REST API would fit the WhatsApp pattern (customer's Account SID + auth token, signed status callbacks); needs a provider decision |
+| Email: open/click tracking, bounce and complaint webhooks into suppressions, HTML editor | 4+ | Plain text + generated HTML, templates, sending domain and one-click unsubscribe are built ([messaging](messaging.md)) |
 | Engagement extras | 4+ | Prayer-time quiet hours, Ramadan scheduling, holdout groups, conversion attribution to automations, per-user timezones, real-time audience evaluation, ad-network audience export |
 | In-app message UI in the SDKs | 2–4 | The API contract is in [SDK](sdk.md#in-app-messages); `sdks/javascript` isn't changed yet |
 | OAuth, MFA, SSO | 2–4 | Schema ready |
@@ -75,5 +78,8 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Push: FCM HTTP v1 and APNs with encrypted per-environment credentials; invalid tokens deactivated | ◐ tested against local mocks only, **not verified with live FCM / APNs** |
 | Email from automations (customer's Resend key) | ◐ built, needs the customer's key |
 | In-app messages: `GET /v1/in-app` and an impression/click/dismiss endpoint | ✓ API; SDK UI not built |
+| WhatsApp template messages (Meta Cloud API): template sync, receipts, STOP / إيقاف opt-out | ◐ tested against a local mock, **not verified with the live WhatsApp API** |
+| Email campaigns: sending domain with DNS records via the customer's Resend key, templates, one-click unsubscribe | ◐ tested against a local mock, needs the customer's Resend key |
+| SMS | ✗ (no provider chosen) |
 | Consent and suppression checked before every message (marketing + medium) | ✓ |
 | Prayer-time quiet hours, Ramadan scheduling, holdouts, conversion attribution | ✗ |

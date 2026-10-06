@@ -55,6 +55,10 @@ A key without the scope an endpoint needs gets `403 forbidden`; a public SDK key
 | GET | `/v1/analytics/events?days=7\|30\|90` | secret key, `analytics:read` | Events with count and distinct people, most frequent first |
 | GET | `/v1/analytics/trend?event=&days=&breakdown=` | secret key, `analytics:read` | Daily counts and people for one event, optional breakdown (`platform`, `app_version`, `country`, `property:<name>`) |
 | GET | `/v1/users/{user_id}` | secret key, `users:read` | An end user of the key's environment: properties, first/last seen, linked installs, event count |
+| GET | `/v1/whatsapp/webhook/{integration_id}` | `hub.verify_token` | Meta's webhook verification handshake: returns `hub.challenge`, or `403` ([messaging](messaging.md)) |
+| POST | `/v1/whatsapp/webhook/{integration_id}` | `X-Hub-Signature-256` (app secret) | WhatsApp delivery/read statuses and opt-out replies; `401` on a bad signature |
+| GET | `/unsubscribe/{token}` | token | Email unsubscribe confirmation page (HTML; changes nothing) |
+| POST | `/unsubscribe/{token}` | token | Unsubscribe from automation emails (button or RFC 8058 one-click): adds an `email` suppression; `404` for unknown tokens |
 | GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue, retry privacy deletions, send plan usage notices, deliver attribution postbacks, then run engagement (audience recompute, automation triggers and steps, webhook deliveries) (Vercel Cron) |
 | POST | `/api/webhooks/stripe` | `Stripe-Signature` | Stripe webhooks (see [billing](billing.md)); `503` until payments are configured, `400 invalid_signature` on a bad or stale signature |
 

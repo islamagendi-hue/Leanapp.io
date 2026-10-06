@@ -4,7 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { activateAudience, archiveAudience, createAudience, previewAudience, updateAudience } from "@/modules/audiences/service";
 import { activateAutomation, archiveAutomation, createAutomation, pauseAutomation, updateAutomation } from "@/modules/automation/service";
-import { configureApns, configureFcm, configureResend, removeIntegration } from "@/modules/messaging/integrations";
+import { addEmailDomain, deleteEmailTemplate, refreshEmailDomain, removeEmailDomain, saveEmailTemplate } from "@/modules/messaging/email";
+import { configureApns, configureFcm, configureResend, configureWhatsApp, removeIntegration, rotateWhatsAppVerifyToken } from "@/modules/messaging/integrations";
+import { syncTemplates } from "@/modules/whatsapp/service";
 import { createWebhook, deleteWebhook, retryDelivery, rotateWebhookSecret, sendTestWebhook, updateWebhook } from "@/modules/webhooks/service";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requireTenant } from "@/server/session";
@@ -142,9 +144,18 @@ export async function retryDeliveryAction(orgSlug: string, appSlug: string, webh
 // ── Integrations ────────────────────────────────────────────────────────────
 const integrationsPath = (org: string, app: string) => `${appBase(org, app)}/engage/integrations`;
 
-export async function configureIntegrationAction(orgSlug: string, appSlug: string, environmentId: string, provider: "fcm" | "apns" | "resend", _: ActionState, form: FormData): Promise<ActionState> {
+export async function configureIntegrationAction(orgSlug: string, appSlug: string, environmentId: string, provider: "fcm" | "apns" | "resend" | "whatsapp", _: ActionState, form: FormData): Promise<ActionState> {
   try {
     const ctx = await requireTenant(orgSlug);
+    if (provider === "whatsapp") {
+      const { verifyToken } = await configureWhatsApp(ctx, environmentId, {
+        phoneNumberId: str(form, "phoneNumberId"), wabaId: str(form, "wabaId"), accessToken: str(form, "accessToken"), appSecret: str(form, "appSecret"),
+      });
+      revalidatePath(integrationsPath(orgSlug, appSlug));
+      return verifyToken
+        ? { ok: true, message: "Saved. Enter this verify token with the webhook URL in your Meta app (WhatsApp → Configuration). It is shown only once.", secret: verifyToken }
+        : { ok: true, message: "Saved. The webhook verify token is unchanged." };
+    }
     if (provider === "fcm") {
       const file = form.get("serviceAccount");
       const json = file instanceof File && file.size ? await file.text() : str(form, "serviceAccountJson");
@@ -169,6 +180,67 @@ export async function removeIntegrationAction(orgSlug: string, appSlug: string, 
     await removeIntegration(await requireTenant(orgSlug), integrationId);
     revalidatePath(integrationsPath(orgSlug, appSlug));
     return { ok: true, message: "Removed." };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+export async function whatsappAction(orgSlug: string, appSlug: string, environmentId: string, op: "sync" | "rotate", _: ActionState): Promise<ActionState> {
+  try {
+    const ctx = await requireTenant(orgSlug);
+    let result: ActionState;
+    if (op === "sync") {
+      const r = await syncTemplates(ctx, environmentId);
+      result = { ok: true, message: `Synced ${r.templates} template${r.templates === 1 ? "" : "s"} (${r.approved} approved).` };
+    } else {
+      result = { ok: true, message: "New verify token. Update it in your Meta app before Meta re-verifies the webhook.", secret: await rotateWhatsAppVerifyToken(ctx, environmentId) };
+    }
+    revalidatePath(integrationsPath(orgSlug, appSlug));
+    return result;
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+export async function emailDomainAction(orgSlug: string, appSlug: string, environmentId: string, op: "add" | "check" | "verify" | "remove", _: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const ctx = await requireTenant(orgSlug);
+    let message: string;
+    if (op === "add") {
+      const d = await addEmailDomain(ctx, environmentId, { name: str(form, "domain") });
+      message = `Added ${d.name} to your Resend account. Publish the DNS records below, then verify.`;
+    } else if (op === "remove") {
+      await removeEmailDomain(ctx, environmentId);
+      message = "Removed here. The domain stays in your Resend account.";
+    } else {
+      const d = await refreshEmailDomain(ctx, environmentId, { verify: op === "verify" });
+      message = d.status === "verified" ? `${d.name} is verified.` : `Status: ${d.status.replace(/_/g, " ")}. DNS changes can take a while; check again later.`;
+    }
+    revalidatePath(integrationsPath(orgSlug, appSlug));
+    return { ok: true, message };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+// ── Email templates ─────────────────────────────────────────────────────────
+const templatesPath = (org: string, app: string) => `${appBase(org, app)}/engage/email-templates`;
+
+export async function saveEmailTemplateAction(orgSlug: string, appSlug: string, environmentId: string, templateId: string | null, _: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    await saveEmailTemplate(await requireTenant(orgSlug), environmentId, templateId, { name: str(form, "name"), subject: str(form, "subject"), body: str(form, "body") });
+    revalidatePath(templatesPath(orgSlug, appSlug));
+    return { ok: true, message: templateId ? "Saved. Automations using it send the new version from now on." : "Template created." };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+export async function deleteEmailTemplateAction(orgSlug: string, appSlug: string, templateId: string, _: ActionState): Promise<ActionState> {
+  try {
+    await deleteEmailTemplate(await requireTenant(orgSlug), templateId);
+    revalidatePath(templatesPath(orgSlug, appSlug));
+    return { ok: true, message: "Deleted." };
   } catch (err) {
     return toActionError(err);
   }

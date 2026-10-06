@@ -17,13 +17,13 @@
 - **Steps, in order:**
   - `delay` (minutes, hours or days);
   - `branch`: an audience condition evaluated for this user. When it's false, the run exits or jumps forward to a later step;
-  - `webhook`, `push`, `in_app`, `email`;
+  - `webhook`, `push`, `in_app`, `email` (inline or from an email template), `whatsapp` (an approved template, see [messaging](messaging.md));
   - `update_user_property`, `send_event`.
 
   Text fields accept `{{user.prop}}` and `{{event.prop}}`.
 - **Guardrails:**
-  - A per-user frequency cap across all automations in the environment. The default is 3 messages per 24 h, and push, email and in-app messages all count.
-  - Quiet hours in the organization's timezone, 22:00–08:00 by default. Push and email wait until the window ends; in-app messages aren't delayed.
+  - A per-user frequency cap across all automations in the environment. The default is 3 messages per 24 h, and push, email, WhatsApp and in-app messages all count.
+  - Quiet hours in the organization's timezone, 22:00–08:00 by default. Push, email and WhatsApp wait until the window ends; in-app messages aren't delayed.
 
 ## Engine
 
@@ -53,7 +53,8 @@ The scheduled worker (`/api/internal/process-events`) runs every 5 minutes with 
 | Push (FCM) | Service-account JSON → RS256 JWT → OAuth access token (cached) → FCM HTTP v1 `messages:send`. `UNREGISTERED`, `SENDER_ID_MISMATCH`, 404 and invalid-registration-token errors deactivate the token. | Built and tested against a local mock. **Not verified with live FCM.** |
 | Push (APNs) | `.p8` key → ES256 provider token (cached for 50 min) → HTTP/2 to `api.push.apple.com` or the sandbox. `410`, `BadDeviceToken`, `Unregistered` and `DeviceTokenNotForTopic` deactivate the token. | Built and tested against a local HTTP/2 mock. **Not verified with live APNs.** |
 | In-app | Stored in `in_app_messages`. The app polls `GET /v1/in-app` with its public key ([SDK](sdk.md#in-app-messages)). Messages expire after 72 h by default. | Built; the SDKs don't have an in-app UI yet |
-| Email | Sent with the customer's own Resend key and sender address | Built; needs the customer's Resend key |
+| Email | Sent with the customer's own Resend key, sender address and sending domain; template support, an unsubscribe link and one-click List-Unsubscribe headers ([messaging](messaging.md)) | Built and tested against a local mock; **not verified with live Resend** |
+| WhatsApp | Approved template messages through the Meta WhatsApp Business Cloud API; a webhook for delivery/read receipts and STOP replies ([messaging](messaging.md)) | Built and tested against a local mock; **not verified with the live WhatsApp API** |
 | Webhook | Signed delivery with retries ([webhooks](webhooks.md)) | Built |
 
 Push and email credentials:
@@ -61,11 +62,11 @@ Push and email credentials:
 - are set per environment on Engage → Integrations;
 - are stored encrypted with `INTEGRATIONS_ENCRYPTION_KEY` (AES-256-GCM, bound to the row) and never shown again.
 
-If the key or the credentials are missing, the step is logged as failed (`not_connected`), never as sent. Each push attempt is stored in `notifications`, one row per device token. Local mocks can be used only on local deployments, through `FCM_API_BASE_URL`, `APNS_BASE_URL` and `RESEND_API_BASE_URL`.
+If the key or the credentials are missing, the step is logged as failed (`not_connected`), never as sent. Each push attempt is stored in `notifications`, one row per device token. Local mocks can be used only on local deployments, through `FCM_API_BASE_URL`, `APNS_BASE_URL`, `RESEND_API_BASE_URL` and `WHATSAPP_API_BASE_URL`. The integrations page shows when a provider was first verified with a real send (`live_verified_at`).
 
 ## Consent
 
-Every automation message counts as marketing. Before a push, in-app or email message the engine uses the privacy module (`src/modules/privacy/consent.ts`, see [API](api.md#consent-and-suppression)) and skips the step (logged as `skipped`) when the user key:
+Every automation message counts as marketing. Before a push, in-app, email or WhatsApp message the engine uses the privacy module (`src/modules/privacy/consent.ts`, see [API](api.md#consent-and-suppression)) and skips the step (logged as `skipped`) when the user key:
 
 - is on the `marketing` suppression list, or on the list for the medium (`push`, `email`, `whatsapp`). Suppressions are manual, from the API, automatic from denied consent, or from an unsubscribe;
 - has a latest consent decision denying `marketing`, or denying `push` when sending push.

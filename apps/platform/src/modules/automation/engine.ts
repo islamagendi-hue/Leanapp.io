@@ -3,10 +3,14 @@ import { withSystem, withTenant, type Db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { PERSON } from "@/modules/analytics/service";
 import { personMatches } from "@/modules/audiences/service";
-import { messagingBlocked, splitUserKey } from "@/modules/messaging/consent";
+import { messagingBlocked, recordUnsubscribe, splitUserKey } from "@/modules/messaging/consent";
+import { getEmailTemplate, issueUnsubscribeToken } from "@/modules/messaging/email";
+import { buildEmail } from "@/modules/messaging/email-content";
 import { loadDeliveryCredentials, markIntegration, sendCustomerEmail, type DeliveryCredentials } from "@/modules/messaging/integrations";
-import type { PushContent } from "@/modules/push/messages";
-import { sendApns, sendFcm, type PushOutcome } from "@/modules/push/transport";
+import { APNS_HOSTS, type PushContent } from "@/modules/push/messages";
+import { apnsBaseUrl, fcmBaseUrl, sendApns, sendFcm, type PushOutcome } from "@/modules/push/transport";
+import { toE164, waId } from "@/modules/whatsapp/messages";
+import { findTemplate, recipientHash, sendTemplate } from "@/modules/whatsapp/service";
 import { recordUsage } from "@/modules/usage/service";
 import { enqueueDelivery } from "@/modules/webhooks/service";
 import { MESSAGE_STEPS, parseAutomation, renderTemplate, type AutomationDefinition, type Step } from "./definition";
@@ -28,8 +32,9 @@ import { nextScheduled, quietHoursEnd } from "./time";
  *     organization's RLS scope, and every step leaves a log entry.
  *
  * Guardrails: per-person frequency cap over messages from all automations of
- * the environment; quiet hours in the organization's timezone for push and
- * email (the run waits, then sends); consent opt-outs; pending deletions.
+ * the environment; quiet hours in the organization's timezone for push,
+ * email and WhatsApp (the run waits, then sends); consent and suppression
+ * lists; pending deletions.
  */
 
 const EVENT_BATCH = 1000;
@@ -335,7 +340,7 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
     }
     if (def.frequencyCap) {
       const sent = await db.one<{ n: string }>(
-        `select (select count(*) from platform.notifications where environment_id = $1 and user_key = $2 and status in ('sent', 'delivered', 'opened') and created_at > now() - make_interval(hours => $3))
+        `select (select count(*) from platform.notifications where environment_id = $1 and user_key = $2 and status in ('sent', 'delivered', 'read', 'opened') and created_at > now() - make_interval(hours => $3))
               + (select count(*) from platform.in_app_messages where environment_id = $1 and user_key = $2 and created_at > now() - make_interval(hours => $3)) as n`,
         [run.environment_id, run.user_key, def.frequencyCap.hours],
       );
@@ -371,6 +376,8 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
       return sendPush(env, s, index, vars);
     case "email":
       return sendEmailStep(env, s, index, vars);
+    case "whatsapp":
+      return sendWhatsAppStep(env, s, index, vars);
     case "in_app": {
       const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "in_app");
       if (blocked) return { next: "continue", entry: { type: "in_app", outcome: "skipped", detail: `Not sent: ${blocked}` } };
@@ -457,20 +464,23 @@ async function sendPush(env: RunEnv, s: Extract<Step, { type: "push" }>, index: 
     if (!notif) continue; // already attempted for this token
     let outcome: PushOutcome;
     let integrationId: string | null = null;
+    let live = false;
     if (t.provider === "fcm" && creds.fcm) {
       integrationId = creds.fcm.id;
+      live = fcmBaseUrl() === "https://fcm.googleapis.com";
       outcome = await sendFcm(creds.fcm.sa, t.token, content);
     } else if (t.provider === "apns" && creds.apns) {
       integrationId = creds.apns.id;
+      live = apnsBaseUrl(creds.apns.creds.environment) === APNS_HOSTS[creds.apns.creds.environment];
       outcome = await sendApns(creds.apns.creds, t.token, content);
     } else {
       const why = creds.errors[t.provider] ? `${PROVIDER_LABEL[t.provider]} credentials can't be read` : `${PROVIDER_LABEL[t.provider]} is not connected`;
       outcome = { ok: false, invalidToken: false, status: null, error: why };
     }
-    await db.query("update platform.notifications set status = $2, error = $3, sent_at = case when $2 = 'sent' then now() end where id = $1", [
-      notif.id, outcome.ok ? "sent" : "failed", outcome.error,
+    await db.query("update platform.notifications set status = $2, error = $3, sent_at = case when $2 = 'sent' then now() end, provider_message_id = $4 where id = $1", [
+      notif.id, outcome.ok ? "sent" : "failed", outcome.error, outcome.providerId ?? null,
     ]);
-    if (integrationId) await markIntegration(db, integrationId, outcome.ok || outcome.invalidToken ? null : outcome.error);
+    if (integrationId) await markIntegration(db, integrationId, outcome.ok || outcome.invalidToken ? null : outcome.error, live && outcome.ok);
     if (outcome.invalidToken) {
       await db.query("update platform.push_tokens set status = 'invalid', invalidated_at = now() where id = $1", [t.id]);
     }
@@ -490,22 +500,74 @@ async function sendEmailStep(env: RunEnv, s: Extract<Step, { type: "email" }>, i
   if (!to || !EMAIL.test(to)) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: "No email user property" } };
   const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "email");
   if (blocked) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: `Not sent: ${blocked}` } };
-  const subject = renderTemplate(s.subject, vars);
+  let content = { subject: s.subject ?? "", body: s.body ?? "" };
+  if (s.templateId) {
+    const t = await getEmailTemplate(db, run.environment_id, s.templateId);
+    if (!t) return { next: "continue", entry: { type: "email", outcome: "failed", detail: "The email template was deleted" } };
+    content = { subject: t.subject, body: t.body };
+  }
+  const subject = renderTemplate(content.subject, vars);
+  const unsubscribe = issueUnsubscribeToken();
   const notif = await db.one<{ id: string }>(
-    `insert into platform.notifications (organization_id, environment_id, channel, provider, user_key, automation_run_id, step, status, payload)
-     values ($1, $2, 'email', 'resend', $3, $4, $5, 'queued', $6)
+    `insert into platform.notifications (organization_id, environment_id, channel, provider, user_key, automation_run_id, step, status, payload, unsubscribe_token_hash)
+     values ($1, $2, 'email', 'resend', $3, $4, $5, 'queued', $6, $7)
      on conflict (automation_run_id, step, coalesce(push_token_id, '00000000-0000-0000-0000-000000000000'::uuid)) where automation_run_id is not null do nothing
      returning id`,
-    [run.organization_id, run.environment_id, run.user_key, run.id, index, JSON.stringify({ subject })],
+    [run.organization_id, run.environment_id, run.user_key, run.id, index, JSON.stringify({ subject, template_id: s.templateId ?? null }), unsubscribe.hash],
   );
   if (!notif) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: "Already attempted" } };
-  let result: { ok: boolean; error: string | null };
+  let result: { ok: boolean; error: string | null; id?: string };
   if (!creds.resend) {
     result = { ok: false, error: creds.errors.resend ? "Email credentials can't be read" : "Email (Resend) is not connected" };
   } else {
-    result = await sendCustomerEmail(creds.resend.creds, { to, subject, text: renderTemplate(s.body, vars), tag: run.automation_id });
-    await markIntegration(db, creds.resend.id, result.ok ? null : result.error);
+    const email = buildEmail(renderTemplate(content.body, vars), unsubscribe.url);
+    const r = await sendCustomerEmail(creds.resend.creds, { to, subject, text: email.text, html: email.html, headers: email.headers, tag: run.automation_id });
+    result = r;
+    await markIntegration(db, creds.resend.id, r.ok ? null : r.error, r.live && r.ok);
+    if (r.ok) await recordUsage(db, run.organization_id, "email_messages", 1);
   }
-  await db.query("update platform.notifications set status = $2, error = $3, sent_at = case when $2 = 'sent' then now() end where id = $1", [notif.id, result.ok ? "sent" : "failed", result.error]);
+  await db.query(
+    "update platform.notifications set status = $2, error = $3, sent_at = case when $2 = 'sent' then now() end, provider_message_id = $4 where id = $1",
+    [notif.id, result.ok ? "sent" : "failed", result.error, result.id ?? null],
+  );
   return { next: "continue", entry: { type: "email", outcome: result.ok ? "done" : "failed", detail: result.ok ? "Sent" : result.error ?? "Failed" } };
+}
+
+async function sendWhatsAppStep(env: RunEnv, s: Extract<Step, { type: "whatsapp" }>, index: number, vars: Parameters<typeof renderTemplate>[1]): Promise<StepResult> {
+  const { db, run, creds } = env;
+  const to = toE164(env.profile[s.phoneProperty]);
+  if (!to) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: `No valid E.164 phone number in the ${s.phoneProperty} user property` } };
+  const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "whatsapp");
+  if (blocked) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: `Not sent: ${blocked}` } };
+  const template = await findTemplate(db, run.environment_id, s.template, s.language);
+  if (!template || template.status !== "APPROVED") {
+    return { next: "continue", entry: { type: "whatsapp", outcome: "failed", detail: template ? `Template ${s.template} is ${template.status.toLowerCase()}, not approved` : `Template ${s.template} (${s.language}) is no longer synced` } };
+  }
+  const bodyParams = s.bodyParams.map((p) => renderTemplate(p, vars).trim() || "-");
+  const headerParams = s.headerParams.map((p) => renderTemplate(p, vars).trim() || "-");
+  const notif = await db.one<{ id: string }>(
+    `insert into platform.notifications (organization_id, environment_id, channel, provider, user_key, automation_run_id, step, status, payload, recipient_hash)
+     values ($1, $2, 'whatsapp', 'whatsapp_cloud', $3, $4, $5, 'queued', $6, $7)
+     on conflict (automation_run_id, step, coalesce(push_token_id, '00000000-0000-0000-0000-000000000000'::uuid)) where automation_run_id is not null do nothing
+     returning id`,
+    [run.organization_id, run.environment_id, run.user_key, run.id, index, JSON.stringify({ template: s.template, language: s.language }), recipientHash(run.environment_id, waId(to))],
+  );
+  if (!notif) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: "Already attempted" } };
+  let result: { ok: boolean; error: string | null; messageId?: string | null };
+  if (!creds.whatsapp) {
+    result = { ok: false, error: creds.errors.whatsapp ? "WhatsApp credentials can't be read" : "WhatsApp is not connected" };
+  } else {
+    const r = await sendTemplate(creds.whatsapp.creds, { to, name: s.template, language: s.language, bodyParams, headerParams });
+    result = r;
+    await markIntegration(db, creds.whatsapp.id, r.ok || r.optedOut ? null : r.error, r.live && r.ok);
+    if (r.optedOut) {
+      await recordUnsubscribe(db, { organizationId: run.organization_id, environmentId: run.environment_id, userKey: run.user_key, channel: "whatsapp", reason: "WhatsApp: user stopped marketing messages" });
+    }
+  }
+  await db.query(
+    "update platform.notifications set status = $2, error = $3, sent_at = case when $2 = 'sent' then now() end, provider_message_id = $4 where id = $1",
+    [notif.id, result.ok ? "sent" : "failed", result.error, result.messageId ?? null],
+  );
+  if (result.ok) await recordUsage(db, run.organization_id, "whatsapp_messages", 1);
+  return { next: "continue", entry: { type: "whatsapp", outcome: result.ok ? "done" : "failed", detail: result.ok ? "Sent (template)" : result.error ?? "Failed" } };
 }

@@ -8,7 +8,9 @@ import { NotFoundError } from "@/lib/errors";
 import { listAudiences } from "@/modules/audiences/service";
 import { describeStep, describeTrigger } from "@/modules/automation/definition";
 import { getAutomation } from "@/modules/automation/service";
+import { listEmailTemplates } from "@/modules/messaging/email";
 import { listIntegrations } from "@/modules/messaging/integrations";
+import { listTemplates } from "@/modules/whatsapp/service";
 import { getOrganization } from "@/modules/organizations/service";
 import { can } from "@/modules/rbac/authorize";
 import { listWebhookTargets } from "@/modules/webhooks/service";
@@ -31,12 +33,14 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
   const env = environments.find((e) => e.id === a.environment_id);
   if (!env) notFound();
   const manage = can(ctx.role, "automations.manage");
-  const [audiences, webhooks, organization, integrations, events] = await Promise.all([
+  const [audiences, webhooks, organization, integrations, events, whatsappTemplates, emailTemplates] = await Promise.all([
     can(ctx.role, "audiences.read") ? listAudiences(ctx, env.id, { includeArchived: true }) : Promise.resolve([]),
     listWebhookTargets(ctx, env.id),
     getOrganization(ctx),
     can(ctx.role, "integrations.read") ? listIntegrations(ctx, env.id) : Promise.resolve(null),
     manage ? knownEvents(ctx, env.id) : Promise.resolve([]),
+    manage ? listTemplates(ctx, env.id) : Promise.resolve([]),
+    manage ? listEmailTemplates(ctx, env.id) : Promise.resolve([]),
   ]);
   const audienceName = (aid: string) => audiences.find((x) => x.id === aid)?.name ?? "an audience";
   const base = `/o/${org}/apps/${app}/engage/automations`;
@@ -45,6 +49,7 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
   const missing = [
     def.steps.some((s) => s.type === "push") && needs("fcm") && needs("apns") ? "push (FCM or APNs)" : null,
     def.steps.some((s) => s.type === "email") && needs("resend") ? "email (Resend)" : null,
+    def.steps.some((s) => s.type === "whatsapp") && needs("whatsapp") ? "WhatsApp" : null,
   ].filter(Boolean);
 
   return (
@@ -127,7 +132,8 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
           <h2 className="h2">Edit</h2>
           <p className="text-sm text-ink-3">Saving creates version {a.version + 1}. Runs in progress finish on the version they started with{a.status === "active" ? "; a changed trigger starts from now" : ""}.</p>
           <AutomationEditor save={saveAutomationAction.bind(null, org, app, env.id, a.id)} initial={def as never} name={a.name}
-            events={events} audiences={audiences.filter((x) => x.status !== "archived")} webhooks={webhooks} timezone={organization.timezone} />
+            events={events} audiences={audiences.filter((x) => x.status !== "archived")} webhooks={webhooks} timezone={organization.timezone}
+            whatsappTemplates={whatsappTemplates} emailTemplates={emailTemplates} />
         </section>
       )}
 

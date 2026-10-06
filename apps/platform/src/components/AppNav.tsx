@@ -57,6 +57,7 @@ export function AppNav({ base, appName, privacy = false, attribution = false, us
       items: [
         ...(engage.audiences ? [{ label: "Audiences", href: `${base}/engage/audiences` }] : []),
         ...(engage.automations ? [{ label: "Automations", href: `${base}/engage/automations` }] : []),
+        ...(engage.automations ? [{ label: "Email templates", href: `${base}/engage/email-templates` }] : []),
         ...(engage.integrations ? [{ label: "Integrations", href: `${base}/engage/integrations` }] : []),
       ],
     },

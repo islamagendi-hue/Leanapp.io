@@ -59,7 +59,24 @@ export const stepSchema = z.discriminatedUnion("type", [
     type: z.literal("in_app"), title: text(120, "a title"), body: text(1000, "a message"), buttonText: optionalText(40), deepLink,
     expiresInHours: z.coerce.number().int().min(1).max(720).default(72),
   }),
-  z.object({ type: z.literal("email"), subject: text(200, "a subject"), body: text(20_000, "the email text") }),
+  z.object({
+    type: z.literal("email"),
+    /** A saved email template; when absent, `subject` and `body` are used. */
+    templateId: z.string().uuid("Choose a template.").optional(),
+    subject: optionalText(200),
+    body: optionalText(20_000),
+  }),
+  z.object({
+    type: z.literal("whatsapp"),
+    /** An approved template synced from the WhatsApp Business account. */
+    template: z.string().trim().min(1, "Choose a WhatsApp template.").max(512),
+    language: z.string().trim().regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, "Choose the template's language."),
+    /** Values for {{1}}, {{2}}, … in the body (and header); may use {{user.x}} / {{event.x}}. */
+    bodyParams: z.array(z.string().trim().min(1, "Fill in every template variable.").max(1024)).max(20).default([]),
+    headerParams: z.array(z.string().trim().min(1, "Fill in every template variable.").max(60)).max(1).default([]),
+    /** User property holding the phone number in E.164 (+9665…). */
+    phoneProperty: propertyName.default("phone"),
+  }),
   z.object({ type: z.literal("update_user_property"), property: propertyName, value: scalar }),
   z.object({
     type: z.literal("send_event"), event: eventName,
@@ -67,7 +84,7 @@ export const stepSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type Step = z.infer<typeof stepSchema>;
-export const MESSAGE_STEPS = new Set<Step["type"]>(["push", "in_app", "email"]);
+export const MESSAGE_STEPS = new Set<Step["type"]>(["push", "in_app", "email", "whatsapp"]);
 
 export const definitionSchema = z
   .object({
@@ -82,6 +99,9 @@ export const definitionSchema = z
   })
   .superRefine((d, ctx) => {
     d.steps.forEach((s, i) => {
+      if (s.type === "email" && !s.templateId && (!s.subject || !s.body)) {
+        ctx.addIssue({ code: "custom", path: ["steps", i], message: `Step ${i + 1}: choose an email template or write a subject and text.` });
+      }
       if (s.type === "branch" && s.else !== "exit") {
         if (s.else.goto <= i) ctx.addIssue({ code: "custom", path: ["steps", i], message: `Step ${i + 1}: a branch can only jump forward.` });
         else if (s.else.goto >= d.steps.length) ctx.addIssue({ code: "custom", path: ["steps", i], message: `Step ${i + 1}: there is no step ${s.else.goto + 1}.` });
@@ -115,6 +135,14 @@ export function referencedWebhooks(d: AutomationDefinition): string[] {
   return d.steps.flatMap((s) => (s.type === "webhook" ? [s.webhookId] : []));
 }
 
+export function referencedEmailTemplates(d: AutomationDefinition): string[] {
+  return d.steps.flatMap((s) => (s.type === "email" && s.templateId ? [s.templateId] : []));
+}
+
+export function referencedWhatsAppTemplates(d: AutomationDefinition): Extract<Step, { type: "whatsapp" }>[] {
+  return d.steps.flatMap((s) => (s.type === "whatsapp" ? [s] : []));
+}
+
 /** Replaces {{user.x}} and {{event.x}} with values from the run; unknown keys become empty. */
 export function renderTemplate(template: string, vars: { user?: Record<string, unknown>; event?: Record<string, unknown> }): string {
   return template.replace(/\{\{\s*(user|event)\.([A-Za-z0-9_.$-]{1,64})\s*\}\}/g, (_, scope: "user" | "event", key: string) => {
@@ -130,7 +158,8 @@ export function describeStep(s: Step): string {
     case "webhook": return "Call webhook";
     case "push": return `Push: ${s.title}`;
     case "in_app": return `In-app message: ${s.title}`;
-    case "email": return `Email: ${s.subject}`;
+    case "email": return s.templateId ? "Email (template)" : `Email: ${s.subject}`;
+    case "whatsapp": return `WhatsApp template: ${s.template} (${s.language})`;
     case "update_user_property": return `Set user property ${s.property} = ${JSON.stringify(s.value)}`;
     case "send_event": return `Send event ${s.event}`;
   }

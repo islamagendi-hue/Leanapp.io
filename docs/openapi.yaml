@@ -27,6 +27,8 @@ tags:
     description: Public tracking-link redirect.
   - name: In-app
     description: In-app messages queued by automations, polled by the app with its public key.
+  - name: Messaging
+    description: Callbacks for WhatsApp and email unsubscribe links (docs/messaging.md).
   - name: System
     description: Health and operations.
 paths:
@@ -744,6 +746,70 @@ paths:
       security: []
       responses:
         "204": { description: Preflight accepted }
+  /v1/whatsapp/webhook/{id}:
+    parameters:
+      - { name: id, in: path, required: true, description: The environment's WhatsApp integration id (shown on Engage → Integrations)., schema: { type: string, format: uuid } }
+    get:
+      operationId: whatsappWebhookVerify
+      tags: [Messaging]
+      summary: Meta webhook verification handshake
+      security: []
+      parameters:
+        - { name: hub.mode, in: query, required: true, schema: { type: string, enum: [subscribe] } }
+        - { name: hub.verify_token, in: query, required: true, schema: { type: string } }
+        - { name: hub.challenge, in: query, required: true, schema: { type: string, maxLength: 200 } }
+      responses:
+        "200": { description: The challenge, echoed as text/plain, content: { text/plain: { schema: { type: string } } } }
+        "403": { description: Wrong verify token or unknown integration }
+    post:
+      operationId: whatsappWebhookEvent
+      tags: [Messaging]
+      summary: WhatsApp delivery statuses and inbound messages
+      description: Signed by Meta with the app secret. Applies sent/delivered/read/failed statuses to notifications and turns STOP / إيقاف replies into WhatsApp suppressions.
+      security: []
+      parameters:
+        - { name: X-Hub-Signature-256, in: header, required: true, schema: { type: string, example: "sha256=…" } }
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, additionalProperties: true } } }
+      responses:
+        "200":
+          description: Processed
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  received: { type: boolean }
+                  statuses: { type: integer }
+                  optOuts: { type: integer }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+  /unsubscribe/{token}:
+    parameters:
+      - { name: token, in: path, required: true, schema: { type: string, pattern: "^[A-Za-z0-9_-]{32}$" } }
+    get:
+      operationId: unsubscribePage
+      tags: [Messaging]
+      summary: Unsubscribe confirmation page (HTML)
+      description: Shows a button; changes nothing, so link scanners can't unsubscribe anyone.
+      security: []
+      responses:
+        "200": { description: HTML page, content: { text/html: {} } }
+        "404": { description: Unknown token, content: { text/html: {} } }
+    post:
+      operationId: unsubscribe
+      tags: [Messaging]
+      summary: Unsubscribe from automation emails (RFC 8058 one-click)
+      description: Adds an `email` suppression (source `unsubscribe`) for the person the email was sent to. Idempotent.
+      security: []
+      requestBody:
+        required: false
+        content: { application/x-www-form-urlencoded: { schema: { type: object, properties: { List-Unsubscribe: { type: string, enum: [One-Click] } } } } }
+      responses:
+        "200": { description: Unsubscribed (HTML page), content: { text/html: {} } }
+        "404": { description: Unknown token, content: { text/html: {} } }
 components:
   securitySchemes:
     bearerKey:

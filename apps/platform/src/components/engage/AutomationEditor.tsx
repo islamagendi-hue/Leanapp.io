@@ -19,6 +19,7 @@ const STEP_TYPES: [string, string][] = [
   ["push", "Push notification"],
   ["in_app", "In-app message"],
   ["email", "Email"],
+  ["whatsapp", "WhatsApp template"],
   ["webhook", "Webhook"],
   ["update_user_property", "Update user property"],
   ["send_event", "Send event"],
@@ -32,6 +33,7 @@ function defaultStep(type: string): Step {
     case "push": return { type, title: "", body: "" };
     case "in_app": return { type, title: "", body: "", expiresInHours: 72 };
     case "email": return { type, subject: "", body: "" };
+    case "whatsapp": return { type, template: "", language: "", bodyParams: [], headerParams: [], phoneProperty: "phone" };
     case "webhook": return { type, webhookId: "" };
     case "update_user_property": return { type, property: "", value: "" };
     default: return { type: "send_event", event: "", properties: {} };
@@ -46,9 +48,13 @@ export const DEFAULT_DEFINITION: Definition = {
   quietHours: { start: "22:00", end: "08:00" },
 };
 
+export interface WhatsAppTemplateOption { name: string; language: string; status: string; body_params: number; header_params: number; body_text: string | null }
+export interface EmailTemplateOption { id: string; name: string; subject: string }
+type Channels = { whatsappTemplates: WhatsAppTemplateOption[]; emailTemplates: EmailTemplateOption[] };
+
 export function AutomationEditor({
-  save, initial, name, events, audiences, webhooks, timezone,
-}: {
+  save, initial, name, events, audiences, webhooks, timezone, whatsappTemplates = [], emailTemplates = [],
+}: Partial<Channels> & {
   save: (state: FormState, form: FormData) => Promise<FormState>;
   initial: Definition;
   name: string;
@@ -130,7 +136,7 @@ export function AutomationEditor({
                   {d.steps.length > 1 && <button type="button" className="text-alert hover:underline" onClick={() => set({ steps: d.steps.filter((_, j) => j !== i) })}>Remove</button>}
                 </span>
               </div>
-              <StepFields step={s} index={i} total={d.steps.length} onChange={(n) => setStep(i, n)} events={events} webhooks={webhooks} />
+              <StepFields step={s} index={i} total={d.steps.length} onChange={(n) => setStep(i, n)} events={events} webhooks={webhooks} whatsappTemplates={whatsappTemplates} emailTemplates={emailTemplates} />
             </li>
           ))}
         </ol>
@@ -165,7 +171,7 @@ export function AutomationEditor({
               <input className="input w-20" type="number" min={1} max={720} value={d.frequencyCap.hours} onChange={(e) => set({ frequencyCap: { ...d.frequencyCap!, hours: Number(e.target.value) } })} /> h
             </div>
           )}
-          <p className="help">Counts push, email and in-app messages to the person from all automations here; over the cap, the message is skipped.</p>
+          <p className="help">Counts push, email, WhatsApp and in-app messages to the person from all automations here; over the cap, the message is skipped.</p>
         </div>
         <div className="space-y-2 text-sm">
           <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={d.quietHours !== null} onChange={(e) => set({ quietHours: e.target.checked ? { start: "22:00", end: "08:00" } : null })} /> Quiet hours</label>
@@ -175,14 +181,14 @@ export function AutomationEditor({
               <input className="input w-28" type="time" value={d.quietHours.end} onChange={(e) => set({ quietHours: { ...d.quietHours!, end: e.target.value } })} />
             </div>
           )}
-          <p className="help">Push and email wait until quiet hours end ({timezone}, the organization&apos;s timezone).</p>
+          <p className="help">Push, email and WhatsApp wait until quiet hours end ({timezone}, the organization&apos;s timezone).</p>
         </div>
       </fieldset>
     </ActionForm>
   );
 }
 
-function StepFields({ step: s, index, total, onChange, events, webhooks }: {
+function StepFields({ step: s, index, total, onChange, events, webhooks, whatsappTemplates, emailTemplates }: Channels & {
   step: Step; index: number; total: number; onChange: (s: Step) => void; events: string[];
   webhooks: { id: string; url: string; description: string | null }[];
 }) {
@@ -229,8 +235,57 @@ function StepFields({ step: s, index, total, onChange, events, webhooks }: {
           <label className="block text-sm"><span className="label">Expires after (hours)</span><input className="input" type="number" min={1} max={720} value={Number(s.expiresInHours ?? 72)} onChange={(e) => onChange({ ...s, expiresInHours: Number(e.target.value) })} /></label>
         </div>
       );
-    case "email":
-      return <div className="space-y-2">{text("subject", "Subject", 200)}{text("body", "Text", 20_000, true)}<p className="help">Sent to the person&apos;s <code>email</code> user property through your Resend account, unless they opted out of marketing.</p></div>;
+    case "email": {
+      const templateId = String(s.templateId ?? "");
+      return (
+        <div className="space-y-2">
+          <label className="block text-sm"><span className="label">Content</span>
+            <select className="input" value={templateId} onChange={(e) => onChange(e.target.value ? { type: "email", templateId: e.target.value } : { type: "email", subject: "", body: "" })}>
+              <option value="">Write it here</option>
+              {emailTemplates.map((t) => <option key={t.id} value={t.id}>Template: {t.name}</option>)}
+            </select>
+          </label>
+          {!templateId && <>{text("subject", "Subject", 200)}{text("body", "Text", 20_000, true)}</>}
+          <p className="help">Sent to the person&apos;s <code>email</code> user property through your Resend account, with an unsubscribe link. Skipped for people who unsubscribed or denied marketing consent.</p>
+        </div>
+      );
+    }
+    case "whatsapp": {
+      const key = s.template ? `${String(s.template)}|${String(s.language)}` : "";
+      const tpl = whatsappTemplates.find((t) => `${t.name}|${t.language}` === key);
+      const params = (k: "bodyParams" | "headerParams") => (Array.isArray(s[k]) ? (s[k] as string[]) : []);
+      const setParam = (k: "bodyParams" | "headerParams", j: number, v: string) => {
+        const next = [...params(k)];
+        next[j] = v;
+        onChange({ ...s, [k]: next });
+      };
+      return (
+        <div className="space-y-2 text-sm">
+          <div className="grid gap-2 md:grid-cols-2">
+            <label className="block"><span className="label">Approved template</span>
+              <select className="input" value={key} onChange={(e) => {
+                const t = whatsappTemplates.find((x) => `${x.name}|${x.language}` === e.target.value);
+                onChange({ ...s, template: t?.name ?? "", language: t?.language ?? "", bodyParams: Array(t?.body_params ?? 0).fill(""), headerParams: Array(t?.header_params ?? 0).fill("") });
+              }}>
+                <option value="">{whatsappTemplates.length ? "Choose a template" : "No templates synced (Engage → Integrations)"}</option>
+                {whatsappTemplates.map((t) => <option key={`${t.name}|${t.language}`} value={`${t.name}|${t.language}`} disabled={t.status !== "APPROVED"}>{t.name} ({t.language}){t.status !== "APPROVED" ? ` · ${t.status.toLowerCase()}` : ""}</option>)}
+              </select>
+            </label>
+            <label className="block"><span className="label">Phone number user property (E.164)</span>
+              <input className="input font-mono" value={String(s.phoneProperty ?? "phone")} onChange={(e) => onChange({ ...s, phoneProperty: e.target.value })} />
+            </label>
+          </div>
+          {tpl?.body_text && <p className="whitespace-pre-wrap rounded-lg bg-paper-2 p-2 text-ink-2">{tpl.body_text}</p>}
+          {params("headerParams").map((v, j) => (
+            <label key={`h${j}`} className="block"><span className="label">Header {`{{${j + 1}}}`}</span><input className="input" maxLength={60} value={v} onChange={(e) => setParam("headerParams", j, e.target.value)} /></label>
+          ))}
+          {params("bodyParams").map((v, j) => (
+            <label key={`b${j}`} className="block"><span className="label">Body {`{{${j + 1}}}`}</span><input className="input" maxLength={1024} placeholder="{{user.name}}" value={v} onChange={(e) => setParam("bodyParams", j, e.target.value)} /></label>
+          ))}
+          <p className="help">Only templates approved by WhatsApp can be sent. Skipped for people without a valid number, who denied marketing consent, or who replied STOP.</p>
+        </div>
+      );
+    }
     case "webhook":
       return (
         <select className="input" value={String(s.webhookId ?? "")} onChange={(e) => onChange({ ...s, webhookId: e.target.value })} aria-label="Webhook">
