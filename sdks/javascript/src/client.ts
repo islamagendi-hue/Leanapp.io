@@ -33,11 +33,26 @@ export interface AnalyticsOptions {
   context?: Record<string, unknown>;
   /** Stop sending (events still queue) until optIn(). */
   optedOut?: boolean;
+  /**
+   * Browsers: send queued events when the page is hidden or closed (visibilitychange → hidden, pagehide),
+   * using fetch keepalive so the request outlives the page. Default true; ignored outside browsers.
+   */
+  flushOnHide?: boolean;
+  /**
+   * React Native: pass `AppState` from react-native (or anything with the same shape) to send queued
+   * events when the app goes to the background. The SDK never imports react-native itself.
+   */
+  appState?: AppStateLike;
   debug?: boolean;
   fetch?: typeof fetch;
   now?: () => number;
   uuid?: () => string;
   random?: () => number;
+}
+
+/** The subset of React Native's AppState the SDK uses. */
+export interface AppStateLike {
+  addEventListener(type: "change", listener: (state: string) => void): { remove(): void } | void;
 }
 
 export interface WireEvent {
@@ -75,8 +90,28 @@ export type FlushResult =
   | { status: "unauthorized" };
 
 const KEY_PATTERN = /^la_(pk|sk)_(dev|stg|live)_[A-Za-z0-9_-]{20,}$/;
+// Browsers cap the bodies of all in-flight keepalive requests at 64 KiB; stay under it with headroom.
+const KEEPALIVE_MAX_BYTES = 60_000;
+
+/**
+ * Storage namespace for a key: its kind and environment tag (la_pk_live), never the random part,
+ * so rotating a key keeps each install's anonymous id and queue while dev and production stay apart.
+ */
+export function storagePrefix(apiKey: string): string {
+  const [, kind, env] = KEY_PATTERN.exec(apiKey) ?? [];
+  return `leanapp:la_${kind}_${env}:`;
+}
+
+/** Prefix used up to 0.1.0, which included random key characters. Read once to migrate. */
+function legacyStoragePrefix(apiKey: string): string {
+  return `leanapp:${apiKey.slice(0, 14)}:`;
+}
 const BASE_BACKOFF_MS = 1_000;
 const MAX_BACKOFF_MS = 5 * 60_000;
+
+function byteLength(s: string): number {
+  return typeof TextEncoder !== "undefined" ? new TextEncoder().encode(s).length : s.length * 3;
+}
 
 function defaultUuid(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
@@ -118,7 +153,7 @@ function autoContext(): Record<string, unknown> {
  * path: events go to a persistent queue and are sent in batches with retries.
  */
 export class LeanAppClient {
-  private readonly o: Required<Omit<AnalyticsOptions, "appVersion" | "appBuild" | "platform" | "context" | "optedOut" | "storage">> & {
+  private readonly o: Required<Omit<AnalyticsOptions, "appVersion" | "appBuild" | "platform" | "context" | "optedOut" | "storage" | "flushOnHide" | "appState">> & {
     platform: Platform;
     appVersion?: string;
     appBuild?: string;
@@ -126,6 +161,8 @@ export class LeanAppClient {
   };
   private readonly storage: StorageAdapter;
   private readonly prefix: string;
+  private readonly legacyPrefix: string;
+  private readonly unsubscribers: (() => void)[] = [];
   private state: PersistedState = { anonymousId: "" };
   private queue: QueuedEvent[] = [];
   private pending: (() => void)[] = [];
@@ -168,9 +205,11 @@ export class LeanAppClient {
     };
     this.optedOut = options.optedOut ?? false;
     this.storage = options.storage ?? (platform === "web" ? localStorageAdapter() : memoryStorage());
-    // Keys are scoped per environment key prefix so dev and production data never share a queue.
-    this.prefix = `leanapp:${options.apiKey.slice(0, 14)}:`;
+    // Scoped per key kind and environment so dev and production data never share a queue.
+    this.prefix = storagePrefix(options.apiKey);
+    this.legacyPrefix = legacyStoragePrefix(options.apiKey);
     this.readyPromise = this.load();
+    this.watchLifecycle(options);
   }
 
   /** Resolves once persisted identity and queue are loaded. Calls made earlier are buffered, not lost. */
@@ -281,6 +320,7 @@ export class LeanAppClient {
 
   /** Stops timers. Pending events stay persisted and are sent by the next client. */
   async shutdown(): Promise<void> {
+    for (const off of this.unsubscribers.splice(0)) off();
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     await this.persistChain;
@@ -292,8 +332,18 @@ export class LeanAppClient {
 
   // ── Internals ─────────────────────────────────────────────────────────────
   private async load(): Promise<void> {
+    let migrated = false;
     try {
-      const [rawState, rawQueue] = await Promise.all([this.storage.getItem(this.prefix + "state"), this.storage.getItem(this.prefix + "queue")]);
+      let [rawState, rawQueue] = await Promise.all([this.storage.getItem(this.prefix + "state"), this.storage.getItem(this.prefix + "queue")]);
+      if (!rawState) {
+        // One-time move from the 0.1.0 key-specific namespace.
+        const [oldState, oldQueue] = await Promise.all([this.storage.getItem(this.legacyPrefix + "state"), this.storage.getItem(this.legacyPrefix + "queue")]);
+        if (oldState || oldQueue) {
+          rawState = oldState;
+          rawQueue = oldQueue ?? rawQueue;
+          migrated = true;
+        }
+      }
       const state = rawState ? (JSON.parse(rawState) as PersistedState) : null;
       this.state = state?.anonymousId ? state : { anonymousId: this.o.uuid() };
       const q = rawQueue ? (JSON.parse(rawQueue) as QueuedEvent[]) : [];
@@ -309,7 +359,50 @@ export class LeanAppClient {
     this.pending = [];
     for (const fn of fns) fn();
     this.persistQueue();
+    if (migrated) {
+      // Queued after the new keys are written, so a crash in between leaves the data readable.
+      this.persist(async () => {
+        await this.storage.removeItem(this.legacyPrefix + "state");
+        await this.storage.removeItem(this.legacyPrefix + "queue");
+      });
+    }
     if (this.queue.length) this.schedule(0);
+  }
+
+  private watchLifecycle(options: AnalyticsOptions) {
+    if (options.appState) {
+      const sub = options.appState.addEventListener("change", (state) => {
+        if (state === "background") void this.flush();
+      });
+      if (sub) this.unsubscribers.push(() => sub.remove());
+    }
+    const g = globalThis as {
+      document?: { visibilityState?: string; addEventListener?: (t: string, l: () => void) => void; removeEventListener?: (t: string, l: () => void) => void };
+      addEventListener?: (t: string, l: () => void) => void;
+      removeEventListener?: (t: string, l: () => void) => void;
+    };
+    if (this.o.platform !== "web" || options.flushOnHide === false || !g.document?.addEventListener || !g.addEventListener) return;
+    const onVisibility = () => {
+      if (g.document?.visibilityState === "hidden") this.flushOnExit();
+    };
+    const onPageHide = () => this.flushOnExit();
+    g.document.addEventListener("visibilitychange", onVisibility);
+    g.addEventListener("pagehide", onPageHide);
+    this.unsubscribers.push(() => {
+      g.document?.removeEventListener?.("visibilitychange", onVisibility);
+      g.removeEventListener?.("pagehide", onPageHide);
+    });
+  }
+
+  /**
+   * The page may be about to close: send one keepalive request that fits the browser's 64 KiB
+   * budget. Whatever is not confirmed stays queued (persisted) and is sent on the next visit;
+   * the idempotency key and event ids make a repeat harmless. sendBeacon is not used because it
+   * cannot carry the Authorization header the ingestion API requires.
+   */
+  private flushOnExit() {
+    if (!this.ready || this.paused || this.optedOut || this.sending || !this.queue.length) return;
+    void this.sendBatch(true, true);
   }
 
   private whenLoaded(fn: () => void) {
@@ -380,7 +473,7 @@ export class LeanAppClient {
     (this.timer as { unref?: () => void }).unref?.();
   }
 
-  private async sendBatch(manual: boolean): Promise<FlushResult> {
+  private async sendBatch(manual: boolean, keepalive = false): Promise<FlushResult> {
     if (this.paused) return { status: "unauthorized" };
     if (this.optedOut) return { status: "paused" };
     if (this.sending) return { status: "busy" };
@@ -397,18 +490,27 @@ export class LeanAppClient {
     }
     if (!this.queue.length) return { status: "empty" };
 
-    const batch = this.queue.slice(0, this.o.maxBatchSize);
+    let batch = this.queue.slice(0, this.o.maxBatchSize);
+    let requestBody = this.payload(batch);
+    if (keepalive) {
+      while (batch.length > 1 && byteLength(requestBody) > KEEPALIVE_MAX_BYTES) {
+        batch = batch.slice(0, Math.max(1, Math.floor(batch.length / 2)));
+        requestBody = this.payload(batch);
+      }
+      if (byteLength(requestBody) > KEEPALIVE_MAX_BYTES) return { status: "retry", retryInMs: 0, reason: "event too large for keepalive" };
+    }
     this.sending = true;
     try {
       const res = await this.o.fetch(`${this.o.endpoint}/v1/events/batch`, {
         method: "POST",
+        ...(keepalive ? { keepalive: true } : {}),
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.o.apiKey}`,
           // Same events → same key, so a retried request is answered from the server's idempotency store.
           "Idempotency-Key": `${batch[0].e.event_id}:${batch.length}`,
         },
-        body: JSON.stringify({ batch: batch.map((q) => q.e), sent_at: new Date(this.o.now()).toISOString() }),
+        body: requestBody,
       });
 
       if (res.ok) {
@@ -442,6 +544,10 @@ export class LeanAppClient {
     } finally {
       this.sending = false;
     }
+  }
+
+  private payload(batch: QueuedEvent[]): string {
+    return JSON.stringify({ batch: batch.map((q) => q.e), sent_at: new Date(this.o.now()).toISOString() });
   }
 
   private backoff(explicitMs: number | null, reason: string): FlushResult {
