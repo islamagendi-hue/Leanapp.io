@@ -1,9 +1,11 @@
 /** Organization settings, plan usage and the audit log viewer. */
 import { beforeAll, describe, expect, it } from "vitest";
+import { createApp } from "@/modules/apps/service";
 import { listAuditLogs } from "@/modules/audit/service";
-import { authenticateIngestionKey } from "@/modules/credentials/service";
+import { authenticateIngestionKey, listKeys } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
 import { getOrganization, updateOrganization } from "@/modules/organizations/service";
+import { processPendingEvents } from "@/modules/processing/processor";
 import { usageSummary } from "@/modules/usage/service";
 import { makeTenant } from "./helpers";
 
@@ -36,6 +38,10 @@ describe("organization settings", () => {
     await expect(updateOrganization(t.ctx, { ...profile, defaultCurrency: "dollars" })).rejects.toThrow(/currency/);
     await expect(updateOrganization({ ...t.ctx, role: "developer" }, profile)).rejects.toThrow(/permission/);
   });
+
+  it("rejects an unknown app timezone", async () => {
+    await expect(createApp(t.ctx, { name: "Clock App", platforms: ["ios"], timezone: "Mars/Olympus" })).rejects.toThrow(/timezone/);
+  });
 });
 
 describe("plan & usage", () => {
@@ -51,6 +57,26 @@ describe("plan & usage", () => {
     expect(line("seats")).toMatchObject({ used: 1, limit: 3 });
     expect((await usageSummary(other.ctx)).lines.find((l) => l.key === "events")!.used).toBe(0);
     await expect(usageSummary({ ...t.ctx, role: "developer" })).rejects.toThrow(/permission/);
+  });
+});
+
+describe("monthly active users", () => {
+  it("counts an identified install once, stitched like analytics", async () => {
+    const prod = t.environments.find((e) => e.type === "production")!;
+    const keys = await listKeys(t.ctx, t.app.id);
+    const sdk = (await authenticateIngestionKey(keys.sdkKeys.find((k) => k.environment_id === prod.id)!.key))!;
+    const ev = (o: Record<string, unknown>) => ({ type: "track", event_name: "item_viewed", event_id: crypto.randomUUID(), ...o });
+    await ingest(sdk, {
+      batch: [
+        ev({ anonymous_id: "m1" }), // before sign-in: the same person as u1
+        { type: "identify", event_id: crypto.randomUUID(), anonymous_id: "m1", user_id: "u1" },
+        ev({ anonymous_id: "m1", user_id: "u1" }),
+        ev({ anonymous_id: "m2" }), // never identified
+      ],
+    }, { mode: "batch" });
+    await processPendingEvents({ environmentId: prod.id });
+    const u = await usageSummary(t.ctx);
+    expect(u.lines.find((l) => l.key === "monthly_active_users")!.used).toBe(2);
   });
 });
 

@@ -13,7 +13,12 @@
  * See docs/multi-tenancy.md and ADR-009.
  */
 import "server-only";
-import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
+
+// `date` (OID 1082) is a calendar day, not an instant: node-pg would turn it
+// into local midnight, which shifts the day on servers not running in UTC.
+// Keep it as the "YYYY-MM-DD" string Postgres sends.
+types.setTypeParser(types.builtins.DATE, (v) => v);
 
 export interface Db {
   query<R extends QueryResultRow = QueryResultRow>(text: string, values?: unknown[]): Promise<R[]>;

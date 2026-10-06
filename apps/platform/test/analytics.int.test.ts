@@ -5,7 +5,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { withSystem } from "@/lib/db";
 import { dayList, eventTrend, funnel, retention, topEvents } from "@/modules/analytics/service";
-import { authenticateIngestionKey } from "@/modules/credentials/service";
+import { authenticateIngestionKey, listKeys } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { makeTenant } from "./helpers";
@@ -116,6 +116,27 @@ describe("funnels", () => {
       { key: "android", people: [2, 1] },
       { key: "ios", people: [1, 1] },
     ]);
+  });
+
+  it("needs a second event for a repeated step, even at the same timestamp", async () => {
+    // A separate environment so these opens don't change the other reports.
+    const prod = t.environments.find((e) => e.type === "production")!;
+    const keys = await listKeys(t.ctx, t.app.id);
+    const sdk = (await authenticateIngestionKey(keys.sdkKeys.find((k) => k.environment_id === prod.id)!.key))!;
+    const same = daysAgo(2);
+    const batch = [
+      track("app_opened", 3, { anonymous_id: "x1" }),
+      track("app_opened", 3, { anonymous_id: "x2" }),
+      track("app_opened", 2, { anonymous_id: "x2" }),
+      { type: "track", event_name: "app_opened", event_id: crypto.randomUUID(), timestamp: same, anonymous_id: "x3" },
+      { type: "track", event_name: "app_opened", event_id: crypto.randomUUID(), timestamp: same, anonymous_id: "x3" },
+    ];
+    await ingest(sdk, { batch }, { mode: "batch" });
+    await processPendingEvents({ environmentId: prod.id });
+    const f = await funnel(t.ctx, { environmentId: prod.id }, { steps: ["app_opened", "app_opened"], windowDays: 7, days: 30 });
+    expect(f.steps.map((s) => s.people)).toEqual([3, 2]);
+    const thrice = await funnel(t.ctx, { environmentId: prod.id }, { steps: ["app_opened", "app_opened", "app_opened"], windowDays: 7, days: 30 });
+    expect(thrice.steps.map((s) => s.people)).toEqual([3, 2, 0]);
   });
 
   it("needs two to six steps", async () => {

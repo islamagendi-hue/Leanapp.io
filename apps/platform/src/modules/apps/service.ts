@@ -6,6 +6,7 @@ import { slugify } from "@/lib/slug";
 import { audit } from "@/modules/audit/service";
 import { insertSdkKey } from "@/modules/credentials/service";
 import type { EnvironmentType } from "@/modules/credentials/keys";
+import { validTimezone } from "@/modules/organizations/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 
 export const APP_PLATFORMS = ["android", "ios", "react_native", "flutter", "web", "backend"] as const;
@@ -17,7 +18,7 @@ export const createAppSchema = z.object({
   description: z.string().trim().max(500).optional(),
   category: z.string().trim().max(60).optional(),
   platforms: z.array(z.enum(APP_PLATFORMS)).min(1, "Choose at least one platform."),
-  timezone: z.string().trim().max(64).optional(),
+  timezone: z.string().trim().max(64).refine((tz) => !tz || validTimezone(tz), "Unknown timezone.").optional(),
   defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Use a 3-letter currency code.").optional(),
 });
 
