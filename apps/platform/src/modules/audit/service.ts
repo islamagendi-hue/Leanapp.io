@@ -55,7 +55,9 @@ export type AuditAction =
   | "cohort.updated"
   | "cohort.deleted"
   | "saved_report.created"
-  | "saved_report.deleted";
+  | "saved_report.deleted"
+  | "privacy.suppression_added"
+  | "privacy.suppression_removed";
 
 export interface AuditEntry {
   organizationId: string | null;

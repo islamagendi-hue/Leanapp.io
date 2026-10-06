@@ -49,7 +49,16 @@ export function AppNav({ base, appName, privacy = false, attribution = false, us
       ],
     }] : []),
     { label: "Engagement", items: [{ label: "Audiences", soon: true }, { label: "Automations", soon: true }, { label: "Integrations", soon: true }] },
-    ...(privacy ? [{ label: "Data", items: [{ label: "Privacy requests", href: `${base}/privacy` }] }] : []),
+    ...(privacy
+      ? [{
+          label: "Privacy",
+          items: [
+            { label: "Privacy requests", href: `${base}/privacy` },
+            { label: "Consent", href: `${base}/privacy/consent` },
+            { label: "Suppression list", href: `${base}/privacy/suppressions` },
+          ],
+        }]
+      : []),
   ];
   return (
     <nav aria-label="App" className="text-sm">

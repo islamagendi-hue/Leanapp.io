@@ -15,7 +15,7 @@ export const LIMITS = {
   maxFutureMinutes: 10,
 } as const;
 
-export const EVENT_TYPES = ["track", "screen", "identify", "alias", "push_token"] as const;
+export const EVENT_TYPES = ["track", "screen", "identify", "alias", "push_token", "consent"] as const;
 export type EventType = (typeof EVENT_TYPES)[number];
 
 /** Event names the SDKs emit for non-track calls. */
@@ -24,6 +24,7 @@ export const SYSTEM_EVENT_NAMES: Record<Exclude<EventType, "track">, string> = {
   identify: "user_identified",
   alias: "user_aliased",
   push_token: "push_token_registered",
+  consent: "consent_updated",
 };
 
 const id = z.string().trim().min(1).max(200);
@@ -89,6 +90,12 @@ export const eventSchema = z
         permission: z.enum(["granted", "denied", "provisional", "unknown"]).default("unknown"),
       })
       .optional(),
+    /** type "consent": the purposes that changed. Recorded in consent_records, never stored as an event. */
+    consent: z
+      .object({ analytics: z.boolean(), marketing: z.boolean(), push: z.boolean(), attribution: z.boolean() })
+      .partial()
+      .strict()
+      .optional(),
   })
   .superRefine((e, ctx) => {
     if (e.type === "track" && !e.event_name) ctx.addIssue({ code: "custom", path: ["event_name"], message: "event_name is required for track" });
@@ -98,6 +105,8 @@ export const eventSchema = z
     if (e.type === "alias" && (!e.user_id || !e.previous_id))
       ctx.addIssue({ code: "custom", path: ["previous_id"], message: "alias needs user_id and previous_id" });
     if (e.type === "push_token" && !e.push_token) ctx.addIssue({ code: "custom", path: ["push_token"], message: "push_token is required" });
+    if (e.type === "consent" && (!e.consent || !Object.keys(e.consent).length))
+      ctx.addIssue({ code: "custom", path: ["consent"], message: "consent needs at least one of analytics, marketing, push, attribution (booleans)" });
   });
 
 export type IncomingEvent = z.infer<typeof eventSchema>;
@@ -131,6 +140,8 @@ export interface NormalizedEvent {
   properties: Record<string, unknown>;
   user_properties: Record<string, unknown> | null;
   context: Record<string, unknown>;
+  /** Only on type "consent". */
+  consent?: Partial<Record<"analytics" | "marketing" | "push" | "attribution", boolean>>;
 }
 
 export interface NormalizeIssue {
@@ -202,6 +213,7 @@ export function normalizeEvent(
       properties,
       user_properties: e.user_properties ?? null,
       context,
+      ...(e.type === "consent" ? { consent: e.consent } : {}),
     },
   };
 }

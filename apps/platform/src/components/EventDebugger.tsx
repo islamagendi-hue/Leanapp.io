@@ -58,7 +58,12 @@ export function EventDebugger({ feedUrl, testCurl }: { feedUrl: string; testCurl
         <Stat label="Last event" value={health?.lastEventAt ? new Date(health.lastEventAt).toLocaleTimeString("en-GB") : "–"} />
         <Stat label="Events today" value={String(health?.eventsToday ?? "–")} />
         <Stat label="Active users today" value={String(health?.activeUsersToday ?? "–")} />
-        <Stat label="Rejected today" value={String(health?.rejectedToday ?? "–")} warn={!!health?.rejectedToday} />
+        <Stat
+          label="Rejected today"
+          value={String(health?.rejectedToday ?? "–")}
+          warn={!!health && health.rejectedToday > health.consentDeniedToday}
+          hint={health?.consentDeniedToday ? `${health.consentDeniedToday} consent_denied (user denied analytics; expected)` : undefined}
+        />
       </div>
 
       {health && !health.connected && (
@@ -167,11 +172,12 @@ function Json({ title, value }: { title: string; value: unknown }) {
   );
 }
 
-function Stat({ label, value, accent, warn }: { label: string; value: string; accent?: boolean; warn?: boolean }) {
+function Stat({ label, value, accent, warn, hint }: { label: string; value: string; accent?: boolean; warn?: boolean; hint?: string }) {
   return (
     <div className="card">
       <p className="font-mono text-[11px] uppercase tracking-wide text-ink-3">{label}</p>
       <p className={`mt-1 truncate text-lg font-bold ${accent ? "text-accent-ink" : ""} ${warn ? "text-warn" : ""}`}>{value}</p>
+      {hint && <p className="mt-0.5 text-xs text-ink-3">{hint}</p>}
     </div>
   );
 }

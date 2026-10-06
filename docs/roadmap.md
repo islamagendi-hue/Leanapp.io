@@ -14,6 +14,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Auth (email/password, sessions), organizations, invitations, 5 roles, audit log | ✓ |
 | Email verification, password reset and change, session management, invitation emails | ✓ (sending needs `RESEND_API_KEY` and a verified domain) |
 | End-user data export and deletion (dashboard and secret-key API) | ✓ |
+| Consent capture (SDK `setConsent`, server-side enforcement, dashboard overview and lookup) and suppression lists (dashboard, API, automatic from consent) | ✓ Phase 2, pulled forward |
 | Analytics v1: events, funnels, retention (Postgres) | ✓ |
 | Analytics: revenue per currency (refunds netted, no FX), saved cohorts as report filters, user profiles with timeline, saved reports | ✓ |
 | Organization settings, audit log viewer | ✓ |
@@ -45,7 +46,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Audiences and automation (push, in-app, webhooks) | 3–4 | [Audiences](audiences.md), [Automation](automation.md) |
 | Connect payments (Stripe account, prices, webhook); MENA methods (Mada, SAR invoicing) | 1.5–3 | Code built and tested; waits for the owner's business entity and pricing ([billing](billing.md)) |
 | OAuth, MFA, SSO | 2–4 | Schema ready |
-| Privacy: consent capture and suppression lists | 2 | Export and deletion are built (dashboard and API) |
+| Privacy: consent for native SDKs; a marketer-level permission for suppression lists; suppression of hashed ids that survives deletion | 2 | JS SDK consent, server enforcement and suppression lists are built ([API](api.md#consent-and-suppression)). Native SDKs must implement the same `setConsent` contract |
 | LLM-assisted plan suggestions, Arabic free-text classification | 2 | Suggestions only, always approval-gated |
 | Plan editing: comments, event rename, code-generated typed tracking functions | 2 | Add/edit/remove events and properties, diff and JSON/CSV export are built ([tracking plan](tracking-plan.md)) |
 | Management API: plan edits beyond adding events, mappings, funnels/retention, keys, members | 2 | Read endpoints, plan event creation and analytics/users reads are built ([API](api.md)) |
@@ -55,6 +56,6 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 
 1. **Phase 1** (PR #1): foundation and first-event loop, plus the production basics pulled forward: email and account security, privacy export and deletion, retention and cleanup jobs, settings, audit log, CSP and structured logs, browser tests, analytics v1.
 2. **Phase 1.5**: deploy (waits on the owner's database, Vercel, DNS and email decisions), monitoring, design-partner onboarding (5 MENA apps).
-3. **Phase 2**: native SDKs, analytics beyond v1, consent, plan editing, LLM suggestions, Arabic UI.
+3. **Phase 2**: native SDKs, analytics beyond v1, consent (✓ JS SDK and platform), plan editing, LLM suggestions, Arabic UI.
 4. **Phase 3**: attribution with TikTok, Snapchat, Meta, Google; billing.
 5. **Phase 4**: audiences and automation.

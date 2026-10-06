@@ -14,8 +14,8 @@ const fmt = (d: Date | null) => (d ? new Date(d).toLocaleString("en-GB") : "neve
 
 const SCOPE_LABEL: Record<ApiKeyScope, string> = {
   "events:write": "Send events",
-  "privacy:read": "Export user data",
-  "privacy:write": "Delete user data",
+  "privacy:read": "Export user data, read consent and suppressions",
+  "privacy:write": "Delete user data, manage suppressions",
   "management:read": "Read app, environment and tracking plan",
   "plan:write": "Add events to a draft plan",
   "analytics:read": "Read events reports",
