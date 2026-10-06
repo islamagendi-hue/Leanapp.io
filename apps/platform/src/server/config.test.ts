@@ -8,6 +8,8 @@ const prod = {
   CRON_SECRET: "x".repeat(40),
   RESEND_API_KEY: "re_123",
   EMAIL_FROM: "LeanApp <no-reply@leanapp.io>",
+  STRIPE_SECRET_KEY: "sk_live_abc123",
+  STRIPE_WEBHOOK_SECRET: "whsec_abc123",
 };
 const vars = (issues: { variable: string }[]) => issues.map((i) => i.variable);
 
@@ -19,7 +21,7 @@ describe("checkConfig", () => {
   it("flags missing critical variables in production", () => {
     const r = checkConfig({ VERCEL_ENV: "production" });
     expect(vars(r.errors)).toEqual(["DATABASE_URL", "DATABASE_SSL", "CRON_SECRET"]);
-    expect(vars(r.warnings)).toEqual(["RESEND_API_KEY"]);
+    expect(vars(r.warnings)).toEqual(["RESEND_API_KEY", "STRIPE_SECRET_KEY"]);
   });
 
   it("keeps deployed environments off local and test databases", () => {
@@ -40,5 +42,16 @@ describe("checkConfig", () => {
   it("only needs a database locally, including next start in CI", () => {
     expect(checkConfig({ NODE_ENV: "production", DATABASE_URL: "postgres://postgres:postgres@localhost:5432/x" })).toEqual({ deployment: "local", errors: [], warnings: [] });
     expect(vars(checkConfig({}).errors)).toEqual(["DATABASE_URL"]);
+  });
+
+  it("warns, never fails, about payments configuration", () => {
+    const noStripe: Record<string, string | undefined> = { ...prod, STRIPE_SECRET_KEY: undefined, STRIPE_WEBHOOK_SECRET: undefined };
+    expect(checkConfig(noStripe)).toMatchObject({ errors: [], warnings: [{ variable: "STRIPE_SECRET_KEY" }] });
+    expect(vars(checkConfig({ ...prod, STRIPE_WEBHOOK_SECRET: "" }).warnings)).toEqual(["STRIPE_WEBHOOK_SECRET"]);
+    expect(vars(checkConfig({ ...prod, STRIPE_SECRET_KEY: "pk_live_x" }).warnings)).toEqual(["STRIPE_SECRET_KEY"]);
+    expect(vars(checkConfig({ ...prod, STRIPE_SECRET_KEY: "sk_test_x" }).warnings)).toEqual(["STRIPE_SECRET_KEY"]);
+    expect(vars(checkConfig({ ...prod, STRIPE_WEBHOOK_SECRET: "secret" }).warnings)).toEqual(["STRIPE_WEBHOOK_SECRET"]);
+    // Locally, no payments is fine.
+    expect(checkConfig({ DATABASE_URL: "postgres://localhost/x" }).warnings).toEqual([]);
   });
 });

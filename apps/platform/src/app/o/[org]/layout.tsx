@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { signOutAction } from "@/app/actions/auth";
+import { PlanBanner } from "@/components/PlanBanner";
 import { ROLE_INFO } from "@/modules/rbac/permissions";
 import { currentUser, requireTenant } from "@/server/session";
 
@@ -33,6 +34,7 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
           <Link href="/account" className="underline">Resend the link</Link>
         </div>
       )}
+      <PlanBanner ctx={ctx} />
       {props.children}
     </div>
   );
