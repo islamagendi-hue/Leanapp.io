@@ -3,12 +3,12 @@
 | SDK | Package | Status |
 | --- | --- | --- |
 | JavaScript / TypeScript / React Native | `@leanapp/analytics` (`sdks/javascript`) | **Built**, 37 unit tests, verified against a live server (consent API verified by unit and server integration tests). Not yet published to npm. |
-| Android (Kotlin) | `io.leanapp:analytics` | Planned. API below is the contract. |
-| iOS (Swift) | `LeanApp` (SPM) | Planned |
-| Flutter (Dart) | `leanapp_analytics` | Planned |
+| Android (Kotlin) | `io.leanapp:leanapp-android` (`sdks/android`) | **Built**, 29 JVM unit tests against a local HTTP server. Android module built in CI. Not yet on Maven Central. |
+| iOS (Swift) | `LeanApp` Swift package (`sdks/ios`) | **Built**, 24 XCTest tests (URLProtocol stubs), run on macOS in CI. Not yet tagged as a public Swift package or on CocoaPods. |
+| Flutter (Dart) | `leanapp_analytics` (`sdks/flutter`) | **Built**, 25 tests with a mock HTTP client, `flutter analyze` clean. Not yet on pub.dev. |
 | Server | REST API with a secret key ([API](api.md)) | **Built** |
 
-Until the native SDKs ship, native apps can send events with the REST API from the app (public key) or from their backend (secret key). The dashboard labels native snippets as "target API".
+The native SDKs are built but not yet published to a package registry, so apps add them from this repository (see each SDK's README). Publishing needs the owner's Sonatype/Maven Central account and signing key, a public Git tag for Swift Package Manager (and optionally a CocoaPods trunk account), and a pub.dev verified publisher.
 
 ## Design principles
 
@@ -114,18 +114,55 @@ The JS SDK's `captureAttribution(url)` already fills `utm_*`, the ad-network cli
 
 The server adds an IP hash (`context._server.ip_hash`) to `app_installed` events sent with a public SDK key; anything a client sends under `_server` is dropped.
 
-## Native SDK contract (planned)
+## Native SDKs: Android, iOS, Flutter
 
-Same method names and semantics. Additionally: automatic `app_installed` / `app_opened` / `app_updated`, install referrer (Android), SKAdNetwork / AdAttributionKit conversion values (iOS), background flush on app pause, and storage in SQLite/Room/Core Data.
+Each is a port of `sdks/javascript/src/client.ts`: same method names, wire format (`POST /v1/events/batch`, the schema in `apps/platform/src/modules/ingestion/schema.ts`), defaults and delivery rules from the table above (batching, persistent queue with cap and TTL, backoff with jitter, `Retry-After`, `413` halving, `400/422` drop, `401/403` pause, `Idempotency-Key` = first event id + batch size, 30-minute sessions). Storage uses the same namespace as the JavaScript SDK (`leanapp:la_pk_live:`). Native additions:
+
+| | Android (`sdks/android`) | iOS (`sdks/ios`) | Flutter (`sdks/flutter`) |
+| --- | --- | --- | --- |
+| Queue storage | Files in `filesDir/leanapp`, atomic writes | Files in Application Support, atomic writes | SharedPreferences |
+| Threading | One background thread, calls applied in order | One serial dispatch queue | Dart event loop |
+| Background flush | Last activity stopped | `didEnterBackground` with a background task | `AppLifecycleState.paused/hidden` |
+| Lifecycle events | `app_installed`, `app_updated`, `app_opened` | same | same (`appVersion`/`appBuild` from options) |
+| Deep links | Launch Intent data captured automatically; `captureAttribution(url)` for `onNewIntent` | `Analytics.captureAttribution(url)` from scene / app delegate | `captureAttribution(url)` from app_links |
+| Install referrer | Play Install Referrer library, once per install | n/a | `setInstallReferrer(...)` with a plugin |
+| Context | `os_version`, `device.model/manufacturer/type`, `screen`, `locale`, `language`, `timezone`, app version/build | same (`device.model` like `iPhone15,2`) | `os`, `os_version`, `locale`, `language`, `screen`; model/timezone via `context` |
+| Push | `registerPushToken(token, "fcm", permission)` | `registerPushToken(deviceToken:)` (APNs hex) | `registerPushToken(token, 'fcm' \| 'apns')` |
+
+No SDK collects advertising ids, Android ID or IDFV.
+
+**Deep link attribution.** Native `captureAttribution(url)` stores the parsed utm_* / click ids plus `deep_link_url` (the opening URL, ≤1,000 characters) as the latest touch, so re-engagement clicks can be matched. The JavaScript SDK does not add `deep_link_url` yet.
+
+**Install referrer (Android).** Sent on every event as:
+
+```json
+"context": {
+  "campaign": {
+    "install_referrer": "utm_source=google-play&utm_medium=cpc&click_id=lac_…",
+    "referrer_click_timestamp_seconds": 1791194300,
+    "install_begin_timestamp_seconds": 1791194350,
+    "google_play_instant": false
+  }
+}
+```
+
+utm_* and click ids found in the referrer also become the first touch in `context.attribution` when nothing was captured before. `app_installed` waits up to 10 seconds for the referrer so it carries `context.campaign`; a temporary Play error is retried on the next launch.
+
+Not built yet: SKAdNetwork / AdAttributionKit conversion values on iOS, automatic screen tracking, Flutter install referrer without a plugin.
 
 ```kotlin
-Analytics.initialize(context, apiKey = "la_pk_live_…")
+Analytics.initialize(context, "la_pk_live_…")
 Analytics.track("order_completed", mapOf("order_id" to "o1", "revenue" to 45.0, "currency" to "SAR"))
 ```
 
 ```swift
 Analytics.initialize(apiKey: "la_pk_live_…")
 Analytics.track("order_completed", properties: ["order_id": "o1", "revenue": 45.0, "currency": "SAR"])
+```
+
+```dart
+await Analytics.initialize(apiKey: 'la_pk_live_…');
+Analytics.track('order_completed', {'order_id': 'o1', 'revenue': 45.0, 'currency': 'SAR'});
 ```
 
 ## Revenue events belong on the server

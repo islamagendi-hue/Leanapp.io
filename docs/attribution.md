@@ -12,6 +12,10 @@ In the GCC, TikTok and Snapchat often drive as much mobile acquisition as Google
 
 Links, clicks, attributions, conversions and postbacks belong to one environment. A production link records production clicks, and only installs sent with a production key can match them. Settings are per app.
 
+## Install referrer (Android)
+
+The Android SDK reads the Google Play Install Referrer once per install and sends it on every event as `context.campaign.install_referrer` (raw referrer string), with `referrer_click_timestamp_seconds`, `install_begin_timestamp_seconds` and `google_play_instant`. utm_* and click ids (including LeanApp's `click_id`) parsed from it are also sent as the first touch in `context.attribution`. Deep links captured by the native SDKs add `context.attribution.deep_link_url`. See [SDK](sdk.md).
+
 ## Tracking links
 
 `https://api.leanapp.io/l/{code}` (8 url-safe characters). Each link has a name, source, medium, campaign, ad group, creative, an App Store URL, a Google Play URL, a web fallback and an optional deep link path. Ad networks can override campaign / ad group / creative per ad with `utm_campaign`, `utm_term`, `utm_content` (or `campaign`, `ad_group`, `creative`) on the link, and their click id (`gclid`, `gbraid`, `wbraid`, `fbclid`, `ttclid`, `ScCid`, `twclid`, `msclkid`, `li_fat_id`) is stored with the click.
