@@ -27,7 +27,8 @@ Secret keys act on their environment within the permissions (scopes) chosen when
 | POST | `/v1/privacy/exports` | secret key, `privacy:read` | Everything stored about an end user, as JSON: `{ user_id?, anonymous_id? }` |
 | POST | `/v1/privacy/deletions` | secret key, `privacy:write` | Delete an end user's data: `{ user_id?, anonymous_id? }` → `202 { id, status }` |
 | GET | `/v1/privacy/deletions/{id}` | secret key, `privacy:write` | Deletion status, with rows deleted per table |
-| GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue and retry privacy deletions (Vercel Cron) |
+| GET, HEAD | `/l/{code}` | none | Tracking link: records the click and redirects (`302`) to the App Store, Google Play (click id in `referrer`) or the web fallback; `404` for unknown codes. See [attribution](attribution.md#tracking-links) |
+| GET | `/api/internal/process-events` | `Bearer $CRON_SECRET` | Internal: drain the processing queue, retry privacy deletions, deliver attribution postbacks (Vercel Cron) |
 
 Everything else in the dashboard (questionnaire, plans, keys, members) runs through server actions on top of the same modules. They become public REST endpoints as the management API grows (planned: plans, mappings, keys, members, and export).
 
