@@ -16,9 +16,11 @@ import { log } from "@/lib/log";
  *
  * - everything carrying the user_id;
  * - anonymous activity (no user_id) of the subject's own installs: the given
- *   anonymous_id, plus installs linked to the user_id that no other user is
- *   linked to. On a shared device we can't tell whose anonymous activity it
- *   was, so we leave it alone rather than delete another person's data;
+ *   anonymous_id and the installs linked to the user_id, as long as no other
+ *   user is linked to them. On a shared device we can't tell whose anonymous
+ *   activity it was, so we leave it alone (reported as skipped) rather than
+ *   delete another person's data. An anonymous_id given on its own is taken
+ *   as is: the caller is asking about that install, not a person;
  * - identified activity of other users is never touched, even on the same install.
  *
  * Every query runs under RLS as the organization (withTenant), so a request
@@ -68,24 +70,31 @@ interface Resolved {
   userIds: string[];
   /** Installs whose anonymous activity belongs to the subject (see the module comment). */
   anonymousIds: string[];
+  /** The subject's installs that another user is linked to too; their anonymous activity is left alone. */
+  skippedAnonymousIds: string[];
   userKeys: string[];
 }
 
 async function resolveSubject(db: Db, environmentId: string, s: Subject): Promise<Resolved> {
   const userIds = s.userId ? [s.userId] : [];
-  const anon = new Set(s.anonymousId ? [s.anonymousId] : []);
-  if (userIds.length) {
-    const linked = await db.query<{ anonymous_id: string }>(
-      `select anonymous_id from platform.identity_links l
-        where l.environment_id = $1 and l.user_id = any($2)
-          and not exists (select 1 from platform.identity_links o
-                           where o.environment_id = l.environment_id and o.anonymous_id = l.anonymous_id and o.user_id <> all($2))`,
-      [environmentId, userIds],
+  const anon = new Set<string>();
+  const skipped = new Set<string>();
+  if (!userIds.length) {
+    if (s.anonymousId) anon.add(s.anonymousId);
+  } else {
+    // The user's linked installs plus the given one, each kept only when no other user is linked to it.
+    const candidates = await db.query<{ anonymous_id: string; shared: boolean }>(
+      `select c.anonymous_id,
+              exists (select 1 from platform.identity_links o
+                       where o.environment_id = $1 and o.anonymous_id = c.anonymous_id and o.user_id <> all($2)) as shared
+         from (select anonymous_id from platform.identity_links where environment_id = $1 and user_id = any($2)
+               union select $3::text where $3::text is not null) c`,
+      [environmentId, userIds, s.anonymousId ?? null],
     );
-    for (const r of linked) anon.add(r.anonymous_id);
+    for (const r of candidates) (r.shared ? skipped : anon).add(r.anonymous_id);
   }
-  const anonymousIds = [...anon];
-  return { userIds, anonymousIds, userKeys: [...userIds, ...anonymousIds.map((a) => `anon:${a}`)] };
+  const anonymousIds = [...anon].sort();
+  return { userIds, anonymousIds, skippedAnonymousIds: [...skipped].sort(), userKeys: [...userIds, ...anonymousIds.map((a) => `anon:${a}`)] };
 }
 
 /** Tables holding the subject's rows and the predicate selecting them. $1 env, $2 user ids, $3 anonymous ids, $4 user keys. */
@@ -127,7 +136,8 @@ export interface SubjectExport {
   request_id: string;
   generated_at: string;
   environment_id: string;
-  subject: { user_id: string | null; anonymous_id: string | null; matched_anonymous_ids: string[] };
+  /** matched: installs whose anonymous activity is included; skipped: the subject's installs shared with another user, left out. */
+  subject: { user_id: string | null; anonymous_id: string | null; matched_anonymous_ids: string[]; skipped_anonymous_ids: string[] };
   /** Rows per table (events newest first), at most EXPORT_ROW_LIMIT each; `truncated` lists tables that hit the limit. */
   data: Record<string, Record<string, unknown>[]>;
   truncated: string[];
@@ -168,7 +178,7 @@ export async function exportSubjectData(req: Requester, environmentId: string, i
       request_id: request!.id,
       generated_at: new Date().toISOString(),
       environment_id: environmentId,
-      subject: { user_id: s.userId ?? null, anonymous_id: s.anonymousId ?? null, matched_anonymous_ids: resolved.anonymousIds },
+      subject: { user_id: s.userId ?? null, anonymous_id: s.anonymousId ?? null, matched_anonymous_ids: resolved.anonymousIds, skipped_anonymous_ids: resolved.skippedAnonymousIds },
       data,
       truncated,
     };
@@ -182,7 +192,10 @@ export interface DeletionStatus {
   subject: { user_id: string | null; anonymous_id: string | null };
   created_at: Date;
   completed_at: Date | null;
-  job: { status: "queued" | "running" | "completed" | "failed"; attempts: number; rows_deleted: number; details: Record<string, number>; error: string | null } | null;
+  job: {
+    status: "queued" | "running" | "completed" | "failed"; attempts: number; rows_deleted: number; details: Record<string, number>;
+    skipped_anonymous_ids: string[]; error: string | null;
+  } | null;
 }
 
 /** Queues deletion of everything stored about the subject. The caller runs the job (runDeletionJobs) after responding; the cron worker retries it. */
@@ -215,14 +228,14 @@ export async function requestDeletion(req: Requester, environmentId: string, inp
 
 const STATUS_SQL = `
   select r.id, r.status, r.subject_user_id, r.subject_anonymous_id, r.created_at, r.completed_at,
-         j.status as job_status, j.attempts, j.rows_deleted, j.details, j.error
+         j.status as job_status, j.attempts, j.rows_deleted, j.details, j.skipped_anonymous_ids, j.error
     from platform.privacy_requests r
     left join platform.data_deletion_jobs j on j.privacy_request_id = r.id`;
 
 type StatusRow = {
   id: string; status: DeletionStatus["status"]; subject_user_id: string | null; subject_anonymous_id: string | null;
   created_at: Date; completed_at: Date | null; job_status: NonNullable<DeletionStatus["job"]>["status"] | null;
-  attempts: number | null; rows_deleted: string | number | null; details: Record<string, number> | null; error: string | null;
+  attempts: number | null; rows_deleted: string | number | null; details: Record<string, number> | null; skipped_anonymous_ids: string[] | null; error: string | null;
 };
 
 function toStatus(r: StatusRow): DeletionStatus {
@@ -233,7 +246,10 @@ function toStatus(r: StatusRow): DeletionStatus {
     created_at: r.created_at,
     completed_at: r.completed_at,
     job: r.job_status
-      ? { status: r.job_status, attempts: r.attempts ?? 0, rows_deleted: Number(r.rows_deleted ?? 0), details: r.details ?? {}, error: r.error }
+      ? {
+          status: r.job_status, attempts: r.attempts ?? 0, rows_deleted: Number(r.rows_deleted ?? 0), details: r.details ?? {},
+          skipped_anonymous_ids: r.skipped_anonymous_ids ?? [], error: r.error,
+        }
       : null,
   };
 }
@@ -326,8 +342,9 @@ export async function runDeletionJobs(opts: { limit?: number; jobIds?: string[] 
           total += rows.length;
         }
         await db.query(
-          "update platform.data_deletion_jobs set status = 'completed', rows_deleted = $2, details = $3, error = null, finished_at = now() where id = $1",
-          [job.id, total, JSON.stringify(details)],
+          `update platform.data_deletion_jobs set status = 'completed', rows_deleted = $2, details = $3, skipped_anonymous_ids = $4, error = null, finished_at = now()
+            where id = $1`,
+          [job.id, total, JSON.stringify(details), resolved.skippedAnonymousIds],
         );
         await db.query("update platform.privacy_requests set status = 'completed', completed_at = now() where id = $1", [job.privacy_request_id]);
         await audit(db, {
@@ -337,19 +354,19 @@ export async function runDeletionJobs(opts: { limit?: number; jobIds?: string[] 
           action: "privacy.deletion_completed",
           targetType: "privacy_request",
           targetId: job.privacy_request_id,
-          metadata: { environment_id: job.environment_id, rows_deleted: total, details },
+          metadata: { environment_id: job.environment_id, rows_deleted: total, details, skipped_anonymous_ids: resolved.skippedAnonymousIds },
         });
       });
       completed++;
     } catch (err) {
       failed++;
-      const message = err instanceof Error ? err.message : String(err);
+      // The detail goes to the logs only: the job row is shown in the dashboard and must not carry raw database errors.
       log.error("privacy.deletion_failed", { job_id: job.id, organization_id: job.organization_id, attempt: job.attempts, error: err });
       await withSystem((db) =>
         db.query("update platform.data_deletion_jobs set status = $2, error = $3, finished_at = case when $2 = 'failed' then now() end where id = $1", [
           job.id,
           job.attempts >= MAX_ATTEMPTS ? "failed" : "queued",
-          message.slice(0, 500),
+          "internal_error",
         ]),
       );
     }

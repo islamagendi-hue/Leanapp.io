@@ -36,7 +36,7 @@ export default async function PrivacyPage(props: PageProps<"/o/[org]/apps/[app]/
         <section className="card space-y-3">
           <h2 className="h2">Export a user&apos;s data</h2>
           <p className="text-sm text-ink-3">Downloads a JSON file with their events, sessions, profile, installs, push tokens and consent.</p>
-          <form action={`${base}/export`} method="get" className="space-y-3">
+          <form action={`${base}/export`} method="post" className="space-y-3">
             <input type="hidden" name="environment" value={env.id} />
             <label className="block"><span className="label">User ID</span><input name="user_id" className="input" maxLength={256} /></label>
             <label className="block"><span className="label">Anonymous ID</span><input name="anonymous_id" className="input" maxLength={256} /></label>
@@ -60,7 +60,7 @@ export default async function PrivacyPage(props: PageProps<"/o/[org]/apps/[app]/
 
       <section className="card space-y-3">
         <h2 className="h2">From your backend</h2>
-        <p className="text-sm text-ink-3">Use a secret API key of this environment. Deletions run in the background; poll the returned ID for the result.</p>
+        <p className="text-sm text-ink-3">Use a secret API key of this environment with the &quot;Export user data&quot; or &quot;Delete user data&quot; permission (SDK &amp; keys). Deletions run in the background; poll the returned ID for the result.</p>
         <CodeTabs
           preferred="delete"
           tabs={[

@@ -5,15 +5,22 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-/** Dashboard download of a subject's data: GET ?environment=<id>&user_id=&anonymous_id= (session cookie). */
-export async function GET(req: Request, ctx: RouteContext<"/o/[org]/apps/[app]/privacy/export">) {
+/**
+ * Dashboard download of a subject's data: a form POST of environment, user_id and anonymous_id
+ * (session cookie, same origin only). POST because each export is recorded as a privacy request.
+ */
+export async function POST(req: Request, ctx: RouteContext<"/o/[org]/apps/[app]/privacy/export">) {
   try {
     const { org } = await ctx.params;
-    const tenant = await apiTenant(req, org);
-    const q = new URL(req.url).searchParams;
-    const data = await exportSubjectData({ kind: "user", ctx: tenant }, q.get("environment") ?? "", {
-      userId: q.get("user_id") ?? undefined,
-      anonymousId: q.get("anonymous_id") ?? undefined,
+    const tenant = await apiTenant(req, org, { form: true });
+    const form = await req.formData();
+    const field = (k: string) => {
+      const v = form.get(k);
+      return typeof v === "string" ? v : undefined;
+    };
+    const data = await exportSubjectData({ kind: "user", ctx: tenant }, field("environment") ?? "", {
+      userId: field("user_id"),
+      anonymousId: field("anonymous_id"),
     });
     return new Response(JSON.stringify(data, null, 2), {
       headers: {

@@ -105,25 +105,37 @@ export function revokeSdkKey(ctx: TenantContext, keyId: string) {
   });
 }
 
+/** What a secret key may do. Public SDK keys can only send events. */
+export const API_KEY_SCOPES = ["events:write", "privacy:read", "privacy:write"] as const;
+export type ApiKeyScope = (typeof API_KEY_SCOPES)[number];
+
 const apiKeySchema = z.object({
   label: z.string().trim().max(80).optional(),
   expiresInDays: z.coerce.number().int().min(1).max(730).optional(),
+  scopes: z
+    .array(z.enum(API_KEY_SCOPES, "Unknown scope."))
+    .min(1, "Choose at least one permission.")
+    .default(["events:write"])
+    .transform((v) => [...new Set(v)]),
 });
 
 /** Returns the plaintext secret exactly once. */
-export function createApiKey(ctx: TenantContext, environmentId: string, input: unknown = {}) {
+export async function createApiKey(ctx: TenantContext, environmentId: string, input: unknown = {}) {
   const r = apiKeySchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
   return tenantTx(ctx, "credentials.manage", async (db) => {
     const env = await envRow(db, environmentId);
     const { key, hash, prefix } = generateApiKey(env.type);
     const row = await db.one<{ id: string }>(
-      `insert into platform.api_keys (organization_id, app_id, environment_id, key_prefix, key_hash, label, expires_at, created_by)
-       values ($1, $2, $3, $4, $5, $6, case when $7::int is null then null else now() + make_interval(days => $7::int) end, $8)
+      `insert into platform.api_keys (organization_id, app_id, environment_id, key_prefix, key_hash, label, scopes, expires_at, created_by)
+       values ($1, $2, $3, $4, $5, $6, $7, case when $8::int is null then null else now() + make_interval(days => $8::int) end, $9)
        returning id`,
-      [ctx.organizationId, env.app_id, env.id, prefix, hash, r.data.label || null, r.data.expiresInDays ?? null, ctx.userId],
+      [ctx.organizationId, env.app_id, env.id, prefix, hash, r.data.label || null, r.data.scopes, r.data.expiresInDays ?? null, ctx.userId],
     );
-    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "api_key.created", targetType: "api_key", targetId: row!.id, metadata: { environment_id: env.id } });
+    await audit(db, {
+      organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "api_key.created", targetType: "api_key", targetId: row!.id,
+      metadata: { environment_id: env.id, scopes: r.data.scopes },
+    });
     return { id: row!.id, key };
   });
 }
@@ -144,6 +156,8 @@ export interface IngestionPrincipal {
   appId: string;
   environmentId: string;
   environmentType: EnvironmentType;
+  /** Secret keys carry their stored scopes; SDK keys are always ["events:write"]. */
+  scopes: string[];
 }
 
 export async function authenticateIngestionKey(raw: string | null | undefined): Promise<IngestionPrincipal | null> {
@@ -152,8 +166,8 @@ export async function authenticateIngestionKey(raw: string | null | undefined): 
   if (!kind) return null;
   const table = kind === "sdk" ? "platform.sdk_keys" : "platform.api_keys";
   return withSystem(async (db) => {
-    const row = await db.one<{ id: string; organization_id: string; app_id: string; environment_id: string; type: EnvironmentType; stale: boolean }>(
-      `select k.id, k.organization_id, k.app_id, k.environment_id, e.type,
+    const row = await db.one<{ id: string; organization_id: string; app_id: string; environment_id: string; type: EnvironmentType; scopes: string[]; stale: boolean }>(
+      `select k.id, k.organization_id, k.app_id, k.environment_id, e.type, ${kind === "api" ? "k.scopes" : "array['events:write']"} as scopes,
               (k.last_used_at is null or k.last_used_at < now() - interval '1 minute') as stale
          from ${table} k
          join platform.environments e on e.id = k.environment_id and e.status = 'active'
@@ -164,6 +178,6 @@ export async function authenticateIngestionKey(raw: string | null | undefined): 
     );
     if (!row) return null;
     if (row.stale) await db.query(`update ${table} set last_used_at = now() where id = $1`, [row.id]);
-    return { kind, keyId: row.id, organizationId: row.organization_id, appId: row.app_id, environmentId: row.environment_id, environmentType: row.type };
+    return { kind, keyId: row.id, organizationId: row.organization_id, appId: row.app_id, environmentId: row.environment_id, environmentType: row.type, scopes: row.scopes };
   });
 }

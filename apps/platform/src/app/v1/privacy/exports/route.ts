@@ -9,7 +9,7 @@ export const maxDuration = 60;
 /** POST /v1/privacy/exports {user_id?, anonymous_id?} with a secret key: everything stored about the subject, as JSON. */
 export async function POST(req: Request) {
   try {
-    const key = await apiSecretKey(req);
+    const key = await apiSecretKey(req, "privacy:read");
     const wait = await consumeRateLimit(`privacy:${key.environmentId}`, 1000, 3600);
     if (wait) throw new RateLimitError(wait);
     const body = await jsonBody(req);

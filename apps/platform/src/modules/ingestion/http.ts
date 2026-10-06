@@ -40,6 +40,7 @@ export async function handleIngest(req: Request, mode: "single" | "batch"): Prom
   const started = Date.now();
   const principal = await authenticateIngestionKey(credential(req));
   if (!principal) return json(401, { error: "invalid_api_key", message: "Missing, invalid, revoked or expired key." });
+  if (!principal.scopes.includes("events:write")) return json(403, { error: "forbidden", message: "This key doesn't have the events:write permission." });
 
   let status = 500;
   let errorCode: string | null = null;

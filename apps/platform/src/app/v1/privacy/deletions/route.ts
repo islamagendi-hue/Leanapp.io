@@ -14,7 +14,7 @@ export const runtime = "nodejs";
  */
 export async function POST(req: Request) {
   try {
-    const key = await apiSecretKey(req);
+    const key = await apiSecretKey(req, "privacy:write");
     const wait = await consumeRateLimit(`privacy:${key.environmentId}`, 1000, 3600);
     if (wait) throw new RateLimitError(wait);
     const body = await jsonBody(req);

@@ -62,6 +62,7 @@ export async function createApiKeyAction(orgSlug: string, appSlug: string, envir
     const { key } = await createApiKey(await requireTenant(orgSlug), environmentId, {
       label: form.get("label") || undefined,
       expiresInDays: form.get("expiresInDays") || undefined,
+      scopes: form.getAll("scopes"),
     });
     revalidatePath(keysPath(orgSlug, appSlug));
     return { ok: true, secret: key };

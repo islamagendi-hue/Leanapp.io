@@ -206,6 +206,7 @@ paths:
       operationId: exportSubjectData
       tags: [Privacy]
       summary: Export everything stored about an end user in the key's environment
+      description: Needs a secret key with the `privacy:read` scope.
       security: [{ bearerKey: [] }, { headerKey: [] }]
       requestBody:
         required: true
@@ -227,6 +228,7 @@ paths:
       operationId: requestDeletion
       tags: [Privacy]
       summary: Delete an end user's data in the key's environment
+      description: Needs a secret key with the `privacy:write` scope.
       security: [{ bearerKey: [] }, { headerKey: [] }]
       requestBody:
         required: true
@@ -256,6 +258,7 @@ paths:
       operationId: getDeletion
       tags: [Privacy]
       summary: Status of a deletion request
+      description: Needs a secret key with the `privacy:write` scope.
       security: [{ bearerKey: [] }, { headerKey: [] }]
       parameters:
         - name: id
@@ -480,7 +483,8 @@ components:
           properties:
             user_id: { type: [string, "null"] }
             anonymous_id: { type: [string, "null"] }
-            matched_anonymous_ids: { type: array, items: { type: string } }
+            matched_anonymous_ids: { type: array, items: { type: string }, description: Installs whose anonymous activity is included. }
+            skipped_anonymous_ids: { type: array, items: { type: string }, description: The subject's installs another user is linked to as well; their anonymous activity is left out. }
         data:
           type: object
           description: Rows per table (events, sessions, profiles, installs, identity_links, push_tokens, attribution_touchpoints, attribution_events, consent_records, notifications, audience_memberships, automation_runs).
@@ -507,3 +511,7 @@ components:
           type: object
           description: Rows deleted per table.
           additionalProperties: { type: integer }
+        skipped_anonymous_ids:
+          type: array
+          description: The subject's installs another user is linked to as well; their anonymous activity was kept.
+          items: { type: string }

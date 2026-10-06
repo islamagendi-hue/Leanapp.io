@@ -2,7 +2,7 @@ import { createApiKeyAction, createSdkKeyAction, revokeApiKeyAction, revokeSdkKe
 import { ActionForm } from "@/components/ActionForm";
 import { CodeTabs } from "@/components/CodeTabs";
 import { EnvSwitcher } from "@/components/EnvSwitcher";
-import { listKeys } from "@/modules/credentials/service";
+import { API_KEY_SCOPES, listKeys, type ApiKeyScope } from "@/modules/credentials/service";
 import { SDK_AVAILABILITY, testEventCurl } from "@/modules/implementation/codegen";
 import { can } from "@/modules/rbac/authorize";
 import { publicBaseUrl } from "@/server/env";
@@ -11,6 +11,12 @@ import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 export const metadata = { title: "SDK & API keys" };
 
 const fmt = (d: Date | null) => (d ? new Date(d).toLocaleString("en-GB") : "never");
+
+const SCOPE_LABEL: Record<ApiKeyScope, string> = {
+  "events:write": "Send events",
+  "privacy:read": "Export user data",
+  "privacy:write": "Delete user data",
+};
 
 export default async function SdkPage(props: PageProps<"/o/[org]/apps/[app]/developers/sdk">) {
   const { org, app } = await props.params;
@@ -120,16 +126,17 @@ curl -X POST ${api}/v1/events \\
       </section>
 
       <section className="card space-y-3">
-        <h2 className="h2">Secret API keys <span className="text-sm font-normal text-ink-3">server-side only; for backend events</span></h2>
+        <h2 className="h2">Secret API keys <span className="text-sm font-normal text-ink-3">server-side only; for backend events and privacy requests</span></h2>
         {apiKeys.length > 0 && (
           <div className="overflow-x-auto">
             <table className="table">
-              <thead><tr><th>Key</th><th>Label</th><th>Status</th><th>Last used</th><th>Expires</th><th /></tr></thead>
+              <thead><tr><th>Key</th><th>Label</th><th>Permissions</th><th>Status</th><th>Last used</th><th>Expires</th><th /></tr></thead>
               <tbody>
                 {apiKeys.map((k) => (
                   <tr key={k.id}>
                     <td className="font-mono text-xs">{k.key_prefix}…</td>
                     <td>{k.label ?? ""}</td>
+                    <td className="font-mono text-xs">{k.scopes.join(", ")}</td>
                     <td>{k.status}</td>
                     <td className="text-ink-3">{fmt(k.last_used_at)}</td>
                     <td className="text-ink-3">{k.expires_at ? fmt(k.expires_at) : "never"}</td>
@@ -152,6 +159,14 @@ curl -X POST ${api}/v1/events \\
                 <option value="">Never</option><option value="30">30 days</option><option value="90">90 days</option><option value="365">1 year</option>
               </select>
             </div>
+            <fieldset className="flex min-h-10 flex-wrap items-center gap-x-4 gap-y-1">
+              <legend className="label">Permissions</legend>
+              {API_KEY_SCOPES.map((s) => (
+                <label key={s} className="flex items-center gap-2 text-sm">
+                  <input type="checkbox" name="scopes" value={s} defaultChecked={s === "events:write"} /> {SCOPE_LABEL[s]}
+                </label>
+              ))}
+            </fieldset>
           </ActionForm>
         )}
       </section>
