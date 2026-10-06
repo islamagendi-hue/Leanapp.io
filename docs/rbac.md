@@ -37,6 +37,8 @@ A member can assign roles up to their own rank and can only manage members of a 
 | users.read | ✓ | ✓ | ✓ | ✓ | |
 | attribution.read | ✓ | ✓ | | ✓ | ✓ |
 | attribution.manage | ✓ | ✓ | | | ✓ |
+| deep_links.read | ✓ | ✓ | ✓ | ✓ | ✓ |
+| deep_links.manage (link domains, iOS / Android app association) | ✓ | ✓ | ✓ | | |
 | audiences.read | ✓ | ✓ | | ✓ | ✓ |
 | audiences.manage, automations.read / manage | ✓ | ✓ | | | ✓ |
 | integrations.read | ✓ | ✓ | ✓ | | ✓ |

@@ -33,7 +33,16 @@ export function proxy(request: NextRequest) {
   headers.set("x-request-id", requestId);
 
   const path = request.nextUrl.pathname;
-  const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.startsWith("/l/") && !path.endsWith("/export");
+  // next.config sets skipTrailingSlashRedirect so Apple's postback URLs (/.well-known/…/report-attribution/)
+  // are served as sent; every other path keeps Next's default (drop the trailing slash, 308).
+  if (path.length > 1 && path.endsWith("/") && !path.startsWith("/.well-known/")) {
+    // A plain URL: NextURL keeps the trailing slash it was parsed with.
+    const url = new URL(request.url);
+    url.pathname = path.replace(/\/+$/, "") || "/";
+    return NextResponse.redirect(url, 308);
+  }
+  // Link redirects set their own headers (the in-app browser page carries its own nonce CSP); well-known files are JSON.
+  const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.startsWith("/l/") && !path.startsWith("/.well-known/") && !path.endsWith("/export");
   let csp: string | null = null;
   if (isPage) {
     const nonce = Buffer.from(crypto.randomUUID()).toString("base64");

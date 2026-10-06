@@ -9,6 +9,9 @@ const nextConfig: NextConfig = {
   // pg is a Node-only dependency; keep it out of the bundler.
   serverExternalPackages: ["pg"],
   poweredByHeader: false,
+  // Apple posts SKAdNetwork / AdAttributionKit postbacks to /.well-known/…/report-attribution/ (trailing slash)
+  // and devices may not follow a redirect; proxy.ts keeps the default trailing-slash redirect for every other path.
+  skipTrailingSlashRedirect: true,
   outputFileTracingRoot: root,
   turbopack: { root },
   async headers() {

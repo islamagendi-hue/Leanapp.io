@@ -80,7 +80,7 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   else if (deployment === "production" && !stripeKey) warn("STRIPE_SECRET_KEY", "not set; payments are not connected and plans can't be bought");
   if (deployment === "production" && /^(sk|rk)_test_/.test(stripeKey)) warn("STRIPE_SECRET_KEY", "is a test-mode key in production");
 
-  for (const name of ["PUBLIC_APP_URL", "PUBLIC_API_URL"]) {
+  for (const name of ["PUBLIC_APP_URL", "PUBLIC_API_URL", "PUBLIC_LINK_URL"]) {
     const v = env[name];
     if (!v) continue;
     let url: URL | null = null;

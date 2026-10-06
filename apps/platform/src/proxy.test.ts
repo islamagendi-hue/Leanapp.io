@@ -15,6 +15,10 @@ describe("proxy", () => {
     expect(api.headers.get("content-security-policy")).toBeNull();
     expect(api.headers.get("x-request-id")).toBe("client-req-0001");
 
+    // Link redirects (and the in-app browser page with its own nonce CSP) and well-known JSON files get no page CSP.
+    expect(proxy(new NextRequest("https://api.leanapp.io/l/shop/AbCdEfGh")).headers.get("content-security-policy")).toBeNull();
+    expect(proxy(new NextRequest("https://api.leanapp.io/.well-known/apple-app-site-association")).headers.get("content-security-policy")).toBeNull();
+
     const bad = proxy(new NextRequest("https://api.leanapp.io/v1/events", { headers: { "x-request-id": "<script>" } }));
     expect(bad.headers.get("x-request-id")).not.toBe("<script>");
   });
@@ -23,5 +27,16 @@ describe("proxy", () => {
     expect(contentSecurityPolicy("n", { dev: false, https: false })).not.toContain("upgrade-insecure-requests");
     expect(contentSecurityPolicy("n", { dev: false, https: true })).toContain("upgrade-insecure-requests");
     expect(contentSecurityPolicy("n", { dev: true, https: false })).toContain("'unsafe-eval'");
+  });
+
+  it("keeps Apple's well-known postback paths as sent and drops trailing slashes elsewhere", () => {
+    const skan = proxy(new NextRequest("https://leanapp.io/.well-known/skadnetwork/report-attribution/", { method: "POST" }));
+    expect(skan.status).toBe(200);
+    expect(skan.headers.get("location")).toBeNull();
+    expect(skan.headers.get("content-security-policy")).toBeNull();
+    const page = proxy(new NextRequest("https://app.leanapp.io/login/?next=%2Fo"));
+    expect(page.status).toBe(308);
+    expect(page.headers.get("location")).toBe("https://app.leanapp.io/login?next=%2Fo");
+    expect(proxy(new NextRequest("https://app.leanapp.io/")).status).toBe(200);
   });
 });
