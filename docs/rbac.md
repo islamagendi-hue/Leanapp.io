@@ -34,6 +34,8 @@ A member can assign roles up to their own rank and can only manage members of a 
 | implementation.edit / approve / mapping | ✓ | ✓ | ✓ | | |
 | analytics.read | ✓ | ✓ | ✓ | ✓ | ✓ |
 | analytics.write (save cohorts and reports) | ✓ | ✓ | | ✓ | ✓ |
+| growth.read | ✓ | ✓ | ✓ | ✓ | ✓ |
+| growth.write | ✓ | ✓ | ✓ | | |
 | users.read | ✓ | ✓ | ✓ | ✓ | |
 | attribution.read | ✓ | ✓ | | ✓ | ✓ |
 | attribution.manage | ✓ | ✓ | | | ✓ |

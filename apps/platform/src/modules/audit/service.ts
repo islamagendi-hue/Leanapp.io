@@ -35,6 +35,8 @@ export type AuditAction =
   | "tracking_plan.published"
   | "event_mapping.accepted"
   | "event_mapping.rejected"
+  | "event_mapping.reverted"
+  | "app.feature_changed"
   | "privacy.export"
   | "privacy.deletion_requested"
   | "privacy.deletion_completed"

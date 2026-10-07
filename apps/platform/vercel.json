@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "crons": [{ "path": "/api/internal/process-events", "schedule": "*/5 * * * *" }]
+  "crons": [{ "path": "/api/internal/process-events", "schedule": "0 3 * * *" }],
+  "git": { "deploymentEnabled": { "main": false, "staging": false } }
 }

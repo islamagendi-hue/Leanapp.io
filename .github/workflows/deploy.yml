@@ -1,0 +1,107 @@
+name: Deploy
+
+# Migrations, scheduler and deploy for a hosted environment, in that order, so
+# code never runs against a database that lacks its migrations. Nothing here
+# runs from a laptop:
+#   push to `staging` → environment "staging"
+#   push to `main`    → environment "production" (required reviewers, set in GitHub)
+#   manual run        → the environment you pick
+# Vercel's own Git deploys are off for these two branches (apps/platform/vercel.json);
+# the deploy hook below starts the build after the migrations succeed.
+#
+# GitHub environment secrets (Settings → Environments → staging / production):
+#   DATABASE_URL            direct or session-pooler URL of that environment's database
+#   CRON_SECRET             same value as the Vercel env var of that environment
+#   APP_URL                 https://app.leanapp.io (production) or the staging URL
+#   VERCEL_DEPLOY_HOOK_URL  Vercel deploy hook for the branch (optional until the Vercel project exists)
+#   VERCEL_BYPASS           protection bypass for automation (staging only, optional)
+#   SMOKE_SDK_KEY           development key of the internal "LeanApp smoke" app (optional)
+# GitHub environment variable:
+#   WORKER_SCHEDULE         '*/5 * * * *' production, '*/15 * * * *' staging
+
+on:
+  push:
+    branches: [main, staging]
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Environment
+        type: choice
+        options: [staging, production]
+        required: true
+
+concurrency:
+  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.target || (github.ref_name == 'main' && 'production' || 'staging') }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    name: Migrate, schedule, deploy, smoke test
+    runs-on: ubuntu-latest
+    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target || (github.ref_name == 'main' && 'production' || 'staging') }}
+    defaults:
+      run:
+        working-directory: apps/platform
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      DATABASE_SSL: require
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse a branch that does not belong to this environment
+        env:
+          TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || (github.ref_name == 'main' && 'production' || 'staging') }}
+        run: |
+          want=$([ "$TARGET" = production ] && echo main || echo staging)
+          if [ "${{ github.ref_name }}" != "$want" ]; then echo "::error::$TARGET deploys only from the $want branch (this run is on ${{ github.ref_name }})."; exit 1; fi
+      - name: Refuse when the environment is not configured
+        run: |
+          missing=""
+          [ -n "$DATABASE_URL" ] || missing="$missing DATABASE_URL"
+          [ -n "${{ secrets.CRON_SECRET }}" ] || missing="$missing CRON_SECRET"
+          [ -n "${{ secrets.APP_URL }}" ] || missing="$missing APP_URL"
+          [ -n "${{ vars.WORKER_SCHEDULE }}" ] || missing="$missing WORKER_SCHEDULE(variable)"
+          if [ -n "$missing" ]; then echo "::error::Missing in this GitHub environment:$missing"; exit 1; fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/platform/package-lock.json
+      - run: npm ci
+      - name: Apply database migrations
+        run: npm run db:migrate
+      - name: Install or update the scheduled worker (pg_cron)
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_BYPASS: ${{ secrets.VERCEL_BYPASS }}
+          WORKER_SCHEDULE: ${{ vars.WORKER_SCHEDULE }}
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 \
+            -v app_url="$APP_URL" -v secret="$CRON_SECRET" \
+            -v schedule="$WORKER_SCHEDULE" -v bypass="$VERCEL_BYPASS" \
+            -f db/ops/schedule.sql
+      - name: Start the Vercel deployment
+        id: hook
+        env:
+          HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+        run: |
+          if [ -z "$HOOK" ]; then
+            echo "::warning::VERCEL_DEPLOY_HOOK_URL is not set; no deployment started."
+            echo "started=false" >> "$GITHUB_OUTPUT"
+          else
+            curl -fsS -X POST "$HOOK" > /dev/null
+            echo "started=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Smoke test the deployment
+        if: steps.hook.outputs.started == 'true'
+        env:
+          APP_URL: ${{ secrets.APP_URL }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          VERCEL_BYPASS: ${{ secrets.VERCEL_BYPASS }}
+          SMOKE_SDK_KEY: ${{ secrets.SMOKE_SDK_KEY }}
+          EXPECT_SHA: ${{ github.sha }}  # the hook deploys the branch head, which is this commit
+          SMOKE_WAIT_SECONDS: "900"
+        run: npm run smoke

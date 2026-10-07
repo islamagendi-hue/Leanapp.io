@@ -5,6 +5,7 @@ import { suggestMapping } from "@/modules/implementation/similarity";
 import { validateEvent } from "@/modules/implementation/validate";
 import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
 import { attributeEvent } from "@/modules/attribution/engine";
+import { growthConfig, updateGrowthForEvent, type GrowthConfig } from "@/modules/growth/engine";
 
 /**
  * Asynchronous event processing (the "queue" consumer).
@@ -21,6 +22,7 @@ import { attributeEvent } from "@/modules/attribution/engine";
  *   4. plan: canonical name via accepted mappings, schema validation,
  *      implementation status, mapping suggestions for unplanned names
  *   5. attribution: installs, re-engagements, conversions (modules/attribution)
+ *   6. growth state, only for apps with the growth_model feature (modules/growth)
  */
 
 export interface EventRow {
@@ -106,14 +108,16 @@ async function processBatch(environmentId: string, size: number): Promise<{ clai
       [environmentId, size],
     );
     const plans = new Map<string, PublishedPlan | null>();
+    const growth = new Map<string, GrowthConfig | null>();
     let processed = 0;
     let failed = 0;
     for (const e of rows) {
       if (!plans.has(e.app_id)) plans.set(e.app_id, await loadPublishedPlan(db, e.app_id));
+      if (!growth.has(e.app_id)) growth.set(e.app_id, await growthConfig(db, e.app_id));
       // A savepoint per event: one bad event never blocks the rest of the batch.
       await db.query("savepoint ev");
       try {
-        await processOne(db, e, plans.get(e.app_id) ?? null);
+        await processOne(db, e, plans.get(e.app_id) ?? null, growth.get(e.app_id) ?? null);
         await db.query("release savepoint ev");
         processed++;
       } catch (err) {
@@ -135,9 +139,10 @@ async function processBatch(environmentId: string, size: number): Promise<{ clai
   });
 }
 
-async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null) {
+async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null, growth: GrowthConfig | null = null) {
   const scope = [e.organization_id, e.app_id, e.environment_id];
   const attribution = (e.context.attribution ?? {}) as Record<string, string>;
+  let newLink = false;
 
   // 1. Identity
   if (e.anonymous_id) {
@@ -164,14 +169,16 @@ async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null) {
       [...scope, e.user_id, JSON.stringify(traits), e.timestamp],
     );
     if (e.anonymous_id) {
-      await db.query(
+      const link = await db.one<{ inserted: boolean }>(
         `insert into platform.identity_links (organization_id, app_id, environment_id, anonymous_id, user_id, device_id, first_linked_at, last_seen_at)
          values ($1, $2, $3, $4, $5, $6, $7, $7)
          on conflict (environment_id, anonymous_id, user_id) do update set
            last_seen_at = greatest(platform.identity_links.last_seen_at, excluded.last_seen_at),
-           first_linked_at = least(platform.identity_links.first_linked_at, excluded.first_linked_at)`,
+           first_linked_at = least(platform.identity_links.first_linked_at, excluded.first_linked_at)
+         returning (xmax = 0) as inserted`,
         [...scope, e.anonymous_id, e.user_id, ((e.context.device ?? {}) as { id?: string }).id ?? null, e.timestamp],
       );
+      newLink = link?.inserted === true;
     }
   } else if (e.type === "identify" && e.user_properties && e.anonymous_id) {
     // Anonymous traits: kept on the anonymous profile until the user is identified.
@@ -234,6 +241,9 @@ async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null) {
     e.id,
     canonical !== e.event_name ? canonical : null,
   ]);
+
+  // 6. Growth state (after the event counts as processed, so a rebuild includes it).
+  if (growth) await updateGrowthForEvent(db, growth, e, newLink);
 }
 
 /**

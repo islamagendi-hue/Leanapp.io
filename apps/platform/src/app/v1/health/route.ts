@@ -5,7 +5,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Liveness, configuration and database reachability. No tenant data; config
+ * Liveness, configuration and database reachability, plus the deployed commit
+ * (so the deploy workflow can wait for its own deployment). No tenant data; config
  * problems are reported by variable name only, never by value.
  */
 export async function GET() {
@@ -24,7 +25,7 @@ export async function GET() {
   }
   const ok = database === "ok" && config.errors.length === 0;
   return Response.json(
-    { status: ok ? "ok" : "degraded", database, config: configBody, latency_ms: Date.now() - started },
+    { status: ok ? "ok" : "degraded", version: process.env.VERCEL_GIT_COMMIT_SHA ?? null, database, config: configBody, latency_ms: Date.now() - started },
     { status: ok ? 200 : 503 },
   );
 }
