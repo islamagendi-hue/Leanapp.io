@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { progress } from "@/modules/implementation/questions";
 import { getProject, implementationReport, listVersions } from "@/modules/implementation/service";
+import { getAppFeatures } from "@/modules/apps/features";
+import { growthOverview } from "@/modules/growth/service";
+import { can } from "@/modules/rbac/authorize";
 import { loadApp } from "@/server/session";
 
 export default async function AppSetupPage(props: PageProps<"/o/[org]/apps/[app]">) {
@@ -25,6 +28,14 @@ export default async function AppSetupPage(props: PageProps<"/o/[org]/apps/[app]
     { label: "Send your first event", done: !!firstEvent, href: `${base}/developers/debugger` },
     { label: "Reach a healthy implementation score", done: (devReport.score?.overall ?? 0) >= 80, href: `${base}/implementation/validation` },
   ];
+  // With the growth model on, setup ends on the growth summary.
+  if ((await getAppFeatures(ctx, a.id)).growth_model && can(ctx.role, "growth.read")) {
+    const growth = await growthOverview(ctx, a.id, dev.id);
+    steps.push(
+      { label: "Define activation, core action and revenue", done: !!growth.definitions.published && (growth.definitions.published.saved || !!growth.definitions.published.definition.activation), href: `${base}/growth/setup` },
+      { label: "See your growth summary", done: (growth.summary?.people ?? 0) > 0, href: `${base}/growth` },
+    );
+  }
   const next = steps.find((s) => !s.done);
 
   return (

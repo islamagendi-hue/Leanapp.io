@@ -167,3 +167,8 @@ export function apiGrowthSummary(key: KeyScope) {
     };
   });
 }
+
+/** Latest re-map and growth-rebuild jobs of the app, per environment (progress on the dashboard). */
+export function listReprocessJobs(ctx: TenantContext, appId: string): Promise<ReprocessJob[]> {
+  return tenantTx(ctx, "implementation.read", (db) => latestJobs(db, appId));
+}

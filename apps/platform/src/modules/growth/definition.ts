@@ -103,3 +103,41 @@ export function amountPropertyOptions(properties: string[]): string[] {
   const preferred = AMOUNT_PROPERTIES.filter((p) => properties.includes(p));
   return [...preferred, ...properties.filter((p) => !(preferred as string[]).includes(p))];
 }
+
+/**
+ * Builds the raw definition from the setup form's flat fields (one property
+ * condition per rule on the form; the stored format allows up to five).
+ * Returns input for growthDefinitionSchema, so validation stays in one place.
+ */
+export function definitionInputFromFields(get: (key: string) => string | null | undefined): Record<string, unknown> {
+  const v = (k: string) => (get(k) ?? "").trim();
+  const rule = (prefix: string) => {
+    if (!v(`${prefix}_event`)) return null;
+    const name = v(`${prefix}_filter_name`);
+    return {
+      event: v(`${prefix}_event`),
+      filters: name ? [{ name, op: v(`${prefix}_filter_op`) || "eq", value: v(`${prefix}_filter_value`) }] : [],
+    };
+  };
+  return {
+    activation: rule("act"),
+    core_action: rule("core"),
+    revenue: v("rev_event")
+      ? { event: v("rev_event"), amount_property: v("rev_amount") || "revenue", currency_property: v("rev_currency") || "currency" }
+      : null,
+    retention: { return_event: v("return_event") === "core_action" ? "core_action" : "any" },
+  };
+}
+
+/** The setup form's flat fields for a definition (inverse of definitionInputFromFields for one filter per rule). */
+export function fieldsFromDefinition(def: GrowthDefinition): Record<string, string> {
+  const out: Record<string, string> = { return_event: def.retention.return_event };
+  for (const [prefix, rule] of [["act", def.activation], ["core", def.core_action]] as const) {
+    if (!rule) continue;
+    out[`${prefix}_event`] = rule.event;
+    const f = rule.filters[0];
+    if (f) Object.assign(out, { [`${prefix}_filter_name`]: f.name, [`${prefix}_filter_op`]: f.op, [`${prefix}_filter_value`]: f.value });
+  }
+  if (def.revenue) Object.assign(out, { rev_event: def.revenue.event, rev_amount: def.revenue.amount_property, rev_currency: def.revenue.currency_property });
+  return out;
+}
