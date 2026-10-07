@@ -1,5 +1,5 @@
 import "server-only";
-import type { Db } from "@/lib/db";
+import { withTenant, type Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
@@ -446,4 +446,21 @@ export function implementationReport(ctx: TenantContext, appId: string, environm
       unplanned: statuses.filter((s) => !planned.has(s.event_name) && !PROTOCOL_EVENTS.has(s.event_name)).map((s) => ({ event_name: s.event_name, received_count: Number(s.received_count), last_received_at: s.last_received_at })),
     };
   });
+}
+
+// ── Management API: mappings and their history (secret key, one app) ───────
+export function apiMappings(key: { organizationId: string; appId: string }) {
+  return withTenant({ organizationId: key.organizationId, userId: null }, async (db) => ({
+    mappings: await db.query(
+      `select id, from_name, to_name, status, similarity, decided_at, created_at
+         from platform.event_mappings where app_id = $1 order by status, from_name`,
+      [key.appId],
+    ),
+  }));
+}
+
+export function apiMappingHistory(key: { organizationId: string; appId: string }, limit: number) {
+  return withTenant({ organizationId: key.organizationId, userId: null }, async (db) => ({
+    history: (await mappingHistory(db, key.appId, limit)).map(({ changed_by_email: _e, ...h }) => h),
+  }));
 }

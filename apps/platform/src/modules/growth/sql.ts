@@ -49,7 +49,19 @@ export const COUNTED_EVENTS = `e.type in ('track', 'screen') and e.processed_at 
  * version id (nullable). People with no counted events are not returned.
  */
 export function rebuildSelectSql(def: GrowthDefinition, defaultCurrency: string): { sql: string; params: Params } {
-  const p = new Params([undefined, undefined, undefined, undefined, undefined]);
+  return rowsSql(def, defaultCurrency, 5, "(e.user_id = any($3::text[]) or e.anonymous_id = any($4::text[]))", "person = any($2::text[])", "$5::uuid");
+}
+
+/**
+ * The same rows for everyone active in a window, as if the window were all of
+ * history (the preview on the growth setup page). Binds: $1 environment, $2 window start.
+ */
+export function windowSelectSql(def: GrowthDefinition, defaultCurrency: string): { sql: string; params: Params } {
+  return rowsSql(def, defaultCurrency, 2, `e."timestamp" >= $2`, "true", "null::uuid");
+}
+
+function rowsSql(def: GrowthDefinition, defaultCurrency: string, reserved: number, candidates: string, people: string, version: string) {
+  const p = new Params(new Array(reserved).fill(undefined));
   const retention = RETENTION_DAYS.map(
     (d) => `min(ts) filter (where is_return and ts >= first_seen + interval '${d} days') as retained_d${d}_at`,
   ).join(",\n           ");
@@ -59,11 +71,12 @@ export function rebuildSelectSql(def: GrowthDefinition, defaultCurrency: string)
         from platform.events e
         ${PERSON.join}
        where e.environment_id = $1
-         and (e.user_id = any($3::text[]) or e.anonymous_id = any($4::text[]))
+         and ${candidates}
+         and coalesce(e.user_id, e.anonymous_id) is not null
          and ${COUNTED_EVENTS}
     ),
     mine as (
-      select *, min(ts) over (partition by person) as first_seen from ev where person = any($2::text[])
+      select *, min(ts) over (partition by person) as first_seen from ev where ${people}
     ),
     money as (
       select person, jsonb_object_agg(currency, total) as revenue
@@ -82,11 +95,32 @@ export function rebuildSelectSql(def: GrowthDefinition, defaultCurrency: string)
            coalesce((select revenue from money where money.person = m.person), '{}'::jsonb) as revenue,
            count(*) filter (where amount is not null) as purchases,
            ${retention},
-           $5::uuid as plan_version_id
+           ${version} as plan_version_id
       from mine m
      group by m.person`;
   return { sql, params: p };
 }
+
+/**
+ * Aggregates growth rows (a growth_state selection or a rows CTE named `rows`)
+ * into the summary numbers. Retention rates only count people first seen at
+ * least N days ago (the others can't have come back on day N yet).
+ */
+export const SUMMARY_SELECT = `
+  select count(*)::int as people,
+         count(activated_at)::int as activated,
+         count(first_core_action_at)::int as core_people,
+         coalesce(sum(core_action_count), 0)::float8 as core_actions,
+         count(first_revenue_at)::int as paying,
+         coalesce(sum(purchases), 0)::float8 as purchases,
+         ${RETENTION_DAYS.map((d) => `count(*) filter (where first_seen_at <= now() - interval '${d} days')::int as d${d}_eligible,
+         count(retained_d${d}_at) filter (where first_seen_at <= now() - interval '${d} days')::int as d${d}_retained`).join(", ")}
+    from rows`;
+
+export const REVENUE_SELECT = `
+  select r.key as currency, sum(r.value::numeric)::float8 as total
+    from rows, jsonb_each_text(rows.revenue) r
+   group by r.key order by r.key`;
 
 /**
  * Applies one newly processed event to its person's existing row. Only

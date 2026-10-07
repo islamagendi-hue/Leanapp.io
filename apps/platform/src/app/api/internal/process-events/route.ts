@@ -6,6 +6,7 @@ import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance
 import { runAttributionJobs } from "@/modules/attribution/delivery";
 import { runEngagement } from "@/modules/automation/worker";
 import { runDeletionJobs } from "@/modules/privacy/service";
+import { runReprocessJobs } from "@/modules/reprocess/jobs";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { checkConfig } from "@/server/config";
 
@@ -14,6 +15,8 @@ export const maxDuration = 60;
 
 /** No new processing batch starts after this much wall time (of maxDuration). */
 const PROCESSING_BUDGET_MS = 35_000;
+/** Re-map and growth rebuild chunks stop starting after this much wall time. */
+const REPROCESS_BUDGET_MS = 42_000;
 /** Optional later steps start only before this much wall time. */
 const LATE_STEPS_BUDGET_MS = 50_000;
 /** Postback delivery stops starting new requests after this much wall time. */
@@ -30,7 +33,8 @@ function authorized(req: Request): boolean {
 
 /**
  * Scheduled worker: retries privacy deletions, drains events the after() hook
- * missed (time-boxed; the rest waits for the next run), then housekeeping
+ * missed (time-boxed; the rest waits for the next run), re-map and growth
+ * rebuild chunks (app_reprocess_jobs), then housekeeping
  * (rate-limit windows, expired tokens and logs, and plan retention, which only
  * deletes events when EVENT_RETENTION=enforce), then plan usage notices,
  * attribution postbacks, and engagement: audience recomputation, automation
@@ -49,6 +53,8 @@ export async function GET(req: Request) {
   const started = Date.now();
   const deletions = await runDeletionJobs({ limit: 20 });
   const { processed, failed } = await processPendingEvents({ limit: 20_000, deadline: started + PROCESSING_BUDGET_MS });
+  // Background re-map of past events and growth-state rebuilds, in small chunks while time is left.
+  const reprocess = Date.now() < started + REPROCESS_BUDGET_MS ? await runReprocessJobs({ deadline: started + REPROCESS_BUDGET_MS }) : null;
   const purged = { rate_limit_buckets: await purgeRateLimitBuckets(), ...(await purgeOperationalData()) };
   const retention = await applyEventRetention();
   // Plan usage emails (80% / 100% / refusing), once per threshold per month.
@@ -57,7 +63,7 @@ export async function GET(req: Request) {
   const attribution = Date.now() < started + ATTRIBUTION_BUDGET_MS ? await runAttributionJobs({ deadline: started + ATTRIBUTION_BUDGET_MS }) : null;
   // Engagement: audiences, automation triggers and steps, webhook deliveries, only while time is left.
   const engagement = Date.now() < started + ENGAGEMENT_BUDGET_MS ? await runEngagement({ deadline: started + ENGAGEMENT_BUDGET_MS }) : { skipped: "time budget" };
-  const summary = { processed, failed, deletions, purged, retention: { mode: retention.mode, organizations: retention.organizations.length }, usage_notices: usageNotices, attribution, engagement };
+  const summary = { processed, failed, deletions, reprocess, purged, retention: { mode: retention.mode, organizations: retention.organizations.length }, usage_notices: usageNotices, attribution, engagement };
   log.info("cron.completed", summary);
-  return Response.json({ processed, failed, deletions, purged, retention, usage_notices: usageNotices, attribution, engagement });
+  return Response.json({ processed, failed, deletions, reprocess, purged, retention, usage_notices: usageNotices, attribution, engagement });
 }
