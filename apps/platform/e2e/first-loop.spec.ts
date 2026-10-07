@@ -107,6 +107,63 @@ test("events sent with the SDK key show up in the debugger and the score", async
   await expect(page.getByText(/of 1 people completed all 2 steps/)).toBeVisible();
 });
 
+test("mapping history: map an event, see the history, restore a revision", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/implementation/validation`);
+  await page.getByRole("button", { name: "Turn on mapping history" }).click();
+  await expect(page.getByText("Mapping history on.")).toBeVisible();
+  const addMapping = async (to: string) => {
+    await page.fill('[name="from"]', "Checkout");
+    await page.selectOption('select[name="to"]', to);
+    await page.getByRole("button", { name: "Add mapping" }).click();
+    await expect(page.getByText("Mapping saved")).toBeVisible();
+  };
+  await addMapping("order_completed");
+  const other = await page.locator('select[name="to"] option').evaluateAll((os) => os.map((o) => (o as HTMLOptionElement).value).find((v) => v !== "order_completed")!);
+  await page.reload();
+  await addMapping(other);
+  await page.reload();
+  await expect(page.getByRole("cell", { name: `Checkout → ${other}` })).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("row", { name: /Checkout → order_completed/ }).getByRole("button", { name: "Restore" }).click();
+  await expect(page.getByText("Reverted to revision 1.")).toBeVisible();
+  await page.reload();
+  await expect(page.getByText("(restored 1)")).toBeVisible();
+});
+
+test("growth: turn on, define, preview, publish, see the summary", async ({ page, request }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/growth`);
+  await page.getByRole("button", { name: "Turn on the growth model" }).click();
+  await expect(page.getByRole("button", { name: "Turn off the growth model" })).toBeVisible();
+
+  await page.goto(`${appBase}/growth/setup`);
+  await page.selectOption('select[name="act_event"]', "order_completed");
+  await page.selectOption('select[name="core_event"]', "order_completed");
+  await page.selectOption('select[name="rev_event"]', "order_completed");
+  await page.fill('[name="rev_amount"]', "value");
+  await page.getByRole("button", { name: "Preview on the last 30 days" }).click();
+  await expect(page.getByText("Preview: last 30 days")).toBeVisible();
+  await expect(page.getByText("80 SAR")).toBeVisible();
+  await page.getByRole("button", { name: /Save to draft/ }).click();
+  await expect(page.getByText(/Saved in draft v\d+/)).toBeVisible();
+
+  await page.goto(`${appBase}/implementation/plan`);
+  await page.getByRole("button", { name: "Approve plan" }).click();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Publish plan" }).click();
+  await page.waitForURL(/developers\/sdk/);
+
+  // The scheduled worker builds growth state (here called directly, as pg_cron would).
+  const cron = await request.get("/api/internal/process-events", { headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? "e2e-cron-secret-0123456789"}` } });
+  expect(cron.status()).toBe(200);
+  await page.goto(`${appBase}/growth?env=development`);
+  await expect(page.getByText("80 SAR")).toBeVisible();
+  await expect(page.locator(".card", { hasText: "Paying" })).toContainText("100%");
+  await page.goto(appBase);
+  await expect(page.getByText("See your growth summary")).toBeVisible();
+});
+
 test("account, settings and privacy pages", async ({ page }) => {
   await signIn(page);
   await page.goto("/account");

@@ -55,6 +55,10 @@ A key without the scope an endpoint needs gets `403 forbidden`; a public SDK key
 | GET | `/v1/environment` | secret key, `management:read` | The key's environment |
 | GET | `/v1/tracking-plan` | secret key, `management:read` | The published tracking plan (`leanapp.tracking_plan/v1` JSON, same as the dashboard export); 404 until one is published |
 | POST | `/v1/tracking-plan/events` | secret key, `plan:write` | Add a custom event to the draft plan → `201 { version_id, version, status: "draft", draft_created, event_name, warnings }` |
+| GET | `/v1/event-mappings` | secret key, `management:read` | The app's event mappings: `{ mappings: [{ id, from_name, to_name, status, similarity, decided_at, created_at }] }` |
+| GET | `/v1/event-mappings/history?limit=200` | secret key, `management:read` | Every change to a mapping, newest first: `{ history: [{ mapping_id, revision, from_name, to_name, status, changed_at, reverted_to }] }` (limit 1–1000) |
+| GET | `/v1/growth/definition` | secret key, `management:read` | Growth definitions of the published plan: `{ enabled, plan_version, plan_version_id, source: "saved" \| "derived", definition }`; 404 until a plan is published ([growth model](growth-model.md)) |
+| GET | `/v1/growth/summary` | secret key, `management:read` | Growth summary of the key's environment: `{ enabled, updated_at, rebuilding, summary: { people, activated, core_people, core_actions, paying, purchases, revenue[], retention[] } }`; `summary` is null while the growth model is off |
 | GET | `/v1/analytics/events?days=7\|30\|90` | secret key, `analytics:read` | Events with count and distinct people, most frequent first |
 | GET | `/v1/analytics/trend?event=&days=&breakdown=` | secret key, `analytics:read` | Daily counts and people for one event, optional breakdown (`platform`, `app_version`, `country`, `property:<name>`) |
 | GET | `/v1/users/{user_id}` | secret key, `users:read` | An end user of the key's environment: properties, first/last seen, linked installs, event count |

@@ -111,6 +111,7 @@ const SUBJECT_TABLES: { table: string; label: string; where: string; order?: str
     where: "environment_id = $1 and (user_id = any($2) or (user_id is null and anonymous_id = any($3)))",
     order: table === "events" ? '"timestamp" desc' : undefined,
   })),
+  { table: "growth_state", label: "growth_state", where: "environment_id = $1 and (user_id = any($2) or anonymous_id = any($3))" },
   { table: "app_users", label: "profiles", where: "environment_id = $1 and external_id = any($2)" },
   { table: "anonymous_users", label: "installs", where: "environment_id = $1 and anonymous_id = any($3)" },
   { table: "deep_link_deferred_matches", label: "deferred_deep_links", where: "environment_id = $1 and anonymous_id = any($3)" },

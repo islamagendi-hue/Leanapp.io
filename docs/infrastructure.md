@@ -7,7 +7,7 @@
 | Code | GitHub `islamagendi-hue/Leanapp.io`: app in `apps/platform`, SDK in `sdks/` | ✓ |
 | App + API runtime | Next.js 16 on Vercel (Node runtime) | Configured (`apps/platform/vercel.json`), **no Vercel project created yet** |
 | Database | Postgres 15+, schema `platform` | Works on any Postgres. **Not provisioned for production yet.** |
-| Background processing | `after()` after each ingestion request + Vercel Cron calling `/api/internal/process-events` | ✓ in code |
+| Background processing | `after()` after each ingestion request + Supabase `pg_cron` calling `/api/internal/process-events` (5 min production, 15 min staging; `db/ops/schedule.sql`), Vercel Cron once a day as a safety net | ✓ in code; scheduler installed by the Deploy workflow |
 | CI | GitHub Actions: site checks, platform lint/typecheck/unit/integration (Postgres service)/build, SDK build | ✓ |
 | Domain | leanapp.io | Chosen by the owner; DNS not configured |
 
@@ -19,7 +19,8 @@ LeanApp is a separate product from the Growx Era website and should get its own 
 | --- | --- | --- | --- |
 | Local | Local Postgres (`platform_dev`, `platform_test`) | `npm run dev` on :3100 | Fake |
 | Preview | Separate preview database (or a Supabase branch) | Vercel preview per PR | Fake |
-| Production | Production database, SSL required (`DATABASE_SSL=require`) | Vercel production, from `main` only | Customer |
+| Staging | Second Supabase project | Vercel preview of the `staging` branch, deployed by the Deploy workflow | Test data |
+| Production | Production database, SSL required (`DATABASE_SSL=require`) | Vercel production, from `main` only, deployed by the Deploy workflow after migrations | Customer |
 
 Inside the product, each app also has development, staging and production **data environments** with separate keys; those are a product concept and all live in the production database.
 

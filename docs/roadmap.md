@@ -1,6 +1,6 @@
 # Roadmap, current state and gap analysis
 
-_Last updated 2026-10-06._
+_Last updated 2026-10-07._
 
 ## Starting point (before this work)
 
@@ -30,7 +30,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | JavaScript / React Native SDK | ✓ (not published to npm) |
 | Native SDKs: Android (Kotlin, with Play Install Referrer), iOS (Swift), Flutter (Dart), tested in CI | ✓ (not published: Maven Central, Swift package tag / CocoaPods and pub.dev need the owner's accounts) |
 | Docs, ADRs, OpenAPI, CI (lint, types, unit, integration, migrations, build, browser end-to-end) | ✓ |
-| Production deployment | ✗ waits for owner (database, Vercel project, DNS) |
+| Production deployment | Workflow, scheduler and runbook ✓; ✗ waits for owner (Supabase projects, Vercel project, DNS, secrets) |
 | Attribution engine (phase 3): tracking links `/l/{code}` with bot/prefetch filtering and rate limits, deterministic install matching (Play referrer, click ids, ad-network click ids), opt-in Android-only probabilistic matching, reinstalls, re-engagement, last-touch conversions and revenue, postback queue with retries, dashboard | ✓ (custom URL postbacks tested; TikTok / Snap / Meta / Google postbacks not verified with the live networks) |
 
 ## Gaps to a sellable product
@@ -61,7 +61,23 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Management API: plan edits beyond adding events, mappings, funnels/retention, keys, members | 2 | Read endpoints, plan event creation and analytics/users reads are built ([API](api.md)) |
 | Arabic UI | 2 | Layout uses logical properties; strings not yet extracted |
 
-## Phase plan
+## Current plan (owner-approved 2026-10-06)
+
+The earlier phase list below is the build history. From 2026-10-06 the order is the "Growth Operating Layer" plan:
+
+| Phase | Scope | Status |
+| --- | --- | --- |
+| 0 | Deploy: Supabase production + staging, Vercel (Hobby for development and staging only; **Pro before commercial production**), pg_cron worker schedule, migrations and deploys from GitHub Actions only, smoke tests, runbook ([deployment](deployment.md)) | Code ✓ (this PR). Waits on owner accounts and secrets |
+| 1 | Mapping history and full historical re-map; growth definitions with the tracking plan; growth state per person ([growth model](growth-model.md)) | ✓ built behind per-app switches (this PR) |
+| 2 | Attribution core: install attribution, attribution id, first / latest attribution, stamping. Only after the four attr-core defects are fixed, tested and validated on a real database | Not started |
+| 3 | Growth analytics; deep links (after go.leanapp.io DNS); screen autocapture | Not started |
+| 4 | Deterministic intelligence | Not started |
+| 5 | Measured action (reusing automation) | Not started |
+| 6 | AI agent (never the source of numbers) | Not started |
+
+No MMP import or migration (AppsFlyer, Adjust, Branch) is planned; their live callbacks may later be an optional signal, after Phase 2. New messaging channels and new SDKs wait for their phases.
+
+## Phase plan (build history)
 
 1. **Phase 1** (PR #1): foundation and first-event loop, plus the production basics pulled forward: email and account security, privacy export and deletion, retention and cleanup jobs, settings, audit log, CSP and structured logs, browser tests, analytics v1.
 2. **Phase 1.5**: deploy (waits on the owner's database, Vercel, DNS and email decisions), monitoring, design-partner onboarding (5 MENA apps).

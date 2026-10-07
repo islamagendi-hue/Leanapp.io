@@ -12,7 +12,11 @@ Current counts: 22 platform unit tests, 21 SDK tests, 58 integration tests, 5 en
 
 ## End-to-end (browser)
 
-`npm run test:e2e` (in `apps/platform`, after `npm run build`, with `DATABASE_URL` pointing at a migrated database) starts the production server and drives Chromium through the first-priority loop: sign up → organization → app → questionnaire → generate, approve and publish the plan → send events with the public key → they appear in the event debugger → the validation page shows a score → the event appears in analytics and a funnel. It then covers the account page, organization settings and audit log, a privacy deletion, and checks that pages carry the CSP and load without console errors. CI runs it on every PR and keeps the Playwright report when it fails.
+`npm run test:e2e` (in `apps/platform`, after `npm run build`, with `DATABASE_URL` pointing at a migrated database) starts the production server and drives Chromium through the first-priority loop: sign up → organization → app → questionnaire → generate, approve and publish the plan → send events with the public key → they appear in the event debugger → the validation page shows a score → the event appears in analytics and a funnel → mapping history with a restore → growth model on, definitions previewed, saved, published, and the growth summary. It then covers the account page, organization settings and audit log, a privacy deletion, and checks that pages carry the CSP and load without console errors. CI runs it on every PR and keeps the Playwright report when it fails.
+
+`test/scheduler.int.test.ts` runs `db/ops/schedule.sql` with psql against stubs of pg_cron, pg_net and Vault. `GROWTH_BENCH=1 npx vitest run --project integration test/growth-bench.int.test.ts` measures processing 20,000 events with the growth model on versus off (bound: +20%; skipped by default).
+
+After a deploy, `npm run smoke` (run by the Deploy workflow) checks health, a test event, the worker endpoint and the pg_cron job.
 
 ## Rules
 

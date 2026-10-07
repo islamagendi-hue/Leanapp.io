@@ -1,9 +1,11 @@
 import "server-only";
-import type { Db } from "@/lib/db";
+import { withTenant, type Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
 import { recomputeImplementation } from "@/modules/processing/processor";
+import { featureOn } from "@/modules/apps/features";
+import { enqueueReprocess } from "@/modules/reprocess/jobs";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { generatePlan, type GeneratedPlan } from "./generator";
 import { loadPlanEvents, type PlanEventRow } from "./plan-store";
@@ -237,6 +239,8 @@ export async function publishVersion(ctx: TenantContext, appId: string, versionI
     await db.query("update platform.tracking_plans set published_version_id = $2 where id = $1", [project.planId, versionId]);
     await db.query("update platform.tracking_projects set status = 'implementing', progress = greatest(progress, 70) where id = $1", [project.projectId]);
     await recomputeImplementation(db, appId);
+    // Growth definitions are part of the published version: rebuild growth state from all events.
+    if (await featureOn(db, appId, "growth_model")) await enqueueReprocess(db, appId, "growth_rebuild", `plan version ${v.version} published`, ctx.userId);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "tracking_plan.published", targetType: "tracking_plan_version", targetId: versionId, metadata: { version: v.version } });
   });
 }
@@ -264,6 +268,7 @@ export async function decideMapping(ctx: TenantContext, appId: string, mappingId
     );
     if (!row) throw new NotFoundError("Mapping");
     if (accept) await recomputeImplementation(db, appId);
+    await remapHistory(db, appId, `mapping ${row.from_name} → ${row.to_name} ${accept ? "accepted" : "rejected"}`, ctx.userId);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: accept ? "event_mapping.accepted" : "event_mapping.rejected", targetType: "event_mapping", targetId: mappingId, metadata: row });
   });
 }
@@ -279,7 +284,68 @@ export async function createMapping(ctx: TenantContext, appId: string, fromName:
       [ctx.organizationId, appId, fromName, toName, ctx.userId],
     );
     await recomputeImplementation(db, appId);
+    await remapHistory(db, appId, `mapping ${fromName} → ${toName} set`, ctx.userId);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "event_mapping.accepted", targetType: "app", targetId: appId, metadata: { from: fromName, to: toName } });
+  });
+}
+
+/**
+ * With mapping history on, every mapping change also re-maps all past events
+ * in the background (the instant pass above covers 30 days / 5,000 events).
+ */
+async function remapHistory(db: Db, appId: string, reason: string, userId: string) {
+  if (await featureOn(db, appId, "mapping_history")) await enqueueReprocess(db, appId, "remap", reason, userId);
+}
+
+export interface MappingRevision {
+  mapping_id: string;
+  revision: number;
+  from_name: string;
+  to_name: string;
+  status: EventMapping["status"];
+  changed_by_email: string | null;
+  changed_at: Date;
+  reverted_to: number | null;
+}
+
+/** Every change to the app's mappings, newest first. */
+export function listMappingHistory(ctx: TenantContext, appId: string, opts: { limit?: number } = {}): Promise<MappingRevision[]> {
+  return tenantTx(ctx, "implementation.read", (db) => mappingHistory(db, appId, opts.limit ?? 200));
+}
+
+export function mappingHistory(db: Db, appId: string, limit: number): Promise<MappingRevision[]> {
+  return db.query<MappingRevision>(
+    `select h.mapping_id, h.revision, h.from_name, h.to_name, h.status, u.email as changed_by_email, h.changed_at, h.reverted_to
+       from platform.event_mapping_history h left join platform.users u on u.id = h.changed_by
+      where h.app_id = $1 order by h.changed_at desc, h.id desc limit $2`,
+    [appId, Math.min(Math.max(limit, 1), 1000)],
+  );
+}
+
+/**
+ * Puts a mapping back to an earlier revision (target and status). Recorded as
+ * a new revision that names the one it restored; earlier revisions are never
+ * changed. Needs the mapping_history feature.
+ */
+export async function revertMapping(ctx: TenantContext, appId: string, mappingId: string, revision: number) {
+  return tenantTx(ctx, "implementation.mapping", async (db) => {
+    if (!(await featureOn(db, appId, "mapping_history"))) throw new ConflictError("Turn on mapping history for this app first.");
+    const target = await db.one<{ to_name: string; status: EventMapping["status"]; from_name: string }>(
+      "select to_name, status, from_name from platform.event_mapping_history where app_id = $1 and mapping_id = $2 and revision = $3",
+      [appId, mappingId, revision],
+    );
+    if (!target) throw new NotFoundError("Mapping revision");
+    const current = await db.one<{ to_name: string; status: string }>("select to_name, status from platform.event_mappings where id = $1 and app_id = $2 for update", [mappingId, appId]);
+    if (!current) throw new NotFoundError("Mapping");
+    if (current.to_name === target.to_name && current.status === target.status) throw new ConflictError("The mapping is already in that state.");
+    await db.query("select set_config('platform.mapping_revert_to', $1, true)", [String(revision)]);
+    await db.query("update platform.event_mappings set to_name = $3, status = $4, decided_by = $5, decided_at = now() where id = $1 and app_id = $2", [
+      mappingId, appId, target.to_name, target.status, ctx.userId,
+    ]);
+    await db.query("select set_config('platform.mapping_revert_to', '', true)");
+    await recomputeImplementation(db, appId);
+    await remapHistory(db, appId, `mapping ${target.from_name} reverted to revision ${revision}`, ctx.userId);
+    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "event_mapping.reverted", targetType: "event_mapping", targetId: mappingId, metadata: { revision, to: target.to_name, status: target.status } });
   });
 }
 
@@ -380,4 +446,21 @@ export function implementationReport(ctx: TenantContext, appId: string, environm
       unplanned: statuses.filter((s) => !planned.has(s.event_name) && !PROTOCOL_EVENTS.has(s.event_name)).map((s) => ({ event_name: s.event_name, received_count: Number(s.received_count), last_received_at: s.last_received_at })),
     };
   });
+}
+
+// ── Management API: mappings and their history (secret key, one app) ───────
+export function apiMappings(key: { organizationId: string; appId: string }) {
+  return withTenant({ organizationId: key.organizationId, userId: null }, async (db) => ({
+    mappings: await db.query(
+      `select id, from_name, to_name, status, similarity, decided_at, created_at
+         from platform.event_mappings where app_id = $1 order by status, from_name`,
+      [key.appId],
+    ),
+  }));
+}
+
+export function apiMappingHistory(key: { organizationId: string; appId: string }, limit: number) {
+  return withTenant({ organizationId: key.organizationId, userId: null }, async (db) => ({
+    history: (await mappingHistory(db, key.appId, limit)).map(({ changed_by_email: _e, ...h }) => h),
+  }));
 }

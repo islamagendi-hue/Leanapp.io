@@ -2,6 +2,8 @@
 
 _Decided 2026-10-06 by the product owner._ LeanApp provides analytics, attribution, deep linking and engagement in one platform. It does **not** import data from AppsFlyer, Adjust or Branch. Attribution is a first-class object: every user and every event can answer "where did this user come from?" and "which campaign produced this revenue?" from LeanApp's own data.
 
+There is no import or migration product for other MMPs, now or later. A customer that keeps AppsFlyer, Adjust or Branch running may at most send their live callbacks as an optional extra signal (deferred until after the attribution core, Phase 2); LeanApp's own attribution never depends on them.
+
 The chain every part must keep intact:
 
 ```

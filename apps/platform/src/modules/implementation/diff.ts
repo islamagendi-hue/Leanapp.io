@@ -56,6 +56,8 @@ export interface PlanSnapshot {
     business_model: string | null;
     activation_event: string | null;
     north_star_event: string | null;
+    /** Saved growth definitions (null: derived from activation / north-star events). */
+    growth?: unknown;
     created_at: Date | string;
     approved_at: Date | string | null;
     published_at: Date | string | null;
@@ -100,7 +102,7 @@ const EVENT_FIELDS = [
 const PROPERTY_FIELDS = ["type", "required", "description", "allowed_values", "example"] as const;
 const USER_PROPERTY_FIELDS = ["type", "description", "source"] as const;
 const RULE_FIELDS = ["parameters", "click_id_param", "notes"] as const;
-const PLAN_FIELDS = ["business_model", "activation_event", "north_star_event"] as const;
+const PLAN_FIELDS = ["business_model", "activation_event", "north_star_event", "growth"] as const;
 
 /** Order-insensitive for arrays of scalars (platforms, allowed values), exact otherwise. */
 function same(a: unknown, b: unknown): boolean {

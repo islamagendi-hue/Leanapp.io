@@ -1,12 +1,13 @@
 import "server-only";
 import { withTenant, type Db } from "@/lib/db";
-import { ConflictError, NotFoundError } from "@/lib/errors";
+import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import type { Permission } from "@/modules/rbac/permissions";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { EVENT_LIBRARY } from "./catalog/events";
 import { PROPERTY_SETS } from "./catalog/properties";
 import { diffPlans, planToCsv, planToJson, type PlanDiff, type PlanSnapshot } from "./diff";
+import { definitionProblems, growthDefinitionSchema, type GrowthDefinition } from "@/modules/growth/definition";
 import { loadPlanEvents } from "./plan-store";
 import {
   checkEventName, checkProperties, checkPropertyName, displayName, eventPropertyInput, eventUpdateInput, newEventInput, parseInput,
@@ -83,8 +84,8 @@ async function workingDraft(db: Db, who: Who, appId: string): Promise<DraftRef> 
   if (base) {
     id = (await db.one<{ id: string }>(
       `insert into platform.tracking_plan_versions
-         (organization_id, tracking_plan_id, version, status, generator, business_model, activation_event, north_star_event, summary, answers_snapshot, created_by, based_on_version_id)
-       select organization_id, tracking_plan_id, $2, 'draft', generator, business_model, activation_event, north_star_event, summary, answers_snapshot, $3, id
+         (organization_id, tracking_plan_id, version, status, generator, business_model, activation_event, north_star_event, summary, answers_snapshot, growth, created_by, based_on_version_id)
+       select organization_id, tracking_plan_id, $2, 'draft', generator, business_model, activation_event, north_star_event, summary, answers_snapshot, growth, $3, id
          from platform.tracking_plan_versions where id = $1
        returning id`,
       [base.id, next!.v, who.userId],
@@ -287,9 +288,35 @@ export async function removePlanUserProperty(actor: PlanActor, appId: string, na
 // ── Snapshots, diff, export ─────────────────────────────────────────────────
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * Saves growth definitions into the working draft (copying the live version
+ * into a new draft when there is none). They take effect when the draft is
+ * approved and published, like every other plan change. The plan's
+ * activation and north-star events follow the activation and core action.
+ */
+export async function setDraftGrowth(actor: PlanActor, appId: string, input: unknown): Promise<DraftRef & { definition: GrowthDefinition }> {
+  const parsed = growthDefinitionSchema.safeParse(input);
+  if (!parsed.success) throw new ValidationError(parsed.error.issues.map((i) => i.message).join(" "));
+  const def = parsed.data;
+  return run(actor, "growth.write", appId, async (db, who) => {
+    const draft = await workingDraft(db, who, appId);
+    const events = (await db.query<{ event_name: string }>("select event_name from platform.tracking_events where plan_version_id = $1", [draft.versionId])).map((r) => r.event_name);
+    const problems = definitionProblems(def, events);
+    if (problems.length) throw new ValidationError(problems.join(" "));
+    await db.query(
+      `update platform.tracking_plan_versions set growth = $2,
+              activation_event = coalesce($3, activation_event), north_star_event = coalesce($4, north_star_event)
+        where id = $1`,
+      [draft.versionId, JSON.stringify(def), def.activation?.event ?? null, def.core_action?.event ?? null],
+    );
+    await logEdit(db, who, "tracking_plan.edited", draft.versionId, { op: "growth_definitions_saved" });
+    return { ...draft, definition: def };
+  });
+}
+
 async function snapshot(db: Db, planId: string, versionId: string): Promise<PlanSnapshot> {
   if (!UUID.test(versionId)) throw new NotFoundError("Plan version");
-  const version = await db.one<PlanVersion>(`select ${VERSION_COLUMNS} from platform.tracking_plan_versions where id = $1 and tracking_plan_id = $2`, [versionId, planId]);
+  const version = await db.one<PlanVersion & { growth: unknown }>(`select ${VERSION_COLUMNS}, growth from platform.tracking_plan_versions where id = $1 and tracking_plan_id = $2`, [versionId, planId]);
   if (!version) throw new NotFoundError("Plan version");
   const events = await loadPlanEvents(db, versionId);
   return {

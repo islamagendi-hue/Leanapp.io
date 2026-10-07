@@ -473,6 +473,73 @@ paths:
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/event-mappings:
+    get:
+      operationId: listEventMappings
+      tags: [Management (secret key)]
+      summary: The app's event mappings
+      description: Needs `management:read`. Raw event names mapped to planned names, with their status (suggested, accepted, rejected).
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      responses:
+        "200":
+          description: Mappings
+          content:
+            application/json:
+              schema: { type: object, properties: { mappings: { type: array, items: { type: object } } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/event-mappings/history:
+    get:
+      operationId: listEventMappingHistory
+      tags: [Management (secret key)]
+      summary: Every change to the app's event mappings
+      description: Needs `management:read`. Newest first. Each change is a revision of its mapping; a restore names the revision it restored in `reverted_to`.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 1000, default: 200 } }
+      responses:
+        "200":
+          description: History
+          content:
+            application/json:
+              schema: { type: object, properties: { history: { type: array, items: { type: object } } } }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/growth/definition:
+    get:
+      operationId: getGrowthDefinition
+      tags: [Management (secret key)]
+      summary: Growth definitions of the published tracking plan
+      description: Needs `management:read`. Activation, core action, revenue and retention rules. `source` is `derived` for plan versions without saved definitions. 404 until a plan is published.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      responses:
+        "200":
+          description: Definitions
+          content:
+            application/json:
+              schema: { type: object }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+  /v1/growth/summary:
+    get:
+      operationId: getGrowthSummary
+      tags: [Management (secret key)]
+      summary: Growth summary of the key's environment
+      description: Needs `management:read`. People, activated, core action, paying, revenue per currency and D1/D7/D30 retention from the growth state. `summary` is null while the app's growth model is off.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      responses:
+        "200":
+          description: Summary
+          content:
+            application/json:
+              schema: { type: object }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
   /v1/tracking-plan/events:
     post:
       operationId: addTrackingPlanEvent

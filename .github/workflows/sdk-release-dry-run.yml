@@ -1,0 +1,88 @@
+name: SDK release dry run
+
+# Builds every SDK the way a release would and keeps the packages as workflow
+# artifacts. Publishes nothing: no registry credentials are used or needed.
+# The release checklist is docs/sdk-release.md.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  javascript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/platform/package-lock.json
+      - run: npm ci
+        working-directory: apps/platform
+      - name: Build and pack (no publish)
+        working-directory: sdks/javascript
+        run: |
+          ../../apps/platform/node_modules/.bin/tsc -p tsconfig.build.json
+          npm pack --json | tee pack.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-javascript
+          path: sdks/javascript/*.tgz
+          retention-days: 14
+
+  android:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+      - run: gradle :leanapp-core:test :leanapp-core:jar :leanapp-android:assembleRelease --no-daemon
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-android
+          path: |
+            sdks/android/leanapp-core/build/libs/*.jar
+            sdks/android/leanapp-android/build/outputs/aar/*.aar
+          retention-days: 14
+
+  ios:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: sdks/ios
+    steps:
+      - uses: actions/checkout@v4
+      - run: swift test
+      - name: Release build for device and simulator
+        run: |
+          swift build -c release --sdk "$(xcrun --sdk iphoneos --show-sdk-path)" --triple arm64-apple-ios13.0
+          swift build -c release --sdk "$(xcrun --sdk iphonesimulator --show-sdk-path)" --triple arm64-apple-ios13.0-simulator
+
+  flutter:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdks/flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: "3.24.5"
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      # pubspec.yaml has publish_to: none until the owner decides to publish on pub.dev,
+      # so `flutter pub publish --dry-run` is not run yet (it refuses such packages).
