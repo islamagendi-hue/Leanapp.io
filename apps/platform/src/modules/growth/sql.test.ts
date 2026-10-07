@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { growthDefinitionSchema } from "./definition";
-import { applyEventSql, rebuildSelectSql, windowSelectSql } from "./sql";
+import { applyBatchSql, rebuildSelectSql, windowSelectSql } from "./sql";
 
 const def = growthDefinitionSchema.parse({
   activation: { event: "signup_completed", filters: [{ name: "method", op: "eq", value: "email" }] },
@@ -17,15 +17,15 @@ describe("growth SQL", () => {
     expect(r.params.values.slice(0, 5)).toEqual([undefined, undefined, undefined, undefined, undefined]);
     expect(r.params.values.slice(5)).toEqual(["order_completed", "revenue", "0", "order_completed", "revenue", "currency", "SAR", "signup_completed", "method", "email"]);
     expect(maxParam(r.sql)).toBe(r.params.values.length);
-    const a = applyEventSql(def, "SAR");
-    expect(a.params.values.slice(0, 4)).toEqual([undefined, undefined, undefined, undefined]);
+    const a = applyBatchSql(def, "SAR");
+    expect(a.params.values.slice(0, 3)).toEqual([undefined, undefined, undefined]);
     expect(maxParam(a.sql)).toBe(a.params.values.length);
     const w = windowSelectSql(def, "SAR");
     expect(maxParam(w.sql)).toBe(w.params.values.length);
   });
 
   it("never puts definition values in the SQL text", () => {
-    for (const { sql } of [rebuildSelectSql(def, "SAR"), applyEventSql(def, "SAR"), windowSelectSql(def, "SAR")]) {
+    for (const { sql } of [rebuildSelectSql(def, "SAR"), applyBatchSql(def, "SAR"), windowSelectSql(def, "SAR")]) {
       expect(sql).not.toMatch(/signup_completed|order_completed|email|SAR/);
     }
   });

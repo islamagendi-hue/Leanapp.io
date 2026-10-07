@@ -123,34 +123,71 @@ export const REVENUE_SELECT = `
    group by r.key order by r.key`;
 
 /**
- * Applies one newly processed event to its person's existing row. Only
- * updates when the row exists and the event is not earlier than first_seen_at
- * (then nothing already derived can change except by min/max/sum); otherwise
- * returns no row and the caller rebuilds the person from all events.
- * Binds: $1 environment, $2 person, $3 event row id, $4 plan version id.
+ * Applies a batch of newly processed events to their people's existing rows
+ * in one statement, resolving people with the analytics key. A person is
+ * updated only when they have a row and none of their batch events is earlier
+ * than first_seen_at (then nothing already derived can change except by
+ * min / max / sum). Returns every person in the batch and whether their row
+ * was updated; the caller rebuilds the others from all their events.
+ * Binds: $1 environment, $2 event row ids (bigint[]), $3 plan version id.
  */
-export function applyEventSql(def: GrowthDefinition, defaultCurrency: string): { sql: string; params: Params } {
-  const p = new Params([undefined, undefined, undefined, undefined]);
-  const retention = RETENTION_DAYS.map(
-    (d) => `retained_d${d}_at = case when ev.is_return and ev.ts >= g.first_seen_at + interval '${d} days' then least(g.retained_d${d}_at, ev.ts) else g.retained_d${d}_at end`,
-  ).join(",\n           ");
+export function applyBatchSql(def: GrowthDefinition, defaultCurrency: string): { sql: string; params: Params } {
+  const p = new Params([undefined, undefined, undefined]);
+  const retentionAgg = RETENTION_DAYS.map(
+    (d) => `min(ts) filter (where is_return and ts >= first_seen_at + interval '${d} days') as r${d}`,
+  ).join(",\n             ");
+  const retentionSet = RETENTION_DAYS.map((d) => `retained_d${d}_at = least(g.retained_d${d}_at, a.r${d})`).join(",\n             ");
   const sql = `
-    update platform.growth_state g set
-           last_active_at = greatest(g.last_active_at, ev.ts),
-           activated_at = case when ev.is_act then least(g.activated_at, ev.ts) else g.activated_at end,
-           first_core_action_at = case when ev.is_core then least(g.first_core_action_at, ev.ts) else g.first_core_action_at end,
-           core_action_count = g.core_action_count + case when ev.is_core then 1 else 0 end,
-           first_revenue_at = case when ev.amount is not null then least(g.first_revenue_at, ev.ts) else g.first_revenue_at end,
-           revenue = case when ev.amount is not null
-                          then g.revenue || jsonb_build_object(ev.currency, coalesce(${numeric("(g.revenue->ev.currency)")}, 0) + ev.amount)
-                          else g.revenue end,
-           purchases = g.purchases + case when ev.amount is not null then 1 else 0 end,
-           ${retention},
-           plan_version_id = $4::uuid,
-           updated_at = now()
-      from (select e."timestamp" as ts, ${flagColumns(def, p, defaultCurrency)}
-              from platform.events e where e.id = $3 and ${COUNTED_EVENTS}) ev
-     where g.environment_id = $1 and g.person = $2 and ev.ts >= g.first_seen_at
-    returning 1`;
+    with ev as (
+      select ${PERSON.expr} as person, e."timestamp" as ts, ${flagColumns(def, p, defaultCurrency)}
+        from platform.events e
+        ${PERSON.join}
+       where e.environment_id = $1 and e.id = any($2::bigint[])
+         and coalesce(e.user_id, e.anonymous_id) is not null and ${COUNTED_EVENTS}
+    ),
+    j as (
+      select ev.*, g.first_seen_at
+        from ev join platform.growth_state g on g.environment_id = $1 and g.person = ev.person
+    ),
+    ok as (select person from j group by person having min(ts) >= min(first_seen_at)),
+    a as (
+      select person,
+             max(ts) as last_ts,
+             min(ts) filter (where is_act) as act,
+             min(ts) filter (where is_core) as core_first,
+             count(*) filter (where is_core) as core_n,
+             min(ts) filter (where amount is not null) as rev_first,
+             count(*) filter (where amount is not null) as purchases,
+             ${retentionAgg}
+        from j where person in (select person from ok)
+       group by person
+    ),
+    money as (
+      select person, currency, sum(amount) as total
+        from j where amount is not null and person in (select person from ok)
+       group by person, currency
+    ),
+    upd as (
+      update platform.growth_state g set
+             last_active_at = greatest(g.last_active_at, a.last_ts),
+             activated_at = least(g.activated_at, a.act),
+             first_core_action_at = least(g.first_core_action_at, a.core_first),
+             core_action_count = g.core_action_count + a.core_n,
+             first_revenue_at = least(g.first_revenue_at, a.rev_first),
+             revenue = case when a.purchases = 0 then g.revenue else (
+               select coalesce(jsonb_object_agg(c, t), '{}'::jsonb) from (
+                 select c, sum(t) as t from (
+                   select r.key as c, ${numeric("r.value")} as t from jsonb_each(g.revenue) r
+                   union all
+                   select m.currency, m.total from money m where m.person = g.person) x
+                 group by c) y) end,
+             purchases = g.purchases + a.purchases,
+             ${retentionSet},
+             plan_version_id = $3::uuid,
+             updated_at = now()
+        from a
+       where g.environment_id = $1 and g.person = a.person
+      returning g.person)
+    select distinct ev.person, ev.person in (select person from upd) as applied from ev`;
   return { sql, params: p };
 }

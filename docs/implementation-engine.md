@@ -58,6 +58,8 @@ Per event against the published plan: missing required properties, wrong types, 
 
 Unplanned event names are compared with planned ones (token synonyms such as order↔purchase, sign up/signup/register, add to cart variants). Matches above 0.6 are stored as **suggested** mappings. Only an accepted mapping changes how events are counted, and accepting re-validates recent events. Mappings can also be added by hand.
 
+Every change to a mapping is recorded as a revision in `event_mapping_history`. With the app's `mapping_history` switch on, revisions can be restored and each change also re-maps all past events in the background, not only the recent window. See [growth model](growth-model.md#mapping-history).
+
 ## 7. Implementation Score (`score.ts`)
 
 A pure function of observed facts in one environment.

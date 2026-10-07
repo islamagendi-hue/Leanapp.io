@@ -2,7 +2,7 @@ import "server-only";
 import type { Db } from "@/lib/db";
 import { loadPlanEvents } from "@/modules/implementation/plan-store";
 import { effectiveDefinition, type GrowthDefinition } from "./definition";
-import { ACTIVE_TYPES, applyEventSql, rebuildSelectSql } from "./sql";
+import { ACTIVE_TYPES, applyBatchSql, rebuildSelectSql } from "./sql";
 
 /**
  * Growth state maintenance (system scope; used by event processing and the
@@ -52,14 +52,14 @@ export async function growthConfig(db: Db, appId: string): Promise<GrowthConfig 
 }
 
 export function compileConfig(appId: string, versionId: string | null, definition: GrowthDefinition, defaultCurrency: string): GrowthConfig {
-  const apply = applyEventSql(definition, defaultCurrency);
+  const apply = applyBatchSql(definition, defaultCurrency);
   const rebuild = rebuildSelectSql(definition, defaultCurrency);
   return {
     appId,
     versionId,
     definition,
     defaultCurrency,
-    apply: { sql: apply.sql, extra: apply.params.values.slice(4) },
+    apply: { sql: apply.sql, extra: apply.params.values.slice(3) },
     rebuild: { sql: rebuild.sql, extra: rebuild.params.values.slice(5) },
   };
 }
@@ -116,28 +116,52 @@ export interface GrowthEvent {
   user_id: string | null;
 }
 
-/** Processor step 6. `newLink`: this event created an identity link. */
-export async function updateGrowthForEvent(db: Db, cfg: GrowthConfig, e: GrowthEvent, newLink: boolean): Promise<void> {
-  if (newLink && e.anonymous_id) {
-    // Everyone whose events the new link can move: the user, the install itself,
-    // and every user the install is linked to (a second link makes it shared).
-    const linked = await db.query<{ user_id: string }>(
-      "select user_id from platform.identity_links where environment_id = $1 and anonymous_id = $2",
-      [e.environment_id, e.anonymous_id],
-    );
-    await rebuildPersons(db, cfg, e.environment_id, [`anon:${e.anonymous_id}`, ...(e.user_id ? [e.user_id] : []), ...linked.map((l) => l.user_id)]);
-    return;
+/**
+ * Processor step 6 for one batch. Events are collected while the batch is
+ * processed; at the end, inside the same transaction, they are applied to
+ * their people's rows in one statement, and the people who need a full
+ * recompute (no row yet, an event earlier than their first one, or a new
+ * identity link) are rebuilt together from all their events.
+ */
+export class GrowthBatch {
+  private readonly events = new Map<string, string[]>();
+  private readonly dirty = new Map<string, Set<string>>();
+  constructor(readonly cfg: GrowthConfig) {}
+
+  private mark(environmentId: string, persons: string[]) {
+    const set = this.dirty.get(environmentId) ?? new Set<string>();
+    for (const p of persons) set.add(p);
+    this.dirty.set(environmentId, set);
   }
-  if (!(ACTIVE_TYPES as readonly string[]).includes(e.type)) return;
-  let person = e.user_id;
-  if (!person && e.anonymous_id) {
-    const single = await db.one<{ user_id: string }>(
-      "select min(user_id) as user_id from platform.identity_links where environment_id = $1 and anonymous_id = $2 having count(*) = 1",
-      [e.environment_id, e.anonymous_id],
-    );
-    person = single?.user_id ?? `anon:${e.anonymous_id}`;
+
+  /** `newLink`: this event created an identity link. */
+  async onEvent(db: Db, e: GrowthEvent, newLink: boolean): Promise<void> {
+    if (newLink && e.anonymous_id) {
+      // Everyone whose events the new link can move: the user, the install itself,
+      // and every user the install is linked to (a second link makes it shared).
+      const linked = await db.query<{ user_id: string }>(
+        "select user_id from platform.identity_links where environment_id = $1 and anonymous_id = $2",
+        [e.environment_id, e.anonymous_id],
+      );
+      this.mark(e.environment_id, [`anon:${e.anonymous_id}`, ...(e.user_id ? [e.user_id] : []), ...linked.map((l) => l.user_id)]);
+    }
+    if ((ACTIVE_TYPES as readonly string[]).includes(e.type)) {
+      const ids = this.events.get(e.environment_id) ?? [];
+      ids.push(e.id);
+      this.events.set(e.environment_id, ids);
+    }
   }
-  if (!person) return;
-  const applied = await db.query(cfg.apply.sql, [e.environment_id, person, e.id, cfg.versionId, ...cfg.apply.extra]);
-  if (!applied.length) await rebuildPersons(db, cfg, e.environment_id, [person]);
+
+  /** Applies the collected events, then rebuilds everyone who needs it. Returns the number of people rebuilt. */
+  async flush(db: Db): Promise<number> {
+    for (const [environmentId, ids] of this.events) {
+      const rows = await db.query<{ person: string; applied: boolean }>(this.cfg.apply.sql, [environmentId, ids, this.cfg.versionId, ...this.cfg.apply.extra]);
+      this.mark(environmentId, rows.filter((r) => !r.applied).map((r) => r.person));
+    }
+    let n = 0;
+    for (const [environmentId, persons] of this.dirty) n += await rebuildPersons(db, this.cfg, environmentId, [...persons]);
+    this.events.clear();
+    this.dirty.clear();
+    return n;
+  }
 }

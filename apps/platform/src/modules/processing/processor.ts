@@ -5,7 +5,9 @@ import { suggestMapping } from "@/modules/implementation/similarity";
 import { validateEvent } from "@/modules/implementation/validate";
 import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
 import { attributeEvent } from "@/modules/attribution/engine";
-import { growthConfig, updateGrowthForEvent, type GrowthConfig } from "@/modules/growth/engine";
+import { GrowthBatch, growthConfig } from "@/modules/growth/engine";
+import { enqueueReprocess } from "@/modules/reprocess/jobs";
+import { log } from "@/lib/log";
 
 /**
  * Asynchronous event processing (the "queue" consumer).
@@ -108,12 +110,15 @@ async function processBatch(environmentId: string, size: number): Promise<{ clai
       [environmentId, size],
     );
     const plans = new Map<string, PublishedPlan | null>();
-    const growth = new Map<string, GrowthConfig | null>();
+    const growth = new Map<string, GrowthBatch | null>();
     let processed = 0;
     let failed = 0;
     for (const e of rows) {
       if (!plans.has(e.app_id)) plans.set(e.app_id, await loadPublishedPlan(db, e.app_id));
-      if (!growth.has(e.app_id)) growth.set(e.app_id, await growthConfig(db, e.app_id));
+      if (!growth.has(e.app_id)) {
+        const cfg = await growthConfig(db, e.app_id);
+        growth.set(e.app_id, cfg && new GrowthBatch(cfg));
+      }
       // A savepoint per event: one bad event never blocks the rest of the batch.
       await db.query("savepoint ev");
       try {
@@ -135,11 +140,25 @@ async function processBatch(environmentId: string, size: number): Promise<{ clai
         }
       }
     }
+    // People whose growth state needs a full recompute, once per batch. A failure
+    // here never loses the batch: the environment's growth state is rebuilt by a job.
+    for (const [appId, batch] of growth) {
+      if (!batch) continue;
+      await db.query("savepoint growth");
+      try {
+        await batch.flush(db);
+        await db.query("release savepoint growth");
+      } catch (err) {
+        await db.query("rollback to savepoint growth");
+        log.error("growth.flush_failed", { app: appId, error: String((err as Error).message).slice(0, 500) });
+        await enqueueReprocess(db, appId, "growth_rebuild", "recovering from a failed update");
+      }
+    }
     return { claimed: rows.length, processed, failed };
   });
 }
 
-async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null, growth: GrowthConfig | null = null) {
+async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null, growth: GrowthBatch | null = null) {
   const scope = [e.organization_id, e.app_id, e.environment_id];
   const attribution = (e.context.attribution ?? {}) as Record<string, string>;
   let newLink = false;
@@ -243,7 +262,7 @@ async function processOne(db: Db, e: EventRow, plan: PublishedPlan | null, growt
   ]);
 
   // 6. Growth state (after the event counts as processed, so a rebuild includes it).
-  if (growth) await updateGrowthForEvent(db, growth, e, newLink);
+  if (growth) await growth.onEvent(db, e, newLink);
 }
 
 /**
