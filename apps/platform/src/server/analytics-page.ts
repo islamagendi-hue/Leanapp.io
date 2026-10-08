@@ -1,4 +1,5 @@
 import "server-only";
+import { cachedReport, type ReportKind } from "@/modules/analytics/cache";
 import { analyticsTx } from "@/modules/analytics/service";
 import { can } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
@@ -22,4 +23,33 @@ export async function cohortFilter(ctx: TenantContext, environmentId: string, re
   const want = Array.isArray(requested) ? requested[0] : requested;
   const cohort = cohorts.find((c) => c.id === want);
   return { cohorts, cohortId: cohort?.id, cohortName: cohort?.name, missing: Boolean(want) && !cohort, canSave: can(ctx.role, "analytics.write") };
+}
+
+type Search = Record<string, string | string[] | undefined>;
+
+/**
+ * Runs a page's reports through the short-lived result cache
+ * (modules/analytics/cache.ts). `?fresh=1` recomputes them. `info` says when
+ * the oldest result on the page was computed, for <ReportFreshness>.
+ */
+export function reportRunner(ctx: TenantContext, scope: { environmentId: string; timezone: string }, sp: Search) {
+  const fresh = (Array.isArray(sp.fresh) ? sp.fresh[0] : sp.fresh) === "1";
+  const info: FreshnessInfo = { computedAt: null, fromCache: false, ageMinutes: 0 };
+  return {
+    info,
+    async run<T>(kind: ReportKind, input: Record<string, unknown>, compute: () => Promise<T>): Promise<T> {
+      const r = await cachedReport(ctx, scope, kind, input, compute, { fresh });
+      if (!info.computedAt || r.computedAt < info.computedAt) info.computedAt = r.computedAt;
+      info.fromCache ||= r.fromCache;
+      info.ageMinutes = Math.max(0, Math.floor((Date.now() - info.computedAt.getTime()) / 60_000));
+      return r.value;
+    },
+  };
+}
+
+export interface FreshnessInfo {
+  computedAt: Date | null;
+  fromCache: boolean;
+  /** Age of the oldest result, in whole minutes, when the page was built. */
+  ageMinutes: number;
 }

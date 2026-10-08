@@ -5,7 +5,8 @@ import { SaveReport } from "@/components/SaveReport";
 import { resolveRange } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { funnel, topEvents } from "@/modules/analytics/service";
-import { cohortFilter } from "@/server/analytics-page";
+import { ReportFreshness } from "@/components/ReportFreshness";
+import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Funnels" };
@@ -31,16 +32,18 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
   const split = param(sp.split) === "platform";
   const chosen = (Array.isArray(sp.step) ? sp.step : sp.step ? [sp.step] : []).map((s) => s.trim()).filter(Boolean).slice(0, 6);
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
-  const events = await topEvents(ctx, { environmentId: env.id, ...range, timezone: a.timezone });
-  const result = chosen.length >= 2
-    ? await funnel(ctx, { environmentId: env.id, timezone: a.timezone }, { steps: chosen, windowDays, ...range, breakdown: split ? "platform" : undefined, cohortId: cf.cohortId })
-    : null;
+  const scope = { environmentId: env.id, timezone: a.timezone };
+  const reports = reportRunner(ctx, scope, sp);
+  const events = await reports.run("top_events", { ...range }, () => topEvents(ctx, { ...scope, ...range }));
+  const funnelInput = { steps: chosen, windowDays, ...range, breakdown: split ? "platform" : undefined, cohortId: cf.cohortId };
+  const result = chosen.length >= 2 ? await reports.run("funnel", funnelInput, () => funnel(ctx, scope, funnelInput)) : null;
   const slots = Math.min(6, Math.max(2, chosen.length + 1));
   const names = [...new Set([...events.map((e) => e.name), ...chosen])];
 
   return (
     <div className="space-y-6">
       <AnalyticsHeader title="Funnels" description="How many people go through a sequence of events, in order, within a time window." env={env.type} />
+      <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/funnels`} sp={sp} />
 
       <form method="get" className="card space-y-4">
         <input type="hidden" name="env" value={env.type} />

@@ -372,6 +372,12 @@ test("cohorts are audiences: an old cohort link opens the audience, which filter
 
   await page.goto(`${appBase}/analytics/events?env=development&cohort=${cohort.id}`);
   await expect(page.getByRole("combobox", { name: "People in audience" })).toHaveValue(cohort.id);
+  // Opened again, the report comes from the short-lived result cache and says so.
+  await page.reload();
+  await expect(page.getByText(/Computed .* ago/)).toBeVisible();
+  await page.getByRole("link", { name: "Refresh now" }).click();
+  await expect(page).toHaveURL(/fresh=1/);
+  await expect(page.getByText(/Computed .* ago/)).toHaveCount(0);
   await page.goto(`${appBase}/analytics/cohorts?env=development`);
   await expect(page).toHaveURL(/\/engage\/audiences\?env=development$/);
 });

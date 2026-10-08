@@ -34,6 +34,17 @@ Cohorts merged into [Audiences](audiences.md) (migration `0024_cohorts_into_audi
 - Archived audiences, or audiences in another environment, don't filter: the report shows everyone with a notice.
 - `/analytics/cohorts` and `/analytics/cohorts/<id>` redirect to Audiences.
 
+### Result cache
+
+Report pages (Events, Funnels, Retention, Revenue) reuse a finished result for up to 10 minutes (`modules/analytics/cache.ts`, table `platform.report_cache`, migration 0025). Postgres stays the source of truth: nothing is precomputed, and an expired result is simply computed again.
+
+- The key is a SHA-256 of the environment, the report kind, its full input (event or steps, range, interval, breakdown, property filters, comparison, audience), the timezone, and the audience's last change. Editing an audience therefore recomputes reports filtered by it at once.
+- A page served from the cache says how old its results are, with "Refresh now" (`?fresh=1`) to recompute.
+- Reading needs `analytics.read`, and RLS keeps rows inside their organization.
+- If the cache can't be read or written, the report is computed as if there were no cache.
+- Expired rows are deleted by the scheduled cleanup (`purgeOperationalData`).
+- The service functions (`eventTrend`, `funnel` and the others) are not cached. Only the pages go through the cache, so API and test callers always see Postgres.
+
 ### Profiles and identity
 
 A user's profile includes the anonymous activity of installs linked only to that user ("Merged"). An install linked to several users is listed on each of their profiles as "Shared device · not merged" and keeps its anonymous events on its own anonymous profile. Opening an install linked to exactly one user goes to that user's profile. The timeline pages with a keyset cursor (50 events a page, newest first, push-token events left out). Revenue on a profile is all-time, per currency.

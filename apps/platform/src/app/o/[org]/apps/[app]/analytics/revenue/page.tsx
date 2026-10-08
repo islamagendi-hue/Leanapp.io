@@ -7,7 +7,8 @@ import { TrendChart } from "@/components/TrendChart";
 import { NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport } from "@/modules/analytics/revenue";
 import { FALLBACK_PROPERTY } from "@/modules/analytics/revenue-rules";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
-import { cohortFilter } from "@/server/analytics-page";
+import { ReportFreshness } from "@/components/ReportFreshness";
+import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
@@ -28,7 +29,10 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
   const property = param(sp.property)?.trim();
   const breakdown = by === "property" && property ? `property:${property}` : by || undefined;
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
-  const r = await revenueReport(ctx, { environmentId: env.id, timezone: a.timezone }, { ...range, interval: param(sp.interval), breakdown, cohortId: cf.cohortId });
+  const scope = { environmentId: env.id, timezone: a.timezone };
+  const reports = reportRunner(ctx, scope, sp);
+  const revenueInput = { ...range, interval: param(sp.interval), breakdown, cohortId: cf.cohortId };
+  const r = await reports.run("revenue", revenueInput, () => revenueReport(ctx, scope, revenueInput));
 
   return (
     <div className="space-y-6">
@@ -36,6 +40,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
         title="Revenue"
         description="Revenue from your revenue events, per currency, with refunds subtracted. Days are in the app's timezone." env={env.type}
       />
+      <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/revenue`} sp={sp} />
 
       <form method="get" className="card flex flex-wrap items-end gap-3">
         <input type="hidden" name="env" value={env.type} />

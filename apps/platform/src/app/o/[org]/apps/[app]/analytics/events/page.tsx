@@ -8,7 +8,8 @@ import { TrendChart } from "@/components/TrendChart";
 import { eventFiltersFromParams, rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { BREAKDOWNS, eventTrend, kpi, MAX_EVENT_FILTERS, topEvents } from "@/modules/analytics/service";
 import { catalogForPickers, options } from "@/modules/properties/catalog";
-import { cohortFilter } from "@/server/analytics-page";
+import { ReportFreshness } from "@/components/ReportFreshness";
+import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
@@ -25,21 +26,23 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   const env = await pickEnvironment(environments, sp.env);
   const range = rangeFromParams(toSearch(sp));
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
-  const events = await topEvents(ctx, { environmentId: env.id, ...range, timezone: a.timezone, cohortId: cf.cohortId });
+  const scope = { environmentId: env.id, timezone: a.timezone };
+  const reports = reportRunner(ctx, scope, sp);
+  const listInput = { ...range, cohortId: cf.cohortId };
+  const events = await reports.run("top_events", listInput, () => topEvents(ctx, { ...scope, ...listInput }));
   const selected = param(sp.event) ?? events[0]?.name;
   const property = param(sp.property)?.trim();
   const by = param(sp.by);
   const breakdown = by === "property" && property ? `property:${property}` : by;
-  const scope = { environmentId: env.id, timezone: a.timezone };
   const { filters, parts } = eventFiltersFromParams(toSearch(sp));
-  const trend = selected
-    ? await eventTrend(ctx, scope, { event: selected, ...range, interval: param(sp.interval), breakdown, where: filters.length ? filters : undefined, cohortId: cf.cohortId })
-    : null;
+  const trendInput = { event: selected, ...range, interval: param(sp.interval), breakdown, where: filters.length ? filters : undefined, cohortId: cf.cohortId };
+  const trend = selected ? await reports.run("trend", trendInput, () => eventTrend(ctx, scope, trendInput)) : null;
   // Event properties from the shared catalog: the ones seen on (or planned for) this event, else all of them.
   const eventProps = options((await catalogForPickers(ctx, { appId: a.id, environmentId: env.id }, "analytics.read", { only: "event" })).event);
   const onEvent = eventProps.filter((o) => selected && o.events?.includes(selected));
   const propOptions = onEvent.length ? onEvent : eventProps;
-  const active = await kpi(ctx, scope, { metric: "active_people", ...range, cohortId: cf.cohortId });
+  const activeInput = { metric: "active_people", ...range, cohortId: cf.cohortId };
+  const active = await reports.run("kpi", activeInput, () => kpi(ctx, scope, activeInput));
   const path = `/o/${org}/apps/${app}/analytics/events`;
   const keep = new URLSearchParams(
     Object.entries({ env: env.type, days: param(sp.days), from: param(sp.from), to: param(sp.to), compare: param(sp.compare), interval: param(sp.interval), cohort: cf.cohortId })
@@ -50,6 +53,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   return (
     <div className="space-y-6">
       <AnalyticsHeader title="Events" description="How often each event happens and how many people do it, per day in the app's timezone." env={env.type} />
+      <ReportFreshness info={reports.info} path={path} sp={sp} />
 
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}
       {events.length === 0 ? (

@@ -5,7 +5,8 @@ import { SaveReport } from "@/components/SaveReport";
 import { resolveRange } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { RETENTION_DAYS, retention, topEvents } from "@/modules/analytics/service";
-import { cohortFilter } from "@/server/analytics-page";
+import { ReportFreshness } from "@/components/ReportFreshness";
+import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Retention" };
@@ -26,17 +27,19 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
   const env = await pickEnvironment(environments, sp.env);
   const range = rangeFromParams(toSearch(sp));
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
-  const events = await topEvents(ctx, { environmentId: env.id, ...range, timezone: a.timezone });
+  const scope = { environmentId: env.id, timezone: a.timezone };
+  const reports = reportRunner(ctx, scope, sp);
+  const events = await reports.run("top_events", { ...range }, () => topEvents(ctx, { ...scope, ...range }));
   const startEvent = param(sp.start) || events.find((e) => /install|first_open|sign_?up/.test(e.name))?.name || events[0]?.name;
   const returnEvent = param(sp.return) || events.find((e) => /app_opened|session_start/.test(e.name))?.name || startEvent;
-  const r = startEvent && returnEvent
-    ? await retention(ctx, { environmentId: env.id, timezone: a.timezone }, { startEvent, returnEvent, ...range, cohortId: cf.cohortId })
-    : null;
+  const retentionInput = { startEvent, returnEvent, ...range, cohortId: cf.cohortId };
+  const r = startEvent && returnEvent ? await reports.run("retention", retentionInput, () => retention(ctx, scope, retentionInput)) : null;
   const names = events.map((e) => e.name);
 
   return (
     <div className="space-y-6">
       <AnalyticsHeader title="Retention" description="Of the people who did a start event on a given day, how many came back and did the return event N days later." env={env.type} />
+      <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/retention`} sp={sp} />
 
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}
       {!r ? (
