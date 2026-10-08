@@ -530,6 +530,15 @@ test("acquisition (beta): overview, sources, attribution, and a tracking link wi
   await page.goto(`${appBase}/acquisition/deep-links?env=development&link=${code}`);
   await expect(page).toHaveURL(/\/acquisition\/links\?/);
   await expect(page.getByRole("region", { name: "URL and QR code" })).toBeVisible();
+
+  // Deep links says what works today, and never claims deferred deep linking is live.
+  await page.getByRole("navigation", { name: "Acquisition" }).getByRole("link", { name: "Deep links" }).click();
+  const today = page.getByRole("region", { name: "What works today" });
+  await expect(today.locator('[data-capability="fallback"]').getByText("Live", { exact: true })).toBeVisible();
+  await expect(today.locator('[data-capability="ios"]').getByText("Needs setup")).toBeVisible();
+  await expect(today.locator('[data-capability="deferred"]')).not.toContainText("Live");
+  await expect(page.getByText(/through the install/)).toHaveCount(0);
+  await expect(today.getByRole("link", { name: "Deep link setup" })).toHaveAttribute("href", /settings\/dev-ops\/deep-links/);
 });
 
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {

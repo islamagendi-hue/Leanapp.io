@@ -93,7 +93,7 @@ export default async function LinksPage(props: PageProps<"/o/[org]/apps/[app]/ac
               <label className="block"><span className="label">Google Play URL</span><input name="androidUrl" type="url" className="input" placeholder="https://play.google.com/store/apps/details?id=com.example" /></label>
               <label className="block"><span className="label">Web fallback URL</span><input name="webUrl" type="url" className="input" placeholder="https://example.com/app" /></label>
               <label className="block"><span className="label">Deep link (optional)</span><input name="deepLinkPath" className="input" maxLength={500} placeholder="/offers/ramadan" />
-                <span className="help">Passed to the app in the install referrer (Android) for deferred deep linking.</span></label>
+                <span className="help">Where the app opens when it is installed and deep links are set up. On Android it also rides in the install referrer; opening it after a fresh install needs the deferred API (Beta, see Deep links).</span></label>
             </div>
             <p className="text-xs text-ink-3">
               Ad networks can fill campaign labels per ad: add <code className="font-mono">?utm_campaign=…&amp;utm_term=…&amp;utm_content=…</code> to the link, plus their click id

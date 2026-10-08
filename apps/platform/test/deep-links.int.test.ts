@@ -19,6 +19,7 @@ import { withSystem } from "@/lib/db";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { createLink, updateSettings, type LinkRow } from "@/modules/attribution/service";
 import { authenticateIngestionKey, listKeys } from "@/modules/credentials/service";
+import { deepLinkReport } from "@/modules/deeplinks/report";
 import { checkWellKnown, getConfig, saveConfig } from "@/modules/deeplinks/service";
 import { ingest } from "@/modules/ingestion/service";
 import { exportSubjectData, requestDeletion, runDeletionJobs } from "@/modules/privacy/service";
@@ -375,5 +376,24 @@ describe("deferred deep links", () => {
     expect(await runDeletionJobs({ jobIds: [jobId] })).toEqual({ completed: 1, failed: 0 });
     const rows = await withSystem((db) => db.query("select 1 from platform.deep_link_deferred_matches where environment_id = $1 and anonymous_id = 'anon-deferred-1'", [t.dev.id]));
     expect(rows).toHaveLength(0);
+  });
+});
+
+describe("deep link report (Acquisition → Deep links)", () => {
+  it("counts clicks and deferred matches per link with a deep link, in its own environment and organization only", async () => {
+    await createLink(t.ctx, t.app.id, { environmentId: t.dev.id, name: "No deep link", source: "sms", webUrl: "https://example.com" });
+    const r = await deepLinkReport(t.ctx, t.dev.id, 30);
+    expect(r.days).toBe(30);
+    expect(r.links.map((l) => l.name)).toEqual(["Ramadan IG"]);
+    const ramadan = r.links[0];
+    expect(ramadan.deep_link_path).toBe("/offers/ramadan?tab=deals");
+    expect(ramadan.clicks).toBeGreaterThan(0);
+    // anon-dev-3 (exact) and anon-prob-3 (probabilistic); anon-deferred-1 was deleted by its privacy request.
+    expect(ramadan.deferred).toBe(2);
+    expect(r.deferred).toMatchObject({ deterministic: 1, probabilistic: 1 });
+    expect(r.deferred.none).toBeGreaterThan(0);
+
+    expect((await deepLinkReport(t.ctx, prod.id, 7)).links.map((l) => l.name)).toEqual(["Prod email"]);
+    expect((await deepLinkReport(other.ctx, t.dev.id, 30)).links).toEqual([]);
   });
 });

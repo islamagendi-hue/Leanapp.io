@@ -42,8 +42,8 @@ export default async function DeepLinksPage(props: PageProps<"/o/[org]/apps/[app
         <div>
           <h1 className="h1">Deep links</h1>
           <p className="mt-1 max-w-2xl text-ink-2">
-            Tracking links that open your app directly when it is installed (iOS Universal Links, Android App Links), go to the store when it isn&apos;t, and hand the
-            deep link to the app after install (deferred deep linking). Each environment has its own setup, so development builds never open production links.
+            Tracking links that open your app directly when it is installed (iOS Universal Links, Android App Links) and go to the store when it isn&apos;t. Each
+            environment has its own setup, so development builds never open production links. What works for your campaigns is summarized in Acquisition → Deep links.
           </p>
         </div>
       </div>
@@ -154,7 +154,7 @@ export default async function DeepLinksPage(props: PageProps<"/o/[org]/apps/[app
             <div className="space-y-2">
               <label className="flex items-start gap-2">
                 <input type="checkbox" name="deferredEnabled" defaultChecked={config?.deferred_enabled ?? true} className="mt-1" />
-                <span><span className="font-medium">Deferred deep links</span><span className="help block">On the first open after install, the SDK asks for the deep link of the click the install came from (exact match from the Play install referrer; probabilistic only if turned on in Attribution settings, Android only).</span></span>
+                <span><span className="font-medium">Deferred deep links</span><span className="help block">Beta, API only. On its first open after install your app can call POST /v1/deep-links/deferred to get the deep link of the click the install came from (exact match from the Play install referrer or a click id your app passes; probabilistic only if turned on in Attribution settings, Android only). The LeanApp SDKs don&apos;t make this call yet.</span></span>
               </label>
               <label className="flex items-start gap-2">
                 <input type="checkbox" name="interstitialEnabled" defaultChecked={config?.interstitial_enabled ?? true} className="mt-1" />
