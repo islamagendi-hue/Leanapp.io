@@ -7,6 +7,7 @@ import { NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport } from "@/modules/analyt
 import { FALLBACK_PROPERTY } from "@/modules/analytics/revenue-rules";
 import { RANGES } from "@/modules/analytics/service";
 import { cohortFilter } from "@/server/analytics-page";
+import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Revenue" };
@@ -63,7 +64,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
           <p>No revenue {cf.cohortName ? `from the cohort ${cf.cohortName}` : "in this environment"} in the {RANGE_LABELS[r.range]?.toLowerCase()}.</p>
           <p className="text-sm text-ink-3">
             Revenue comes from events like <span className="font-mono">purchase_completed</span> with a <span className="font-mono">revenue</span> and a <span className="font-mono">currency</span> property, sent from your backend once payment is confirmed.
-            See the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/implementation/plan`}>tracking plan</Link>.
+            {can(ctx.role, "implementation.read") && <>See the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/implementation/plan`}>tracking plan</Link>.</>}
           </p>
         </div>
       ) : (

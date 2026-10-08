@@ -34,7 +34,7 @@ describe("navigation menu", () => {
   it("shows each role only what its permissions open", () => {
     const marketer = labels(projectMenu("marketer", base));
     expect(marketer).toContain("Engagement/Flows");
-    expect(marketer).not.toContain("Users"); // marketers can't read user profiles today
+    expect(marketer).toContain("Users");
     const analyst = labels(projectMenu("analyst", base));
     expect(analyst).toContain("Users");
     expect(analyst).not.toContain("Engagement/Flows");
@@ -47,6 +47,13 @@ describe("navigation menu", () => {
     expect(marketerSettings).not.toContain("Dev Ops/SDK & API keys");
     expect(marketerSettings).toContain("Dev Ops/Messaging channels");
     expect(labels(settingsMenu("owner", "acme", base))).toContain("Project/Privacy requests");
+
+    // Viewer: reports and people only; no engagement, acquisition, Dev Ops or workspace admin.
+    expect(labels(projectMenu("viewer", base))).toEqual(["Overview", "Analytics", "Analytics/Events & trends", "Analytics/Funnels", "Analytics/Retention", "Analytics/Revenue", "Analytics/Activation", "Analytics/Dashboards", "Analytics/Saved reports", "Users", "Settings"]);
+    const viewerSettings = labels(settingsMenu("viewer", "acme", base));
+    expect(viewerSettings.filter((l) => !l.includes("/"))).toEqual(["Workspace", "Project", "Security"]);
+    expect(viewerSettings).toEqual(expect.arrayContaining(["Project/General", "Project/Environments", "Project/Timezone & currency"]));
+    expect(viewerSettings).not.toContain("Workspace/Members & roles");
   });
 
   it("marks unbuilt pages as soon, without a link", () => {

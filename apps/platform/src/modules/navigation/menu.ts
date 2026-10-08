@@ -110,10 +110,10 @@ export function settingsMenu(role: Role, org: string, base?: string): NavGroup[]
             {
               label: "Project",
               items: pick(role, [
-                { label: "General", soon: true, perm: "apps.read" },
-                { label: "Environments", soon: true, perm: "apps.read" },
+                { label: "General", href: `${base}/settings/project`, perm: "apps.read" },
+                { label: "Environments", href: `${base}/settings/project/environments`, perm: "apps.read" },
+                { label: "Timezone & currency", href: `${base}/settings/project/timezone`, perm: "apps.read" },
                 { label: "Data retention", soon: true, perm: "apps.read" },
-                { label: "Timezone & currency", soon: true, perm: "apps.read" },
                 { label: "Privacy requests", href: `${base}/settings/privacy`, perm: "privacy.manage" },
                 { label: "Consent", href: `${base}/settings/privacy/consent`, perm: "privacy.manage" },
                 { label: "Suppression list", href: `${base}/settings/privacy/suppressions`, perm: "privacy.manage" },

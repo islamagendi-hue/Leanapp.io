@@ -5,6 +5,7 @@ import { SaveReport } from "@/components/SaveReport";
 import { TrendChart } from "@/components/TrendChart";
 import { BREAKDOWNS, eventTrend, RANGES, topEvents } from "@/modules/analytics/service";
 import { cohortFilter } from "@/server/analytics-page";
+import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Events" };
@@ -38,7 +39,10 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
         <div className="card">
           <p>No events {cf.cohortName ? `for the cohort ${cf.cohortName}` : "in this environment"} in the {RANGE_LABELS[days]?.toLowerCase() ?? "selected range"}.</p>
           {cf.cohortName && <p className="mt-1 text-sm"><Link className="underline" href={`${path}?env=${env.type}&days=${days}`}>Show everyone instead</Link></p>}
-          <p className="mt-1 text-sm text-ink-3">Events appear here as soon as your app sends them. Check the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>event debugger</Link>.</p>
+          <p className="mt-1 text-sm text-ink-3">
+            Events appear here as soon as your app sends them.
+            {can(ctx.role, "events.read") && <> Check the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>event debugger</Link>.</>}
+          </p>
         </div>
       ) : (
         <>

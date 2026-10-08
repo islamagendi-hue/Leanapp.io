@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { createApp } from "@/modules/apps/service";
+import { archiveApp, createApp, restoreApp, setEnvironmentStatus, updateApp, updateAppLocale } from "@/modules/apps/service";
 import { createApiKey, createSdkKey, revokeApiKey, revokeSdkKey, rotateSdkKey } from "@/modules/credentials/service";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requireTenant } from "@/server/session";
@@ -23,6 +23,65 @@ export async function createAppAction(orgSlug: string, _: ActionState, form: For
     return toActionError(err);
   }
   redirect(`/o/${orgSlug}/apps/${slug}/settings/dev-ops/implementation/questions`);
+}
+
+// ── Project settings ─────────────────────────────────────────────────────────
+// Names, status and environments show in the top bar, side menu and every project page, so these
+// revalidate the whole workspace layout.
+const refreshWorkspace = (org: string) => revalidatePath(`/o/${org}`, "layout");
+
+export async function updateAppAction(orgSlug: string, appId: string, _: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    await updateApp(await requireTenant(orgSlug), appId, {
+      name: form.get("name"),
+      description: form.get("description") || undefined,
+      category: form.get("category") || undefined,
+    });
+    refreshWorkspace(orgSlug);
+    return { ok: true, message: "Saved." };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+export async function updateAppLocaleAction(orgSlug: string, appId: string, _: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    await updateAppLocale(await requireTenant(orgSlug), appId, { timezone: form.get("timezone"), defaultCurrency: form.get("currency") });
+    refreshWorkspace(orgSlug);
+    return { ok: true, message: "Saved. Reports use the new timezone and currency from now on." };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+export async function archiveAppAction(orgSlug: string, appId: string, _: ActionState): Promise<ActionState> {
+  try {
+    await archiveApp(await requireTenant(orgSlug), appId);
+  } catch (err) {
+    return toActionError(err);
+  }
+  refreshWorkspace(orgSlug);
+  redirect(`/o/${orgSlug}`);
+}
+
+export async function restoreAppAction(orgSlug: string, appId: string, _: ActionState): Promise<ActionState> {
+  try {
+    await restoreApp(await requireTenant(orgSlug), appId);
+    refreshWorkspace(orgSlug);
+    return { ok: true, message: "Project restored. Its SDK keys work again." };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+export async function setEnvironmentStatusAction(orgSlug: string, environmentId: string, status: "active" | "disabled", _: ActionState): Promise<ActionState> {
+  try {
+    await setEnvironmentStatus(await requireTenant(orgSlug), environmentId, status);
+    refreshWorkspace(orgSlug);
+    return { ok: true, message: status === "active" ? "Environment resumed." : "Environment paused." };
+  } catch (err) {
+    return toActionError(err);
+  }
 }
 
 const keysPath = (org: string, app: string) => `/o/${org}/apps/${app}/settings/dev-ops/sdk`;

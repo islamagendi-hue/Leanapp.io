@@ -7,7 +7,7 @@ import { definitionInputFromFields, fieldsFromDefinition, growthDefinitionSchema
 import { growthDefinitions, previewDefinition, type GrowthSummary } from "@/modules/growth/service";
 import { readPlan } from "@/modules/implementation/editor";
 import { can } from "@/modules/rbac/authorize";
-import { loadApp, pickEnvironment } from "@/server/session";
+import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Growth setup" };
 
@@ -61,6 +61,8 @@ export default async function GrowthSetupPage(props: PageProps<"/o/[org]/apps/[a
   const { org, app } = await props.params;
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
+  // Definitions are built from the tracking plan, which read-only viewers can't open.
+  requirePermission(ctx, "implementation.read");
   const env = await pickEnvironment(environments, sp.env);
   const base = `/o/${org}/apps/${app}`;
   const defs = await growthDefinitions(ctx, a.id);

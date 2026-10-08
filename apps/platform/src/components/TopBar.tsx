@@ -45,11 +45,13 @@ export function WorkspaceSwitcher({ current, workspaces }: { current: Option; wo
   );
 }
 
-export function ProjectSwitcher({ org, projects, canCreate }: { org: string; projects: Option[]; canCreate: boolean }) {
+/** Archived projects aren't offered, but an open one still names itself in the bar. */
+export function ProjectSwitcher({ org, projects, archived = [], canCreate }: { org: string; projects: Option[]; archived?: Option[]; canCreate: boolean }) {
   const slug = projectInPath(usePathname());
   const current = projects.find((p) => p.slug === slug);
+  const openArchived = current ? undefined : archived.find((p) => p.slug === slug);
   return (
-    <Menu label={current?.name ?? "All projects"} title="Switch project">
+    <Menu label={current?.name ?? (openArchived ? `${openArchived.name} (archived)` : "All projects")} title="Switch project">
       <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">Projects</p>
       {projects.map((p) => (
         <Link key={p.slug} href={`/o/${org}/apps/${p.slug}`} className={itemClass(p.slug === slug)}>{p.name}</Link>

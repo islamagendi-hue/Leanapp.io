@@ -5,6 +5,7 @@
  * settings and privacy pages the same customer would use.
  */
 import { expect, test, type Page } from "@playwright/test";
+import { Client } from "pg";
 
 test.describe.configure({ mode: "serial" });
 
@@ -222,6 +223,91 @@ test("product shell: Overview home, Dev Ops in Settings, old addresses and the r
   await page.goto(`${appBase}/analytics/funnels`);
   await expect(env.getByRole("radio", { name: "staging" })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByText("Showing staging data.", { exact: false })).toBeVisible();
+});
+
+test("project settings: rename, timezone, environments, archive and restore", async ({ page }) => {
+  await signIn(page);
+  const org = new URL(appBase).pathname.split("/")[2];
+  await page.goto(`${appBase}/settings`);
+  await page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "General" }).last().click();
+  await page.waitForURL(/settings\/project$/);
+  await page.fill('[name="name"]', "Food Express Pro");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "Food Express Pro" })).toBeVisible();
+  expect(page.url()).toContain(appBase); // the address doesn't change on rename
+
+  await page.goto(`${appBase}/settings/project/timezone`);
+  await page.selectOption('[name="timezone"]', "Asia/Dubai");
+  await page.selectOption('[name="currency"]', "AED");
+  await page.getByRole("button", { name: "Save changes" }).click();
+  await expect(page.getByText("Saved. Reports use", { exact: false })).toBeVisible();
+
+  page.on("dialog", (d) => d.accept());
+  await page.goto(`${appBase}/settings/project/environments`);
+  const staging = page.locator("li", { hasText: "Staging" });
+  await staging.getByRole("button", { name: "Pause" }).click();
+  await expect(staging.getByText("Paused", { exact: true })).toBeVisible();
+  await staging.getByRole("button", { name: "Resume" }).click();
+  await expect(staging.getByText("Active", { exact: true })).toBeVisible();
+  await expect(page.locator("li", { hasText: "Production" }).getByRole("button")).toHaveCount(0);
+
+  await page.goto(`${appBase}/settings/project`);
+  await page.getByRole("button", { name: "Archive project" }).click();
+  await page.waitForURL(new RegExp(`/o/${org}$`));
+  await expect(page.getByRole("link", { name: /Food Express Pro/ })).toHaveCount(0);
+  await page.getByText("Archived projects (1)").click();
+  await page.getByRole("link", { name: "Restore or view" }).click();
+  await expect(page.getByText("This project is archived, so it receives no events.", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "Restore project" }).click();
+  await expect(page.getByText("Project restored.", { exact: false })).toBeVisible();
+  await page.goto(`/o/${org}`);
+  await expect(page.getByRole("link", { name: /Food Express Pro/ }).filter({ visible: true })).toBeVisible();
+});
+
+test("a viewer sees reports and people, and can change nothing", async ({ page, browser }) => {
+  await signIn(page);
+  const org = new URL(appBase).pathname.split("/")[2];
+  const viewerEmail = `viewer-${Date.now()}@example.com`;
+  await page.goto(`/o/${org}/settings/members`);
+  await page.fill('[name="email"]', viewerEmail);
+  await page.selectOption('[name="role"]', "viewer");
+  await page.getByRole("button", { name: "Create invitation" }).click();
+  const link = (await page.locator("code").filter({ hasText: "/invite/" }).textContent())!.trim();
+
+  const ctx = await browser.newContext();
+  const v = await ctx.newPage();
+  await v.goto(new URL(link).pathname);
+  await v.fill('[name="name"]', "Vera Viewer");
+  await v.fill('[name="email"]', viewerEmail);
+  await v.fill('[name="password"]', password);
+  await v.getByRole("button", { name: "Create account" }).click();
+  await v.waitForURL(/\/invite\//);
+  // The confirmation email isn't readable here, so confirm the address directly.
+  const db = new Client({ connectionString: process.env.DATABASE_URL });
+  await db.connect();
+  await db.query("update platform.users set email_verified_at = now() where email = $1", [viewerEmail]);
+  await db.end();
+  await v.reload();
+  await v.getByRole("button", { name: "Accept invitation" }).click();
+  await v.waitForURL(new RegExp(`/o/${org}`));
+
+  await v.goto(appBase);
+  await expect(v.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  await expect(v.getByRole("link", { name: "Get started" })).toHaveCount(0);
+  const menu = v.getByRole("navigation", { name: "Food Express Pro" });
+  for (const name of ["Events & trends", "Funnels", "Users", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
+  for (const name of ["Audiences", "Flows", "Tracking links & QR"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
+  await v.goto(`${appBase}/analytics/events`);
+  await expect(v.getByRole("heading", { name: "Events", level: 1 })).toBeVisible();
+
+  await v.goto(`${appBase}/settings/project`);
+  await expect(v.getByRole("button", { name: "Save changes" })).toHaveCount(0);
+  await expect(v.getByRole("button", { name: "Archive project" })).toHaveCount(0);
+  await expect(v.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "SDK & API keys" })).toHaveCount(0);
+  const res = await v.goto(`${appBase}/settings/dev-ops/sdk`);
+  expect(res!.status()).toBe(404);
+  await ctx.close();
 });
 
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {

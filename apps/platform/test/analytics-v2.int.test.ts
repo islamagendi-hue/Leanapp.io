@@ -257,6 +257,7 @@ describe("permissions", () => {
 
   it("needs analytics.write to save and users.read to see profiles", async () => {
     const developer = { ...A.ctx, role: "developer" as const };
+    const viewer = { ...A.ctx, role: "viewer" as const };
     const marketer = { ...A.ctx, role: "marketer" as const };
     const analyst = { ...A.ctx, role: "analyst" as const };
     const def = { name: "Dev cohort", definition: { userProperty: { name: "plan", op: "exists" } } };
@@ -265,8 +266,12 @@ describe("permissions", () => {
     const cohorts = await listCohorts(developer, A.dev.id); // reading is analytics.read
     await expect(deleteCohort(developer, A.dev.id, cohorts[0].id)).rejects.toBeInstanceOf(ForbiddenError);
     await expect(revenueReport(developer, scope, { days: 7 })).resolves.toBeDefined();
-    await expect(getProfile(marketer, scope, { userId: "u1" })).rejects.toBeInstanceOf(ForbiddenError);
-    await expect(searchPeople(marketer, A.dev.id, "u")).rejects.toBeInstanceOf(ForbiddenError);
+    // Marketers read people (the Users section); viewers read them but can't save cohorts or reports.
+    await expect(searchPeople(marketer, A.dev.id, "u")).resolves.toBeDefined();
+    await expect(searchPeople(viewer, A.dev.id, "u")).resolves.toBeDefined();
+    await expect(revenueReport(viewer, scope, { days: 7 })).resolves.toBeDefined();
+    await expect(createCohort(viewer, A.dev.id, { ...def, name: "Viewer cohort" })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(saveReport(viewer, A.dev.id, { name: "r", kind: "revenue", query: new URLSearchParams() })).rejects.toBeInstanceOf(ForbiddenError);
     await expect(createCohort(marketer, A.dev.id, { ...def, name: "Marketer cohort" })).resolves.toBeDefined();
     await expect(createCohort(analyst, A.dev.id, { ...def, name: "Analyst cohort" })).resolves.toBeDefined();
     await expect(getProfile(analyst, scope, { userId: "u1" })).resolves.toBeDefined();

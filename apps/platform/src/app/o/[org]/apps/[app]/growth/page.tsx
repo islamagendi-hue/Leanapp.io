@@ -88,7 +88,7 @@ export default async function GrowthPage(props: PageProps<"/o/[org]/apps/[app]/g
       <div className="card space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="h2">Definitions</h2>
-          <Link href={`${base}/growth/setup`} className="btn-secondary">Set up growth definitions</Link>
+          {can(ctx.role, "implementation.read") && <Link href={`${base}/growth/setup`} className="btn-secondary">Set up growth definitions</Link>}
         </div>
         {o.definitions.published ? (
           <>

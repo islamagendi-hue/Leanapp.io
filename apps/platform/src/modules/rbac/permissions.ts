@@ -51,7 +51,7 @@ export const PERMISSIONS = {
 export type Permission = keyof typeof PERMISSIONS;
 export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
 
-export const ROLES = ["owner", "admin", "developer", "analyst", "marketer"] as const;
+export const ROLES = ["owner", "admin", "developer", "analyst", "marketer", "viewer"] as const;
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_INFO: Record<Role, { name: string; description: string; rank: number }> = {
@@ -59,7 +59,8 @@ export const ROLE_INFO: Record<Role, { name: string; description: string; rank: 
   admin: { name: "Admin", description: "Full operational access except billing changes and deleting the organization.", rank: 80 },
   developer: { name: "Developer", description: "Apps, environments, SDK, keys, events, integrations and webhooks.", rank: 50 },
   analyst: { name: "Analyst", description: "Analytics, funnels, retention, cohorts, attribution and users.", rank: 30 },
-  marketer: { name: "Marketer", description: "Audiences, automations, campaigns, analytics and attribution.", rank: 30 },
+  marketer: { name: "Marketer", description: "Audiences, automations, campaigns, analytics, users and attribution.", rank: 30 },
+  viewer: { name: "Viewer", description: "Read-only access to analytics, activation and users.", rank: 10 },
 };
 
 const read: Permission[] = ["organization.read", "members.read", "apps.read", "implementation.read"];
@@ -93,6 +94,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "analytics.read",
     "analytics.write",
     "growth.read",
+    "users.read",
     "attribution.read",
     "attribution.manage",
     "deep_links.read",
@@ -102,6 +104,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "automations.manage",
     "integrations.read",
   ],
+  // Read-only: sees reports and people, changes nothing and sees no keys, members or configuration.
+  viewer: ["organization.read", "apps.read", "analytics.read", "growth.read", "users.read"],
 };
 
 export const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES as readonly string[]).includes(v);

@@ -43,7 +43,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
               Production hasn&apos;t received any events yet. Install the SDK and send your first event; your reports fill in as data arrives.
             </p>
           </div>
-          <Link href={`${base}/settings/dev-ops/get-started`} className="btn">Get started</Link>
+          {can(ctx.role, "implementation.read") && <Link href={`${base}/settings/dev-ops/get-started`} className="btn">Get started</Link>}
         </section>
       )}
 

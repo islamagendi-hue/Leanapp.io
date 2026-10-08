@@ -1,12 +1,12 @@
 import Link from "next/link";
-import { listApps } from "@/modules/apps/service";
+import { listApps, listArchivedApps } from "@/modules/apps/service";
 import { can } from "@/modules/rbac/authorize";
 import { requireTenant } from "@/server/session";
 
 export default async function OrgHome(props: PageProps<"/o/[org]">) {
   const { org } = await props.params;
   const ctx = await requireTenant(org);
-  const apps = await listApps(ctx);
+  const [apps, archived] = await Promise.all([listApps(ctx), listArchivedApps(ctx)]);
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -36,6 +36,21 @@ export default async function OrgHome(props: PageProps<"/o/[org]">) {
             </li>
           ))}
         </ul>
+      )}
+      {archived.length > 0 && (
+        <details className="mt-8">
+          <summary className="cursor-pointer text-sm text-ink-2">Archived projects ({archived.length})</summary>
+          <ul className="mt-3 space-y-2">
+            {archived.map((a) => (
+              <li key={a.id} className="flex items-center justify-between gap-4 rounded-lg border border-line px-4 py-2 text-sm">
+                <span>{a.name}</span>
+                <Link href={`/o/${org}/apps/${a.slug}/settings/project`} className="text-ink-2 underline underline-offset-2">
+                  {can(ctx.role, "apps.delete") ? "Restore or view" : "View"}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </details>
       )}
     </main>
   );
