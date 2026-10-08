@@ -31,7 +31,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | Integrations | `integrations` (push and email credentials in `secret_ciphertext`, AES-256-GCM with `INTEGRATIONS_ENCRYPTION_KEY`), `webhooks` (signing secret hashed and encrypted), `webhook_deliveries` |
 | Operations | `audit_logs` (append-only for tenants), `api_request_logs`, `rate_limit_buckets` |
 | Privacy | `consent_records`, `privacy_requests`, `data_deletion_jobs` |
-| Analytics | `analytics_cohorts` (legacy; copied into `audiences` with the same ids by 0024, no longer written), `analytics_saved_reports`, `report_cache` (finished report results reused for up to 10 minutes; key hash per environment) |
+| Analytics | `analytics_cohorts` (legacy; copied into `audiences` with the same ids by 0024, no longer written), `analytics_saved_reports`, `report_cache` (finished report results reused for up to 10 minutes; key hash per environment), `dashboards` and `dashboard_widgets` (per project; widgets reference a saved report or hold an inline report config) |
 
 Attribution, engagement and integration tables are in use ([attribution](attribution.md), [audiences](audiences.md), [automation](automation.md), [webhooks](webhooks.md)). All privacy tables are in use; `consent_records`, `consent_state` and `suppressions` are described in [API](api.md#consent-and-suppression) and checked by automations before every message.
 

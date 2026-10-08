@@ -24,7 +24,7 @@ export const REPORT_CACHE_TTL_SECONDS = 600;
 const MAX_BYTES = 512 * 1024;
 const VERSION = 1;
 
-export type ReportKind = "trend" | "kpi" | "funnel" | "retention" | "revenue" | "top_events";
+export type ReportKind = "trend" | "kpi" | "funnel" | "retention" | "revenue" | "top_events" | "audience_size";
 
 export interface CachedResult<T> {
   value: T;

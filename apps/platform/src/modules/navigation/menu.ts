@@ -54,7 +54,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
           { label: "Retention", href: `${base}/analytics/retention`, perm: "analytics.read" },
           { label: "Revenue", href: `${base}/analytics/revenue`, perm: "analytics.read" },
           { label: "Activation", href: `${base}/growth`, perm: "growth.read" },
-          { label: "Dashboards", soon: true, perm: "analytics.read" },
+          { label: "Dashboards", href: `${base}/analytics/dashboards`, perm: "analytics.read" },
           { label: "Saved reports", href: `${base}/analytics`, perm: "analytics.read" },
         ]),
       },

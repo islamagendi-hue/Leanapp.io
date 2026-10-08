@@ -382,6 +382,33 @@ test("cohorts are audiences: an old cohort link opens the audience, which filter
   await expect(page).toHaveURL(/\/engage\/audiences\?env=development$/);
 });
 
+test("dashboards: create one, add a saved report, see it run", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/analytics/events?env=development&event=order_completed`);
+  await page.getByText("Save this report").click();
+  await page.getByRole("textbox", { name: "Name" }).fill("Orders");
+  await page.getByRole("button", { name: "Save report" }).click();
+  await expect(page.getByText(/Saved\./)).toBeVisible();
+
+  await page.getByRole("navigation", { name: "Food Express Pro" }).getByRole("link", { name: "Dashboards", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Dashboards", level: 1 })).toBeVisible();
+  await page.getByRole("textbox", { name: "Name" }).fill("Team KPIs");
+  await page.getByRole("button", { name: "Create dashboard" }).click();
+  await expect(page.getByRole("heading", { name: "Team KPIs", level: 1 })).toBeVisible();
+  await expect(page.getByText("This dashboard is empty.")).toBeVisible();
+
+  await page.goto(`${appBase}/analytics?env=development`);
+  const row = page.getByRole("row").filter({ hasText: "Orders" });
+  await row.getByRole("button", { name: "Add to dashboard" }).click();
+  await expect(row.getByText("Added to the dashboard.")).toBeVisible();
+
+  await page.goto(`${appBase}/analytics/dashboards?env=development`);
+  await page.getByRole("link", { name: "Team KPIs" }).click();
+  const widget = page.locator('[data-widget="trend"]');
+  await expect(widget.getByText("Saved report: Orders")).toBeVisible();
+  await expect(widget.getByText(/events ·/)).toBeVisible();
+});
+
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));

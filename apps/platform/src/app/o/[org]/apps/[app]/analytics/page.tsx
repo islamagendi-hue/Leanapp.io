@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { deleteReportAction } from "@/app/actions/analytics";
+import { addWidgetAction } from "@/app/actions/dashboards";
 import { ActionForm } from "@/components/ActionForm";
 import { AnalyticsHeader, RANGE_LABELS } from "@/components/AnalyticsHeader";
 import { paramsFromConfig, REPORT_PAGES } from "@/modules/analytics/report-params";
 import { listSavedReports } from "@/modules/analytics/saved-reports";
+import { listDashboards } from "@/modules/dashboards/service";
 import { can } from "@/modules/rbac/authorize";
 import { audienceOptions } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -24,12 +26,14 @@ function summary(kind: string, config: Record<string, unknown>, cohorts: Map<str
 export default async function AnalyticsOverview(props: PageProps<"/o/[org]/apps/[app]/analytics">) {
   const { org, app } = await props.params;
   const sp = await props.searchParams;
-  const { ctx, environments } = await loadApp(org, app);
+  const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
   const env = await pickEnvironment(environments, sp.env);
   const [reports, cohorts] = await Promise.all([listSavedReports(ctx, env.id), audienceOptions(ctx, env.id)]);
   const cohortNames = new Map(cohorts.map((c) => [c.id, c.name]));
   const canWrite = can(ctx.role, "analytics.write");
+  const dashboards = canWrite ? (await listDashboards(ctx, a.id)).filter((d) => d.visibility === "workspace" || d.created_by === ctx.userId) : [];
+  const addWidget = addWidgetAction.bind(null, org, app);
   const base = `/o/${org}/apps/${app}/analytics`;
   const open = (kind: keyof typeof REPORT_PAGES, config: Record<string, unknown>) => {
     const q = paramsFromConfig(kind, config);
@@ -41,6 +45,7 @@ export default async function AnalyticsOverview(props: PageProps<"/o/[org]/apps/
     { href: "funnels", label: "Funnels", text: "Conversion through ordered steps." },
     { href: "retention", label: "Retention", text: "Who comes back after day 1, 3, 7, 14, 30." },
     { href: "revenue", label: "Revenue", text: "Net revenue per currency, ARPU and paying people." },
+    { href: "dashboards", label: "Dashboards", text: "Saved reports and numbers you check together, on one page." },
     ...(can(ctx.role, "users.read") ? [{ href: "users", label: "Users", text: "One person's profile and full timeline." }] : []),
   ];
 
@@ -74,7 +79,18 @@ export default async function AnalyticsOverview(props: PageProps<"/o/[org]/apps/
                   <td className="text-sm text-ink-2">{summary(r.kind, r.config, cohortNames)}</td>
                   <td className="text-sm text-ink-3">{r.created_by_name ?? "–"}</td>
                   {canWrite && (
-                    <td className="text-end">
+                    <td className="space-y-2 text-end">
+                      {dashboards.length > 0 && (
+                        <ActionForm action={addWidget} submitLabel="Add to dashboard" className="flex flex-wrap items-center justify-end gap-2" buttonClass="btn-secondary min-h-8 text-xs">
+                          <input type="hidden" name="type" value={r.kind} />
+                          <input type="hidden" name="savedReport" value={r.id} />
+                          <input type="hidden" name="w" value={r.kind === "trend" || r.kind === "revenue" ? "12" : "6"} />
+                          <input type="hidden" name="h" value={r.kind === "trend" ? "3" : "2"} />
+                          <select name="dashboard" className="input w-auto text-xs" aria-label={`Dashboard for ${r.name}`}>
+                            {dashboards.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                          </select>
+                        </ActionForm>
+                      )}
                       <ActionForm action={deleteReportAction.bind(null, org, app, env.id, r.id)} submitLabel="Delete" buttonClass="btn-danger" className="" confirm={`Delete the saved report "${r.name}"?`} />
                     </td>
                   )}

@@ -45,6 +45,17 @@ Report pages (Events, Funnels, Retention, Revenue) reuse a finished result for u
 - Expired rows are deleted by the scheduled cleanup (`purgeOperationalData`).
 - The service functions (`eventTrend`, `funnel` and the others) are not cached. Only the pages go through the cache, so API and test callers always see Postgres.
 
+### Dashboards
+
+A dashboard (`modules/dashboards`, tables `dashboards` and `dashboard_widgets`, migration 0026) belongs to a project and shows the selected environment. A project has at most 50 dashboards, with up to 30 widgets each.
+
+- **Visibility:** shared with the workspace (everyone with `analytics.read`) or private (only the person who made it). Viewing needs `analytics.read`. Creating and editing needs `analytics.write`, and a private dashboard can only be edited by its creator. Changes are audited as `dashboard.*`.
+- **Widgets:** a widget points at a saved report (its config is used) or carries an inline config, validated by the same schemas as the reports.
+  - Types: trend, funnel, retention, revenue, KPI, growth (Activation numbers) and audience size.
+- **Layout:** positions are on a 12-column grid (x, y, w, h). On phones the widgets stack.
+- **Running:** each widget runs its report when the dashboard opens, through the result cache. A widget that can't run shows why, for example a deleted saved report or an audience that isn't in this environment. The rest of the dashboard still loads.
+- **Adding widgets:** for now, from Saved reports with "Add to dashboard". Editing widgets on the dashboard and templates arrive in PR 9.
+
 ### Profiles and identity
 
 A user's profile includes the anonymous activity of installs linked only to that user ("Merged"). An install linked to several users is listed on each of their profiles as "Shared device · not merged" and keeps its anonymous events on its own anonymous profile. Opening an install linked to exactly one user goes to that user's profile. The timeline pages with a keyset cursor (50 events a page, newest first, push-token events left out). Revenue on a profile is all-time, per currency.
