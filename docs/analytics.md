@@ -45,6 +45,20 @@ Report pages (Events, Funnels, Retention, Revenue) reuse a finished result for u
 - Expired rows are deleted by the scheduled cleanup (`purgeOperationalData`).
 - The service functions (`eventTrend`, `funnel` and the others) are not cached. Only the pages go through the cache, so API and test callers always see Postgres.
 
+### Overview
+
+The project home (`apps/[app]/page.tsx`) shows the selected environment for the last 7 or 30 days. Each number is compared with the period of the same length just before it. Every number comes from the reports above, through the result cache:
+
+- **Active users, new users and events.** These are KPIs `active_people`, `new_people` and `all_events`. New users are people first seen in the range: identified users take the earliest of their profile and their own installs, and other installs count as anonymous people. This is the same people model as Audiences (`peopleCtes`).
+- **Active users per day.** A trend of the "any event" pseudo-event (`ANY_EVENT`, `$any`). Real event names start with a letter, so it can't collide with one.
+- **Activation.** The all-time activation rate and the number of activated people, when Activation is on.
+- **Key funnel.** It starts at an install or sign-up event the app sends, then follows the Activation steps (activation, core action, revenue), without repeats. It's hidden when fewer than two steps are known.
+- **D1, D7 and D30 retention.** Retention over any event in the last 30 days, by the shared calendar-day rule.
+- **Top events.**
+- **Revenue.** Shown only when there is revenue in the range.
+
+While production has no events, the Overview shows "Connect your app" with a link to Settings → Dev Ops → Get started.
+
 ### Dashboards
 
 A dashboard (`modules/dashboards`, tables `dashboards` and `dashboard_widgets`, migration 0026) belongs to a project and shows the selected environment. A project has at most 50 dashboards, with up to 30 widgets each.

@@ -409,6 +409,19 @@ test("dashboards: create one, add a saved report, see it run", async ({ page }) 
   await expect(widget.getByText(/events ·/)).toBeVisible();
 });
 
+test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}?env=development`);
+  await expect(page.getByRole("heading", { name: "Connect your app" })).toBeVisible();
+  const numbers = page.getByRole("region", { name: "Key numbers" });
+  for (const label of ["Active users", "New users", "Events"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
+  for (const heading of ["Active users per day", "Activation", "Retention", "Key funnel", "Top events"]) await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "order_completed" })).toBeVisible();
+  await page.getByRole("link", { name: "Last 30 days" }).click();
+  await expect(page).toHaveURL(/days=30/);
+  await expect(page.getByText(/compared with the 30 days before/)).toBeVisible();
+});
+
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));

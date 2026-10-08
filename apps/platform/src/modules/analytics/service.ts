@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import type { Permission } from "@/modules/rbac/permissions";
-import { compileAudience, DefinitionError, parseDefinition, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
+import { compileAudience, DefinitionError, parseDefinition, peopleCtes, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { measurable } from "./retention-rule";
 import {
@@ -42,6 +42,13 @@ const STATEMENT_TIMEOUT = "15s";
 const MAX_GROUPS = 5;
 
 const eventName = z.string().trim().min(1).max(200);
+
+/**
+ * "Any event": every counted event. Real event names start with a letter
+ * (ingestion rule), so this can't collide with one. Trends, KPIs and
+ * retention accept it.
+ */
+export const ANY_EVENT = "$any";
 
 export { PERSON } from "./sql";
 
@@ -216,8 +223,7 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
   return query(ctx, async (db) => {
     const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start], range.end);
     const p = src.p;
-    const nameParam = p.add(event);
-    const match = [`name = ${nameParam}`, ...where.map((f) => propertyPredicate("properties", f, p))].join(" and ");
+    const match = [event === ANY_EVENT ? "true" : `name = ${p.add(event)}`, ...where.map((f) => propertyPredicate("properties", f, p))].join(" and ");
     const group = groupExpr(breakdown, p);
     let keep: string[] | null = null;
     if (breakdown) {
@@ -237,8 +243,9 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
         group by 1, 2`,
       p.values,
     );
-    const total = await totalsIn(db, scope, cohort, range, event, where);
-    const previous = compare ? await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), event, where) : null;
+    const only = event === ANY_EVENT ? null : event;
+    const total = await totalsIn(db, scope, cohort, range, only, where);
+    const previous = compare ? await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), only, where) : null;
     const keys = bucketKeys(range, interval);
     const series = new Map<string, TrendSeries>();
     for (const row of rows) {
@@ -265,7 +272,8 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
 }
 
 // ── Single-number results ───────────────────────────────────────────────────
-export const KPI_METRICS = ["events", "people", "active_people"] as const;
+/** events / people: of one event; all_events: every counted event; active_people: anyone with one; new_people: first seen in the range. */
+export const KPI_METRICS = ["events", "people", "active_people", "all_events", "new_people"] as const;
 export type KpiMetric = (typeof KPI_METRICS)[number];
 
 export const kpiSchema = z
@@ -276,7 +284,7 @@ export const kpiSchema = z
     where: eventFilters,
     cohortId,
   })
-  .refine((k) => k.metric === "active_people" || k.event, "Choose an event.");
+  .refine((k) => !(k.metric === "events" || k.metric === "people") || k.event, "Choose an event.");
 
 export interface Kpi {
   metric: KpiMetric;
@@ -297,15 +305,36 @@ export async function kpi(ctx: TenantContext, scope: { environmentId: string; ti
   const r = kpiSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid metric.");
   const { metric, cohortId: cohort, compare } = r.data;
-  const event = metric === "active_people" ? null : r.data.event!;
+  const event = metric === "events" || metric === "people" ? (r.data.event === ANY_EVENT ? null : r.data.event!) : null;
   const where = r.data.where ?? [];
   const range = resolveRange(r.data, scope.timezone);
   return query(ctx, async (db) => {
-    const pick = (t: { count: number; people: number }) => (metric === "events" ? t.count : t.people);
-    const value = pick(await totalsIn(db, scope, cohort, range, event, where));
-    const previous = compare ? pick(await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), event, where)) : null;
+    const measure = async (period: Pick<ReportRange, "start" | "end">) => {
+      if (metric === "new_people") return newPeopleIn(db, scope, cohort, period);
+      const t = await totalsIn(db, scope, cohort, period, event, where);
+      return metric === "events" || metric === "all_events" ? t.count : t.people;
+    };
+    const value = await measure(range);
+    const previous = compare ? await measure(previousRange(range, scope.timezone)) : null;
     return { metric, event, value, previous, change: change(value, previous), range: rangeInfo(range, scope.timezone, compare) };
   });
+}
+
+/**
+ * People first seen in a range: identified users by the earliest of their
+ * profile and their own installs, and anonymous installs (not linked to one
+ * user) by their own first sighting. Same people as audiences.
+ */
+async function newPeopleIn(db: Db, scope: { environmentId: string; timezone?: string }, cohort: string | undefined, range: Pick<ReportRange, "start" | "end">): Promise<number> {
+  const p = new Params([scope.environmentId]);
+  const audience = cohort ? await audienceSql(db, scope, cohort, p) : null;
+  const row = await db.one<{ n: string }>(
+    `with ${peopleCtes()}${audience ? `, cohort as (${audience})` : ""}
+     select count(*) as n from people
+      where first_seen_at >= ${p.add(range.start)} and first_seen_at < ${p.add(range.end)}${audience ? " and person in (select person from cohort)" : ""}`,
+    p.values,
+  );
+  return Number(row?.n ?? 0);
 }
 
 // ── Funnel ──────────────────────────────────────────────────────────────────
@@ -463,8 +492,8 @@ async function retentionIn(
   const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start, scope.timezone, startEvent, returnEvent, [...RETENTION_DAYS], range.end]);
   const rows = await db.query<{ d0: string; n: number | null; size: string; returned: string }>(
     `with ${src.sql},
-      starts as (select person, min((ts at time zone $3)::date) as d0 from ev where name = $4 and ts < $7 group by person),
-      returns as (select distinct person, (ts at time zone $3)::date as d from ev where name = $5),
+      starts as (select person, min((ts at time zone $3)::date) as d0 from ev where (name = $4 or $4 = '${ANY_EVENT}') and ts < $7 group by person),
+      returns as (select distinct person, (ts at time zone $3)::date as d from ev where (name = $5 or $5 = '${ANY_EVENT}')),
       sizes as (select d0, count(*) as size from starts group by d0)
      select s.d0, (r.d - s.d0) as n, z.size, count(distinct r.person) as returned
        from starts s

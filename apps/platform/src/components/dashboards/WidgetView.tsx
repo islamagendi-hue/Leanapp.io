@@ -16,7 +16,7 @@ export const GROWTH_LABELS: Record<string, string> = {
   d7: "D7 retention",
   d30: "D30 retention",
 };
-const KPI_LABELS: Record<string, string> = { events: "Events", people: "People", active_people: "Active people" };
+const KPI_LABELS: Record<string, string> = { events: "Events", people: "People", active_people: "Active people", all_events: "All events", new_people: "New people" };
 
 /** A widget's default title, from what it shows. */
 export function widgetTitle(d: WidgetData): string {

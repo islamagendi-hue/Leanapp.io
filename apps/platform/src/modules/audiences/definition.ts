@@ -234,6 +234,35 @@ export interface Compiled {
 }
 
 /**
+ * The people of an environment as CTEs `solo`, `user_installs` and `people`
+ * (person, props, first_seen_at, last_seen_at, platforms). $1 is the
+ * environment id; `person` (a placeholder) limits it to one person.
+ * Identified users take the earliest / latest of their profile and the
+ * installs linked only to them; other installs are anonymous people.
+ */
+export function peopleCtes(person?: string | null): string {
+  return `solo as (
+      select anonymous_id, min(user_id) as user_id from platform.identity_links
+       where environment_id = $1 group by anonymous_id having count(*) = 1),
+    user_installs as (
+      select s.user_id, min(a.first_seen_at) as first_seen_at, max(a.last_seen_at) as last_seen_at,
+             array_remove(array_agg(distinct a.platform), null) as platforms
+        from solo s join platform.anonymous_users a on a.environment_id = $1 and a.anonymous_id = s.anonymous_id
+       group by s.user_id),
+    people as (
+      select u.external_id as person, u.properties as props,
+             least(u.first_seen_at, i.first_seen_at) as first_seen_at, greatest(u.last_seen_at, i.last_seen_at) as last_seen_at,
+             coalesce(i.platforms, '{}') as platforms
+        from platform.app_users u left join user_installs i on i.user_id = u.external_id
+       where u.environment_id = $1${person ? ` and u.external_id = ${person}` : ""}
+      union all
+      select 'anon:' || a.anonymous_id, coalesce(a.first_context->'traits', '{}'::jsonb), a.first_seen_at, a.last_seen_at,
+             array_remove(array[a.platform], null)
+        from platform.anonymous_users a
+       where a.environment_id = $1 and not exists (select 1 from solo s where s.anonymous_id = a.anonymous_id)${person ? ` and 'anon:' || a.anonymous_id = ${person}` : ""})`;
+}
+
+/**
  * Compiles a definition into `select person from …` for one environment.
  * People with a pending deletion request are always excluded.
  */
@@ -316,25 +345,7 @@ export function compileAudience(def: AudienceNode, environmentId: string, opts: 
   };
 
   const where = compileNode(def);
-  const sql = `with solo as (
-      select anonymous_id, min(user_id) as user_id from platform.identity_links
-       where environment_id = $1 group by anonymous_id having count(*) = 1),
-    user_installs as (
-      select s.user_id, min(a.first_seen_at) as first_seen_at, max(a.last_seen_at) as last_seen_at,
-             array_remove(array_agg(distinct a.platform), null) as platforms
-        from solo s join platform.anonymous_users a on a.environment_id = $1 and a.anonymous_id = s.anonymous_id
-       group by s.user_id),
-    people as (
-      select u.external_id as person, u.properties as props,
-             least(u.first_seen_at, i.first_seen_at) as first_seen_at, greatest(u.last_seen_at, i.last_seen_at) as last_seen_at,
-             coalesce(i.platforms, '{}') as platforms
-        from platform.app_users u left join user_installs i on i.user_id = u.external_id
-       where u.environment_id = $1${person ? ` and u.external_id = ${person}` : ""}
-      union all
-      select 'anon:' || a.anonymous_id, coalesce(a.first_context->'traits', '{}'::jsonb), a.first_seen_at, a.last_seen_at,
-             array_remove(array[a.platform], null)
-        from platform.anonymous_users a
-       where a.environment_id = $1 and not exists (select 1 from solo s where s.anonymous_id = a.anonymous_id)${person ? ` and 'anon:' || a.anonymous_id = ${person}` : ""})${ctes.length ? ",\n    " + ctes.join(",\n    ") : ""}
+  const sql = `with ${peopleCtes(person)}${ctes.length ? ",\n    " + ctes.join(",\n    ") : ""}
     select p.person from people p
       ${joins.join("\n      ")}
      where ${where}
