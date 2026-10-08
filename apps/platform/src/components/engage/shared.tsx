@@ -19,6 +19,10 @@ const PILL: Record<string, string> = {
   waiting: "border-line-strong text-ink-2",
   running: "border-line-strong text-ink-2",
   disabled: "border-line text-ink-3",
+  scheduled: "border-warn/40 text-warn",
+  sending: "border-line-strong text-ink-2",
+  sent: "border-accent/40 text-accent-ink",
+  recurring: "border-accent/40 bg-accent-soft text-accent-ink",
 };
 
 export function StatusPill({ status }: { status: string }) {

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { automationLifecycleAction, saveAutomationAction } from "@/app/actions/engage";
 import { ActionForm } from "@/components/ActionForm";
 import { AutomationEditor } from "@/components/engage/AutomationEditor";
@@ -30,6 +30,8 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
+  // Campaigns run on the same engine but have their own page.
+  if (a.kind === "campaign") redirect(`/o/${org}/apps/${app}/engage/campaigns/${a.id}`);
   const env = environments.find((e) => e.id === a.environment_id);
   if (!env) notFound();
   const manage = can(ctx.role, "automations.manage");

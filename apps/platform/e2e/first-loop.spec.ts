@@ -433,6 +433,27 @@ test("dashboards: start from a template, add a widget, arrange it", async ({ pag
   await expect(page.getByRole("button", { name: "Move up" })).toHaveCount(0);
 });
 
+test("campaigns: audience, channel, message, schedule; the audience must be active to send", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/engage/campaigns?env=development`);
+  await page.getByRole("link", { name: "New campaign" }).click();
+  await page.getByRole("textbox", { name: "Campaign name" }).fill("Riyadh weekend");
+  await page.getByRole("combobox", { name: "Audience" }).selectOption({ label: "Riyadh people (draft: activate it before sending)" });
+  await page.getByRole("radio", { name: "In-app" }).check();
+  await page.getByRole("textbox", { name: "Title" }).fill("Weekend offer");
+  await page.getByRole("textbox", { name: "Message" }).fill("20% off this weekend");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByRole("heading", { name: /Riyadh weekend/, level: 1 })).toBeVisible();
+  await expect(page.getByText("draft", { exact: true })).toBeVisible();
+  await expect(page.getByText(/is a draft. Activate it before sending/)).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Send now" }).click();
+  await expect(page.getByText(/Activate the audience "Riyadh people" first/)).toBeVisible();
+
+  await page.getByRole("link", { name: "Campaigns" }).first().click();
+  await expect(page.getByRole("row").filter({ hasText: "Riyadh weekend" }).getByText("In-app")).toBeVisible();
+});
+
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}?env=development`);

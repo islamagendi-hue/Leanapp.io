@@ -136,17 +136,19 @@ async function triggerOne(db: Db, a: AutomationClaim): Promise<number> {
     await db.query("update platform.automations set trigger_cursor = $2 where id = $1", [a.id, last.id]);
     return created;
   }
-  // Schedule: everyone currently in the audience, once per slot.
+  // Schedule or once: everyone currently in the audience, once per slot.
   if (!a.next_fire_at || a.next_fire_at.getTime() > Date.now()) return 0;
   const slot = a.next_fire_at.toISOString();
   const created = await insertRuns(
     db, a,
-    `select m.user_key as person, 'schedule:' || $2 as trigger_key, 0 as sort, jsonb_build_object('scheduled_for', $2::text) as trigger_data
+    `select m.user_key as person, '${t.type}:' || $2 as trigger_key, 0 as sort, jsonb_build_object('scheduled_for', $2::text) as trigger_data
        from platform.audience_members m join platform.audiences au on au.id = m.audience_id and au.status = 'active'
       where m.audience_id = $1 and m.exited_at is null`,
     [t.audienceId, slot],
   );
-  await db.query("update platform.automations set next_fire_at = $2 where id = $1", [a.id, nextScheduled(new Date(), a.timezone, t)]);
+  // A one-time send fires once; trigger_cursor records the slot it fired for.
+  if (t.type === "once") await db.query("update platform.automations set next_fire_at = null, trigger_cursor = 1 where id = $1", [a.id]);
+  else await db.query("update platform.automations set next_fire_at = $2 where id = $1", [a.id, nextScheduled(new Date(), a.timezone, t)]);
   return created;
 }
 

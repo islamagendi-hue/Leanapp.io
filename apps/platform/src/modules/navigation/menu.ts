@@ -63,7 +63,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       {
         label: "Engagement",
         items: pick(role, [
-          { label: "Campaigns", soon: true, perm: "automations.read" },
+          { label: "Campaigns", href: `${base}/engage/campaigns`, perm: "automations.read" },
           { label: "Flows", href: `${base}/engage/automations`, perm: "automations.read" },
           { label: "Templates", href: `${base}/engage/email-templates`, perm: "automations.read" },
           { label: "Channels & delivery", soon: true, perm: "automations.read" },

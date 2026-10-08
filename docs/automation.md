@@ -12,7 +12,8 @@
 - **Trigger:** one of
   - an event;
   - entering or exiting an [audience](audiences.md);
-  - a schedule for an audience's members, daily or weekly at HH:MM in the organization's timezone.
+  - a schedule for an audience's members, daily or weekly at HH:MM in the organization's timezone;
+  - `once`: one send to an audience's members at a set instant (campaigns). If the instant has passed when it's activated, it sends at once. After it fires, `trigger_cursor` is set and it never fires again, even if paused and resumed.
 - **Entry rule:** `every_time`, with optional cooldown hours, or `once` per user.
 - **Steps, in order:**
   - `delay` (minutes, hours or days);
@@ -72,6 +73,25 @@ Every automation message counts as marketing. Before a push, in-app, email or Wh
 - has a latest consent decision denying `marketing`, or denying `push` when sending push.
 
 No decision recorded means the message is allowed, so apps that don't collect consent keep working. Email also needs an `email` user property with a valid address. Webhooks, user property updates and events aren't messages and aren't checked.
+
+## Campaigns
+
+Engage → Campaigns (PR 10, migration 0027). A campaign is one message to an [audience](audiences.md), built as Audience → Channel → Message → Schedule.
+
+- **Storage:** it's an automation with `kind = 'campaign'`, a `once` or `schedule` trigger and a single message step (`modules/campaigns`). There is no second sending model: the engine sends it with the same guardrails (frequency cap, quiet hours, consent, suppression, pending deletions) and the same run logs. Campaigns don't appear under Flows, and opening one at a Flows address redirects to its campaign page.
+- **Channels:** push, in-app, email (inline or a template) and WhatsApp (an approved template without a header variable).
+- **Schedule:** send now, at a date and time, every day, or every week. Times are in the organization's timezone.
+- **Limits:** an optional frequency cap (messages per hours, counted across all campaigns and flows) and optional quiet hours.
+- **Lifecycle:** a campaign is saved as a draft. Send (or Schedule) activates it, Pause holds it, and Cancel archives it and drops messages still waiting. A one-time campaign that went out can't be edited or sent again. The audience must be active.
+- **Status:** draft, scheduled, sending, sent, recurring, paused or cancelled, derived from the automation. The page shows these counts:
+  - recipients: one run per person;
+  - in progress;
+  - sent: handed to the provider, or queued for the app for in-app;
+  - failed;
+  - skipped, with the reason in each recipient's log.
+
+  Delivery, opens and clicks are not shown yet.
+- **Permissions:** `automations.read` and `automations.manage`.
 
 ## Not built yet
 

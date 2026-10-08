@@ -17,6 +17,8 @@ export interface AutomationRow {
   id: string;
   environment_id: string;
   name: string;
+  /** "campaign": a one-message send to an audience (Engage → Campaigns); "automation": a flow. */
+  kind: "automation" | "campaign";
   status: "draft" | "active" | "paused" | "archived";
   definition: AutomationDefinition;
   version: number;
@@ -67,7 +69,7 @@ function parseName(v: unknown): string {
 }
 
 const SELECT = `
-  select a.id, a.environment_id, a.name, a.status, a.definition, a.version, a.activated_at, a.next_fire_at, a.created_at, a.updated_at,
+  select a.id, a.environment_id, a.name, a.kind, a.status, a.definition, a.version, a.activated_at, a.next_fire_at, a.created_at, a.updated_at,
          json_build_object(
            'active', (select count(*) from platform.automation_runs r where r.automation_id = a.id and r.status in ('pending', 'waiting', 'running')),
            'completed', (select count(*) from platform.automation_runs r where r.automation_id = a.id and r.status = 'completed'),
@@ -75,9 +77,9 @@ const SELECT = `
            'total', (select count(*) from platform.automation_runs r where r.automation_id = a.id)) as runs
     from platform.automations a`;
 
-export function listAutomations(ctx: TenantContext, environmentId: string): Promise<AutomationRow[]> {
+export function listAutomations(ctx: TenantContext, environmentId: string, kind: AutomationRow["kind"] = "automation"): Promise<AutomationRow[]> {
   return tenantTx(ctx, "automations.read", (db) =>
-    db.query<AutomationRow>(`${SELECT} where a.environment_id = $1 order by a.status = 'archived', a.name`, [environmentId]),
+    db.query<AutomationRow>(`${SELECT} where a.environment_id = $1 and a.kind = $2 order by a.status = 'archived', a.name`, [environmentId, kind]),
   );
 }
 
@@ -136,7 +138,12 @@ async function checkReferences(db: Db, environmentId: string, d: AutomationDefin
   }
 }
 
-export async function createAutomation(ctx: TenantContext, environmentId: string, input: { name?: unknown; definition?: unknown }): Promise<{ id: string }> {
+export async function createAutomation(
+  ctx: TenantContext,
+  environmentId: string,
+  input: { name?: unknown; definition?: unknown },
+  opts: { kind?: AutomationRow["kind"] } = {},
+): Promise<{ id: string }> {
   const name = parseName(input.name);
   const definition = parseDef(input.definition);
   return tenantTx(ctx, "automations.manage", async (db) => {
@@ -144,15 +151,15 @@ export async function createAutomation(ctx: TenantContext, environmentId: string
     if (!env) throw new NotFoundError("Environment");
     await checkReferences(db, environmentId, definition, { requireActive: false });
     const row = await db.one<{ id: string }>(
-      `insert into platform.automations (organization_id, app_id, environment_id, name, definition, version, created_by, updated_by)
-       values ($1, $2, $3, $4, $5, 1, $6, $6) returning id`,
-      [ctx.organizationId, env.app_id, environmentId, name, JSON.stringify(definition), ctx.userId],
+      `insert into platform.automations (organization_id, app_id, environment_id, name, definition, version, created_by, updated_by, kind)
+       values ($1, $2, $3, $4, $5, 1, $6, $6, $7) returning id`,
+      [ctx.organizationId, env.app_id, environmentId, name, JSON.stringify(definition), ctx.userId, opts.kind ?? "automation"],
     );
     await db.query(
       "insert into platform.automation_versions (organization_id, automation_id, version, definition, created_by) values ($1, $2, 1, $3, $4)",
       [ctx.organizationId, row!.id, JSON.stringify(definition), ctx.userId],
     );
-    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata: { environment_id: environmentId, name } });
+    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata: { environment_id: environmentId, name, kind: opts.kind ?? "automation" } });
     return { id: row!.id };
   });
 }
@@ -193,6 +200,10 @@ async function resetTrigger(db: Db, ctx: TenantContext, id: string, environmentI
     cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.events where environment_id = $1", [environmentId]))!.max;
   } else if (d.trigger.type === "audience_entered" || d.trigger.type === "audience_exited") {
     cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.audience_events where audience_id = $1", [d.trigger.audienceId]))!.max;
+  } else if (d.trigger.type === "once") {
+    // A time already past means "send now". A send that already went out (cursor set) never goes out again.
+    await db.query("update platform.automations set next_fire_at = case when trigger_cursor is null then $2::timestamptz end where id = $1", [id, new Date(Math.max(Date.parse(d.trigger.at), Date.now()))]);
+    return;
   } else {
     const org = await db.one<{ timezone: string }>("select timezone from platform.organizations where id = $1", [ctx.organizationId]);
     nextFire = nextScheduled(new Date(), org?.timezone ?? "UTC", d.trigger);

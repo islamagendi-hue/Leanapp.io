@@ -33,6 +33,8 @@ export const triggerSchema = z.discriminatedUnion("type", [
     at: z.string().regex(HHMM, "Use HH:MM (24-hour)."),
     weekday: z.coerce.number().int().min(0).max(6).optional(),
   }),
+  /** One send to everyone in an audience at `at` (or as soon as activated, if `at` has passed). Used by campaigns. */
+  z.object({ type: z.literal("once"), audienceId: uuid, at: z.iso.datetime({ offset: true, message: "Choose when to send." }) }),
 ]);
 export type Trigger = z.infer<typeof triggerSchema>;
 
@@ -174,5 +176,6 @@ export function describeTrigger(t: Trigger, audienceName: (id: string) => string
       const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       return `${t.every === "day" ? "Every day" : `Every ${days[t.weekday ?? 0]}`} at ${t.at} for everyone in ${audienceName(t.audienceId)}`;
     }
+    case "once": return `Once at ${t.at} for everyone in ${audienceName(t.audienceId)}`;
   }
 }
