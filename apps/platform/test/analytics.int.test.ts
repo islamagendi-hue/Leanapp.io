@@ -50,7 +50,7 @@ beforeAll(async () => {
     { type: "identify", event_id: crypto.randomUUID(), timestamp: daysAgo(2, 10), anonymous_id: "a4", user_id: "u3" },
     { type: "identify", event_id: crypto.randomUUID(), timestamp: daysAgo(2, 11), anonymous_id: "a4", user_id: "u4" },
     track("app_opened", 2, { anonymous_id: "a4" }),
-    // Screens aren't events in these reports.
+    // A screen view counts as screen_viewed (the shared counting rule); identify calls never count.
     { type: "screen", event_name: "Home", event_id: crypto.randomUUID(), timestamp: daysAgo(2), anonymous_id: "a1", user_id: "u1" },
   ];
   const res = await ingest(sdk, { batch }, { mode: "batch" });
@@ -68,6 +68,8 @@ describe("event totals and trend", () => {
     expect(byName.app_installed).toEqual({ name: "app_installed", count: 3, people: 3 });
     expect(byName.order_done).toBeUndefined();
     expect(byName.Home).toBeUndefined();
+    expect(byName.screen_viewed).toEqual({ name: "screen_viewed", count: 1, people: 1 });
+    expect(byName.user_identified).toBeUndefined();
     expect(byName.app_opened.people).toBe(1);
   });
 

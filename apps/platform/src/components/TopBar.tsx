@@ -1,0 +1,109 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import { DEFAULT_ENVIRONMENT, ENV_COOKIE, ENVIRONMENT_ORDER, isEnvironmentName, type EnvironmentName } from "@/lib/environment";
+
+type Option = { slug: string; name: string };
+
+/** The project slug in /o/{org}/apps/{app}/…, if the page belongs to a project. */
+function projectInPath(path: string): string | undefined {
+  const slug = path.match(/^\/o\/[^/]+\/apps\/([^/]+)/)?.[1];
+  return slug && slug !== "new" ? decodeURIComponent(slug) : undefined;
+}
+
+/** A small dropdown on <details>; closes when an entry is chosen. */
+function Menu({ label, title, children }: { label: string; title: string; children: ReactNode }) {
+  const close = (e: MouseEvent<HTMLDivElement>) => {
+    if ((e.target as HTMLElement).closest("a")) e.currentTarget.closest("details")?.removeAttribute("open");
+  };
+  return (
+    <details className="relative">
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 hover:bg-paper-2" title={title}>
+        <span className="max-w-[12rem] truncate">{label}</span>
+        <span aria-hidden className="text-xs text-ink-3">▾</span>
+      </summary>
+      <div onClick={close} className="absolute start-0 z-30 mt-1 min-w-56 rounded-lg border border-line bg-card p-1 text-sm shadow-lg">{children}</div>
+    </details>
+  );
+}
+
+const itemClass = (current: boolean) => `block rounded-md px-3 py-1.5 ${current ? "bg-paper-2 font-medium" : "hover:bg-paper-2"}`;
+
+export function WorkspaceSwitcher({ current, workspaces }: { current: Option; workspaces: Option[] }) {
+  return (
+    <Menu label={current.name} title="Switch workspace">
+      <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">Workspaces</p>
+      {workspaces.map((w) => (
+        <Link key={w.slug} href={`/o/${w.slug}`} className={itemClass(w.slug === current.slug)}>{w.name}</Link>
+      ))}
+      <hr className="my-1 border-line" />
+      <Link href={`/o/${current.slug}/settings`} className={itemClass(false)}>Workspace settings</Link>
+      <Link href="/onboarding" className={itemClass(false)}>Create a workspace</Link>
+    </Menu>
+  );
+}
+
+/** Archived projects aren't offered, but an open one still names itself in the bar. */
+export function ProjectSwitcher({ org, projects, archived = [], canCreate }: { org: string; projects: Option[]; archived?: Option[]; canCreate: boolean }) {
+  const slug = projectInPath(usePathname());
+  const current = projects.find((p) => p.slug === slug);
+  const openArchived = current ? undefined : archived.find((p) => p.slug === slug);
+  return (
+    <Menu label={current?.name ?? (openArchived ? `${openArchived.name} (archived)` : "All projects")} title="Switch project">
+      <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">Projects</p>
+      {projects.map((p) => (
+        <Link key={p.slug} href={`/o/${org}/apps/${p.slug}`} className={itemClass(p.slug === slug)}>{p.name}</Link>
+      ))}
+      {projects.length === 0 && <p className="px-3 py-1.5 text-ink-3">No projects yet.</p>}
+      <hr className="my-1 border-line" />
+      <Link href={`/o/${org}`} className={itemClass(false)}>All projects</Link>
+      {canCreate && <Link href={`/o/${org}/apps/new`} className={itemClass(false)}>New project</Link>}
+    </Menu>
+  );
+}
+
+const readCookie = (): EnvironmentName | undefined => {
+  const v = document.cookie.split("; ").find((c) => c.startsWith(`${ENV_COOKIE}=`))?.slice(ENV_COOKIE.length + 1);
+  return isEnvironmentName(v) ? v : undefined;
+};
+
+/**
+ * The one environment selector, shown on project pages. Choosing puts `?env=` in the URL, which
+ * re-renders the page and keeps links shareable; proxy.ts then remembers it in a cookie so every
+ * project page opens on it (pickEnvironment reads it on the server).
+ */
+export function EnvironmentSelect({ initial }: { initial?: EnvironmentName }) {
+  const path = usePathname();
+  const params = useSearchParams();
+  const router = useRouter();
+  // Re-read on every render (navigation re-renders this); the server's value until hydrated.
+  const remembered = useSyncExternalStore(() => () => {}, readCookie, () => initial);
+  if (!projectInPath(path)) return null;
+  const fromUrl = params.get("env");
+  const current: EnvironmentName = isEnvironmentName(fromUrl) ? fromUrl : remembered ?? DEFAULT_ENVIRONMENT;
+
+  const choose = (env: EnvironmentName) => {
+    const q = new URLSearchParams(params);
+    q.set("env", env);
+    router.push(`${path}?${q}`);
+  };
+
+  return (
+    <div className="inline-flex rounded-lg border border-line bg-card p-0.5 text-xs" role="radiogroup" aria-label="Environment">
+      {ENVIRONMENT_ORDER.map((env) => (
+        <button
+          key={env}
+          type="button"
+          role="radio"
+          aria-checked={env === current}
+          onClick={() => env !== current && choose(env)}
+          className={`rounded-md px-2.5 py-1 capitalize ${env === current ? (env === "production" ? "bg-alert text-paper" : "bg-ink text-paper") : "text-ink-2 hover:bg-paper-2"}`}
+        >
+          {env}
+        </button>
+      ))}
+    </div>
+  );
+}

@@ -26,7 +26,7 @@ export async function saveDeepLinkConfigAction(orgSlug: string, appSlug: string,
       deferredEnabled: text(form, "deferredEnabled"),
       interstitialEnabled: text(form, "interstitialEnabled"),
     });
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/deep-links`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/deep-links`);
     return { ok: true, message: "Saved. The association files are updated now; press Test to check them from outside." };
   } catch (err) {
     return toActionError(err);
@@ -37,7 +37,7 @@ export async function checkWellKnownAction(orgSlug: string, appSlug: string, env
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
     const results = await checkWellKnown(ctx, app.id, environmentId);
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/deep-links`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/deep-links`);
     const failed = results.filter((r) => !r.ok && !r.warning);
     if (!results.length) return { error: "Nothing to test yet: add the iOS or Android settings first." };
     return failed.length ? { error: `${failed.length} check(s) failed: see the results below.` } : { ok: true, message: "Both files are served correctly." };
@@ -66,8 +66,8 @@ export async function createChannelLinkAction(orgSlug: string, appSlug: string, 
       deepLinkPath: text(form, "deepLinkPath"),
     });
     const config = await getConfig(ctx, app.id, environmentId).catch(() => null);
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/deep-links/links`);
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution/links`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition/deep-links`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition/links`);
     return { ok: true, message: `Link created: ${linkUrl(configLinkBase(config), link.code, config?.link_prefix ?? null)}` };
   } catch (err) {
     return toActionError(err);

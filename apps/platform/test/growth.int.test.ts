@@ -21,10 +21,13 @@ import { runReprocessJobs } from "@/modules/reprocess/jobs";
 import { requestDeletion, runDeletionJobs } from "@/modules/privacy/service";
 import { PERSON } from "@/modules/analytics/sql";
 import type { GrowthDefinition } from "@/modules/growth/definition";
+import { localDate } from "@/modules/analytics/range";
 import { makeTenant } from "./helpers";
 
 type T = Awaited<ReturnType<typeof makeTenant>>;
 const DAY = 86_400_000;
+/** makeTenant creates apps in Asia/Riyadh (the organization default). */
+const TIMEZONE = "Asia/Riyadh";
 
 const DEFINITION = {
   activation: { event: "signup_completed", filters: [{ name: "method", op: "eq", value: "email" }] },
@@ -157,7 +160,9 @@ async function reference(environmentId: string, def: GrowthDefinition, currency:
       revenue[cur] = Math.round(((revenue[cur] ?? 0) + amount(e.properties[def.revenue!.amount_property])!) * 100) / 100;
     }
     const core = evs.filter((e) => matches(def.core_action, e));
-    const retained = (d: number) => min(evs.map((e) => e.ts.getTime()).filter((t) => t >= first + d * DAY));
+    // Retained on day N: an event on the calendar day N days after the first one, in the app's timezone.
+    const dayOf = (ms: number) => Date.parse(localDate(new Date(ms), TIMEZONE));
+    const retained = (d: number) => min(ts.filter((t) => dayOf(t) - dayOf(first) === d * DAY));
     return {
       person,
       first_seen_at: first,

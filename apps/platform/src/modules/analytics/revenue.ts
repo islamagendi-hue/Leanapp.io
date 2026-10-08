@@ -4,7 +4,8 @@ import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { revenueRules, type RevenueRule } from "./revenue-rules";
-import { analyticsTx, dayList, eventsSource, RANGE_SCHEMA, rangeStart, type RangeDays } from "./service";
+import { bucketKeys, bucketSql, defaultInterval, intervalField, previousRange, rangeFields, resolveRange, type Interval, type ReportRange } from "./range";
+import { analyticsTx, eventsSource, type RangeInfo } from "./service";
 import { numeric, type Params } from "./sql";
 
 /**
@@ -19,7 +20,8 @@ import { numeric, type Params } from "./sql";
 export const REVENUE_BREAKDOWNS = ["platform", "event"] as const;
 
 export const revenueSchema = z.object({
-  days: RANGE_SCHEMA,
+  ...rangeFields,
+  interval: intervalField,
   breakdown: z.union([z.enum(REVENUE_BREAKDOWNS), z.string().regex(/^property:[A-Za-z0-9_.$-]{1,64}$/)]).optional().catch(undefined),
   cohortId: z.uuid().optional().catch(undefined),
 });
@@ -42,12 +44,16 @@ export interface CurrencyRevenue {
 }
 
 export interface RevenueReport {
+  /** Bucket keys (days, week starts or month starts). */
   days: string[];
-  range: RangeDays;
+  interval: Interval;
+  range: RangeInfo;
   activeUsers: number;
   currencies: CurrencyRevenue[];
-  /** Net revenue per day, per currency. */
+  /** Net revenue per bucket, per currency. */
   daily: { key: string; counts: number[] }[];
+  /** Net revenue per currency in the comparison period, when one was asked for. */
+  previous: { currency: string; net: number }[] | null;
   breakdown: { key: string; currency: string; gross: number; refunds: number; net: number; payingUsers: number }[] | null;
   breakdownBy: string | null;
   rules: RevenueRule[];
@@ -103,10 +109,13 @@ const round = (n: number) => Math.round(n * 100) / 100;
 export async function revenueReport(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<RevenueReport> {
   const r = revenueSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid revenue report.");
-  const { days, breakdown, cohortId } = r.data;
+  const { breakdown, cohortId, compare } = r.data;
+  const range = resolveRange(r.data, scope.timezone);
+  const interval = defaultInterval(range, r.data.interval);
+  const previousRangeOf = compare ? previousRange(range, scope.timezone) : null;
   return analyticsTx(ctx, async (db) => {
     const rules = await loadRevenueRules(db, scope.environmentId);
-    const src = await eventsSource(db, scope, cohortId, [scope.environmentId, rangeStart(days), scope.timezone]);
+    const src = await eventsSource(db, scope, cohortId, [scope.environmentId, range.start, scope.timezone], range.end);
     const p = src.p;
     const ctes = revenueCtes(p, rules);
     const g = groupExpr(breakdown, p);
@@ -115,13 +124,14 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
     }>(
       `with ${src.sql}, ${ctes}
        select currency, d, g, kind, grouping(d) as gd, grouping(g) as gg, sum(amount)::float8 as amount, count(*) as n, count(distinct person) as people
-         from (select *, (ts at time zone $3)::date as d, ${g} as g from tx) t
+         from (select *, ${bucketSql("ts", "$3", interval)} as d, ${g} as g from tx) t
         group by grouping sets ((currency, kind), (currency, d, kind), (currency, g, kind))
        union all
        select null, null, null, 'active', 1, 1, null, 0, count(distinct person) from ev`,
       p.values,
     );
-    const dayKeys = dayList(days, scope.timezone);
+    const dayKeys = bucketKeys(range, interval);
+    const previous = previousRangeOf ? await netByCurrency(db, scope, cohortId, rules, previousRangeOf) : null;
     const totals = new Map<string, CurrencyRevenue>();
     const ensure = (c: string) => {
       if (!totals.has(c)) totals.set(c, { currency: c, gross: 0, refunds: 0, net: 0, transactions: 0, refundCount: 0, payingUsers: 0, arpu: 0, arppu: 0 });
@@ -177,7 +187,12 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
     const order = currencies.map((c) => c.currency);
     return {
       days: dayKeys,
-      range: days,
+      interval,
+      range: {
+        from: range.from, to: range.to, label: range.label, preset: range.preset,
+        previous: previousRangeOf && { from: previousRangeOf.from, to: previousRangeOf.to, label: previousRangeOf.label },
+      },
+      previous,
       activeUsers,
       currencies,
       daily: order.filter((c) => daily.has(c)).map((c) => ({ key: c, counts: daily.get(c)!.map(round) })),
@@ -190,4 +205,15 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
       rules,
     };
   });
+}
+
+/** Net revenue per currency in a range (the comparison period's totals). */
+async function netByCurrency(db: Db, scope: { environmentId: string; timezone: string }, cohortId: string | undefined, rules: RevenueRule[], range: ReportRange) {
+  const src = await eventsSource(db, scope, cohortId, [scope.environmentId, range.start], range.end);
+  const rows = await db.query<{ currency: string; net: number }>(
+    `with ${src.sql}, ${revenueCtes(src.p, rules)}
+     select currency, sum(case when kind = 'refund' then -amount else amount end)::float8 as net from tx group by currency order by currency`,
+    src.p.values,
+  );
+  return rows.map((x) => ({ currency: x.currency, net: round(Number(x.net)) }));
 }

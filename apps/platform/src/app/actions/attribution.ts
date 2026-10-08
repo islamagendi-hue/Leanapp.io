@@ -24,7 +24,7 @@ export async function createLinkAction(orgSlug: string, appSlug: string, _: Acti
       webUrl: text(form, "webUrl"),
       deepLinkPath: text(form, "deepLinkPath"),
     });
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution/links`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition/links`);
     return { ok: true, message: `Link created: ${publicBaseUrl()}/l/${link.code}` };
   } catch (err) {
     return toActionError(err);
@@ -35,7 +35,7 @@ export async function setLinkStatusAction(orgSlug: string, appSlug: string, link
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
     await setLinkStatus(ctx, app.id, linkId, status);
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution/links`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition/links`);
     return { ok: true };
   } catch (err) {
     return toActionError(err);
@@ -52,7 +52,7 @@ export async function updateSettingsAction(orgSlug: string, appSlug: string, _: 
       conversionWindowDays: text(form, "conversionWindowDays"),
       reengagementEnabled: text(form, "reengagementEnabled"),
     });
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution/settings`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution`);
     return { ok: true, message: "Saved. New installs and conversions use these settings; past attributions are not recomputed." };
   } catch (err) {
     return toActionError(err);
@@ -76,7 +76,7 @@ export async function createPostbackAction(orgSlug: string, appSlug: string, _: 
       config: prefixed("config."),
       credentials: prefixed("secret."),
     });
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution/postbacks`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution/postbacks`);
     return { ok: true, message: "Postback saved. Deliveries are sent by the scheduled worker (every 5 minutes)." };
   } catch (err) {
     return toActionError(err);
@@ -87,7 +87,7 @@ export async function setPostbackStatusAction(orgSlug: string, appSlug: string, 
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
     await setPostbackStatus(ctx, app.id, id, status);
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution/postbacks`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution/postbacks`);
     return { ok: true };
   } catch (err) {
     return toActionError(err);

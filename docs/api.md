@@ -71,7 +71,7 @@ A key without the scope an endpoint needs gets `403 forbidden`; a public SDK key
 
 Outgoing webhooks (signature, retries, payloads) are described in [webhooks](webhooks.md).
 
-Everything else in the dashboard (questionnaire, plan editing, approval and publishing, keys, members) runs through server actions on top of the same modules. The dashboard also serves `GET /o/{org}/apps/{app}/implementation/plan/export?version=&format=json|csv` (session cookie) for plan downloads. Planned for the secret-key API: editing and removing plan events and properties, mappings, funnels and retention, keys and members.
+Everything else in the dashboard (questionnaire, plan editing, approval and publishing, keys, members) runs through server actions on top of the same modules. The dashboard also serves `GET /o/{org}/apps/{app}/settings/dev-ops/implementation/plan/export?version=&format=json|csv` (session cookie) for plan downloads. Planned for the secret-key API: editing and removing plan events and properties, mappings, funnels and retention, keys and members.
 
 ## Management API (secret keys)
 

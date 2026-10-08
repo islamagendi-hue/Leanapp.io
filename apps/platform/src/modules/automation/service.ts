@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
+import { COUNTED_EVENTS, PERSON } from "@/modules/analytics/sql";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, referencedWhatsAppTemplates, type AutomationDefinition } from "./definition";
 import { nextScheduled } from "./time";
@@ -17,6 +18,8 @@ export interface AutomationRow {
   id: string;
   environment_id: string;
   name: string;
+  /** "campaign": a one-message send to an audience (Engage → Campaigns); "automation": a flow. */
+  kind: "automation" | "campaign";
   status: "draft" | "active" | "paused" | "archived";
   definition: AutomationDefinition;
   version: number;
@@ -67,7 +70,7 @@ function parseName(v: unknown): string {
 }
 
 const SELECT = `
-  select a.id, a.environment_id, a.name, a.status, a.definition, a.version, a.activated_at, a.next_fire_at, a.created_at, a.updated_at,
+  select a.id, a.environment_id, a.name, a.kind, a.status, a.definition, a.version, a.activated_at, a.next_fire_at, a.created_at, a.updated_at,
          json_build_object(
            'active', (select count(*) from platform.automation_runs r where r.automation_id = a.id and r.status in ('pending', 'waiting', 'running')),
            'completed', (select count(*) from platform.automation_runs r where r.automation_id = a.id and r.status = 'completed'),
@@ -75,9 +78,9 @@ const SELECT = `
            'total', (select count(*) from platform.automation_runs r where r.automation_id = a.id)) as runs
     from platform.automations a`;
 
-export function listAutomations(ctx: TenantContext, environmentId: string): Promise<AutomationRow[]> {
+export function listAutomations(ctx: TenantContext, environmentId: string, kind: AutomationRow["kind"] = "automation"): Promise<AutomationRow[]> {
   return tenantTx(ctx, "automations.read", (db) =>
-    db.query<AutomationRow>(`${SELECT} where a.environment_id = $1 order by a.status = 'archived', a.name`, [environmentId]),
+    db.query<AutomationRow>(`${SELECT} where a.environment_id = $1 and a.kind = $2 order by a.status = 'archived', a.name`, [environmentId, kind]),
   );
 }
 
@@ -136,7 +139,12 @@ async function checkReferences(db: Db, environmentId: string, d: AutomationDefin
   }
 }
 
-export async function createAutomation(ctx: TenantContext, environmentId: string, input: { name?: unknown; definition?: unknown }): Promise<{ id: string }> {
+export async function createAutomation(
+  ctx: TenantContext,
+  environmentId: string,
+  input: { name?: unknown; definition?: unknown },
+  opts: { kind?: AutomationRow["kind"] } = {},
+): Promise<{ id: string }> {
   const name = parseName(input.name);
   const definition = parseDef(input.definition);
   return tenantTx(ctx, "automations.manage", async (db) => {
@@ -144,15 +152,15 @@ export async function createAutomation(ctx: TenantContext, environmentId: string
     if (!env) throw new NotFoundError("Environment");
     await checkReferences(db, environmentId, definition, { requireActive: false });
     const row = await db.one<{ id: string }>(
-      `insert into platform.automations (organization_id, app_id, environment_id, name, definition, version, created_by, updated_by)
-       values ($1, $2, $3, $4, $5, 1, $6, $6) returning id`,
-      [ctx.organizationId, env.app_id, environmentId, name, JSON.stringify(definition), ctx.userId],
+      `insert into platform.automations (organization_id, app_id, environment_id, name, definition, version, created_by, updated_by, kind)
+       values ($1, $2, $3, $4, $5, 1, $6, $6, $7) returning id`,
+      [ctx.organizationId, env.app_id, environmentId, name, JSON.stringify(definition), ctx.userId, opts.kind ?? "automation"],
     );
     await db.query(
       "insert into platform.automation_versions (organization_id, automation_id, version, definition, created_by) values ($1, $2, 1, $3, $4)",
       [ctx.organizationId, row!.id, JSON.stringify(definition), ctx.userId],
     );
-    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata: { environment_id: environmentId, name } });
+    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata: { environment_id: environmentId, name, kind: opts.kind ?? "automation" } });
     return { id: row!.id };
   });
 }
@@ -193,6 +201,10 @@ async function resetTrigger(db: Db, ctx: TenantContext, id: string, environmentI
     cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.events where environment_id = $1", [environmentId]))!.max;
   } else if (d.trigger.type === "audience_entered" || d.trigger.type === "audience_exited") {
     cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.audience_events where audience_id = $1", [d.trigger.audienceId]))!.max;
+  } else if (d.trigger.type === "once") {
+    // A time already past means "send now". A send that already went out (cursor set) never goes out again.
+    await db.query("update platform.automations set next_fire_at = case when trigger_cursor is null then $2::timestamptz end where id = $1", [id, new Date(Math.max(Date.parse(d.trigger.at), Date.now()))]);
+    return;
   } else {
     const org = await db.one<{ timezone: string }>("select timezone from platform.organizations where id = $1", [ctx.organizationId]);
     nextFire = nextScheduled(new Date(), org?.timezone ?? "UTC", d.trigger);
@@ -247,5 +259,57 @@ export async function getVersion(ctx: TenantContext, id: string, version: number
     const row = await db.one<{ definition: AutomationDefinition }>("select definition from platform.automation_versions where automation_id = $1 and version = $2", [id, version]);
     if (!row) throw new NotFoundError("Version");
     return row.definition;
+  });
+}
+
+export interface GoalReport {
+  goal: { event: string; withinDays: number; stopOnConversion: boolean };
+  /** Runs started (people who entered), all versions. */
+  entered: number;
+  /** Of those, people who did the goal event within the window after their trigger. */
+  converted: number;
+  /** Runs still inside their window that haven't converted yet (may still convert). */
+  open: number;
+  /** Runs ended early because the person converted. */
+  stopped: number;
+  /** Median time from trigger to conversion, in seconds. */
+  medianSeconds: number | null;
+}
+
+/**
+ * Conversion goal results of a flow, from the event stream: a run converts
+ * when its person does the goal event (counted events only) after the
+ * trigger and within the goal window. Null when the flow has no goal.
+ */
+export async function goalReport(ctx: TenantContext, id: string): Promise<GoalReport | null> {
+  if (!uuid.safeParse(id).success) throw new NotFoundError("Automation");
+  return tenantTx(ctx, "automations.read", async (db) => {
+    const a = await db.one<{ definition: AutomationDefinition }>("select definition from platform.automations where id = $1", [id]);
+    if (!a) throw new NotFoundError("Automation");
+    const goal = parseDef(a.definition).goal;
+    if (!goal) return null;
+    const row = await db.one<{ entered: number; converted: number; open: number; stopped: number; median: number | null }>(
+      `with runs as (
+         select r.id, r.user_key, r.environment_id, r.log,
+                least(coalesce(nullif(r.trigger_data->>'timestamp', '')::timestamptz, nullif(r.trigger_data->>'occurred_at', '')::timestamptz,
+                               nullif(r.trigger_data->>'scheduled_for', '')::timestamptz, r.started_at), r.started_at) as t0
+           from platform.automation_runs r where r.automation_id = $1),
+       conv as (
+         select runs.id, runs.t0, runs.log,
+                (select min(e."timestamp") from platform.events e ${PERSON.join}
+                  where e.environment_id = runs.environment_id and ${COUNTED_EVENTS}
+                    and coalesce(e.canonical_name, e.event_name) = $2
+                    and e."timestamp" >= runs.t0 and e."timestamp" < runs.t0 + make_interval(days => $3)
+                    and ${PERSON.expr} = runs.user_key) as converted_at
+           from runs)
+       select count(*)::int as entered,
+              count(converted_at)::int as converted,
+              count(*) filter (where converted_at is null and t0 + make_interval(days => $3) > now())::int as open,
+              count(*) filter (where exists (select 1 from jsonb_array_elements(log) x where x->>'detail' like 'Converted:%'))::int as stopped,
+              percentile_cont(0.5) within group (order by extract(epoch from converted_at - t0)) as median
+         from conv`,
+      [id, goal.event, goal.withinDays],
+    );
+    return { goal, entered: row!.entered, converted: row!.converted, open: row!.open, stopped: row!.stopped, medianSeconds: row!.median === null ? null : Math.round(Number(row!.median)) };
   });
 }

@@ -1,6 +1,5 @@
 import { deleteEmailTemplateAction, saveEmailTemplateAction } from "@/app/actions/engage";
 import { ActionForm } from "@/components/ActionForm";
-import { EnvSwitcher } from "@/components/EnvSwitcher";
 import { fmtDate } from "@/components/engage/shared";
 import { listEmailTemplates } from "@/modules/messaging/email";
 import { can } from "@/modules/rbac/authorize";
@@ -25,7 +24,7 @@ export default async function EmailTemplatesPage(props: PageProps<"/o/[org]/apps
   const sp = await props.searchParams;
   const { ctx, environments } = await loadApp(org, app);
   requirePermission(ctx, "automations.read");
-  const env = pickEnvironment(environments, sp.env);
+  const env = await pickEnvironment(environments, sp.env);
   const templates = await listEmailTemplates(ctx, env.id);
   const manage = can(ctx.role, "automations.manage");
 
@@ -38,7 +37,6 @@ export default async function EmailTemplatesPage(props: PageProps<"/o/[org]/apps
             Reusable emails for automation email steps in the <strong>{env.type}</strong> environment. Use <code>{"{{user.name}}"}</code> for user properties and <code>{"{{event.item}}"}</code> for the trigger event&apos;s properties. An unsubscribe link and one-click List-Unsubscribe headers are added to every email.
           </p>
         </div>
-        <EnvSwitcher path={`/o/${org}/apps/${app}/engage/email-templates`} current={env.type} />
       </div>
 
       {manage && (

@@ -15,7 +15,7 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "users.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   const userId = param(sp.user);
   const anonymousId = param(sp.anon);
   const ref: PersonRef | null = userId ? { userId } : anonymousId ? { anonymousId } : null;
@@ -42,8 +42,7 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
     <div className="space-y-6">
       <AnalyticsHeader
         title={p.userId ?? "Anonymous install"}
-        description={p.userId ? "An identified user, with the activity of installs linked only to them." : `Anonymous ID ${p.anonymousId}. Not linked to exactly one user, so its activity stays on this install.`}
-        path={path} env={env.type} query={sp}
+        description={p.userId ? "An identified user, with the activity of installs linked only to them." : `Anonymous ID ${p.anonymousId}. Not linked to exactly one user, so its activity stays on this install.`} env={env.type}
       />
       <p className="text-sm"><Link className="underline" href={`${usersPath}?env=${env.type}`}>← All users</Link></p>
 

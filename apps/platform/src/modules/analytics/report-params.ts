@@ -4,6 +4,9 @@
  * link with these params. Pure.
  */
 
+import { filtersFromSearch, partsFromFilter } from "@/modules/properties/filters";
+import type { PropertyFilter } from "@/modules/audiences/definition";
+
 export const REPORT_KINDS = ["trend", "funnel", "retention", "revenue"] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
@@ -31,12 +34,47 @@ function breakdownTo(q: Search, breakdown: unknown) {
   } else q.set("by", breakdown);
 }
 
+/**
+ * Range settings from page search params: `days` is a preset (7, 30, 90) or
+ * "custom", which uses `from` and `to`; `compare=1` adds the previous period.
+ * The dates are ignored unless the range is custom, so switching back to a
+ * preset never keeps old dates.
+ */
+export function rangeFromParams(sp: Search): { days?: string; from?: string; to?: string; compare?: boolean } {
+  const days = sp.get("days") || undefined;
+  const custom = days === "custom";
+  return {
+    days: custom ? undefined : days,
+    from: custom ? sp.get("from") || undefined : undefined,
+    to: custom ? sp.get("to") || undefined : undefined,
+    compare: sp.get("compare") === "1" || undefined,
+  };
+}
+
+/** Event property filters from the `fp`/`fo`/`fv` rows of the report form (at most 3). */
+export function eventFiltersFromParams(sp: Search) {
+  return filtersFromSearch({ fp: sp.getAll("fp"), fo: sp.getAll("fo"), fv: sp.getAll("fv") }, "f", 3);
+}
+
+const nonEmpty = <T,>(list: T[]) => (list.length ? list : undefined);
+
+function eventFiltersTo(q: Search, where: unknown) {
+  if (!Array.isArray(where)) return;
+  for (const f of where as PropertyFilter[]) {
+    const x = partsFromFilter(f);
+    q.append("fp", x.property);
+    q.append("fo", x.op);
+    q.append("fv", x.value);
+  }
+}
+
 /** The report service input for a kind, from page search params. */
 export function inputFromParams(kind: ReportKind, sp: Search): Record<string, unknown> {
-  const common = { days: sp.get("days") ?? undefined, cohortId: sp.get("cohort") || undefined };
+  const common = { ...rangeFromParams(sp), cohortId: sp.get("cohort") || undefined };
+  const interval = sp.get("interval") || undefined;
   switch (kind) {
     case "trend":
-      return { ...common, event: sp.get("event") ?? "", breakdown: breakdownFrom(sp) };
+      return { ...common, event: sp.get("event") ?? "", breakdown: breakdownFrom(sp), interval, where: nonEmpty(eventFiltersFromParams(sp).filters) };
     case "funnel":
       return {
         ...common,
@@ -47,7 +85,7 @@ export function inputFromParams(kind: ReportKind, sp: Search): Record<string, un
     case "retention":
       return { ...common, startEvent: sp.get("start") ?? "", returnEvent: sp.get("return") ?? "" };
     case "revenue":
-      return { ...common, breakdown: breakdownFrom(sp) };
+      return { ...common, breakdown: breakdownFrom(sp), interval };
   }
 }
 
@@ -61,6 +99,8 @@ export function paramsFromConfig(kind: ReportKind, config: Record<string, unknow
     case "trend":
       str("event", config.event);
       breakdownTo(q, config.breakdown);
+      eventFiltersTo(q, config.where);
+      str("interval", config.interval);
       break;
     case "funnel":
       for (const s of Array.isArray(config.steps) ? config.steps : []) q.append("step", String(s));
@@ -73,9 +113,15 @@ export function paramsFromConfig(kind: ReportKind, config: Record<string, unknow
       break;
     case "revenue":
       breakdownTo(q, config.breakdown);
+      str("interval", config.interval);
       break;
   }
-  str("days", config.days);
+  if (config.from && config.to) {
+    q.set("days", "custom");
+    str("from", config.from);
+    str("to", config.to);
+  } else str("days", config.days);
+  if (config.compare === true) q.set("compare", "1");
   str("cohort", config.cohortId);
   return q;
 }

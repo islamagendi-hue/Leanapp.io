@@ -7,7 +7,7 @@ import { definitionInputFromFields, fieldsFromDefinition, growthDefinitionSchema
 import { growthDefinitions, previewDefinition, type GrowthSummary } from "@/modules/growth/service";
 import { readPlan } from "@/modules/implementation/editor";
 import { can } from "@/modules/rbac/authorize";
-import { loadApp, pickEnvironment } from "@/server/session";
+import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Growth setup" };
 
@@ -61,7 +61,9 @@ export default async function GrowthSetupPage(props: PageProps<"/o/[org]/apps/[a
   const { org, app } = await props.params;
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
-  const env = pickEnvironment(environments, sp.env);
+  // Definitions are built from the tracking plan, which read-only viewers can't open.
+  requirePermission(ctx, "implementation.read");
+  const env = await pickEnvironment(environments, sp.env);
   const base = `/o/${org}/apps/${app}`;
   const defs = await growthDefinitions(ctx, a.id);
   const canEdit = can(ctx.role, "growth.write");
@@ -89,7 +91,7 @@ export default async function GrowthSetupPage(props: PageProps<"/o/[org]/apps/[a
         <h1 className="h1">Growth setup</h1>
         <div className="card">
           <p>Growth definitions are saved with the tracking plan. Create a tracking plan first.</p>
-          <Link href={`${base}/implementation/plan`} className="btn mt-4">Open tracking plan</Link>
+          <Link href={`${base}/settings/dev-ops/implementation/plan`} className="btn mt-4">Open tracking plan</Link>
         </div>
       </div>
     );
@@ -146,7 +148,7 @@ export default async function GrowthSetupPage(props: PageProps<"/o/[org]/apps/[a
           <ActionForm action={saveGrowthDefinitionAction.bind(null, org, app, a.id)} submitLabel={`Save to draft${defs.draft ? ` v${defs.draft.version}` : ""}`} className="space-y-3">
             {Object.entries(fieldsFromDefinition(candidate)).map(([k, v]) => <input key={k} type="hidden" name={k} value={v} />)}
           </ActionForm>
-          <p className="text-xs text-ink-3">Then approve and publish the draft on the <Link className="underline" href={`${base}/implementation/plan`}>tracking plan</Link> page. Publishing rebuilds growth state from all events.</p>
+          <p className="text-xs text-ink-3">Then approve and publish the draft on the <Link className="underline" href={`${base}/settings/dev-ops/implementation/plan`}>tracking plan</Link> page. Publishing rebuilds growth state from all events.</p>
         </div>
       )}
       {!canEdit && <p className="text-sm text-ink-3">You can preview definitions; saving them needs the growth.write permission (owner, admin or developer).</p>}

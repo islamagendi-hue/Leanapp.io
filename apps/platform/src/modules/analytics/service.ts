@@ -3,8 +3,14 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import type { Permission } from "@/modules/rbac/permissions";
+import { compileAudience, DefinitionError, parseDefinition, peopleCtes, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
-import { cohortDefinitionSchema, cohortSql, evCte, Params } from "./sql";
+import { measurable } from "./retention-rule";
+import {
+  bucketKeys, bucketSql, change, datesBetween, defaultInterval, intervalField, localDate, previousRange, rangeDays, rangeFields, resolveRange,
+  type Interval, type ReportRange,
+} from "./range";
+import { ANY_EVENT, evCte, Params } from "./sql";
 
 /**
  * Analytics on Postgres (ADR-002): event trends, funnels and retention for
@@ -13,30 +19,31 @@ import { cohortDefinitionSchema, cohortSql, evCte, Params } from "./sql";
  *
  * Conventions shared by all reports:
  * - Event names are canonical: accepted mappings count `purchase` and
- *   `order_completed` as one event. Only `track` events are counted; screens
- *   and identify calls are not events in these reports.
+ *   `order_completed` as one event. Events count by the shared rule in
+ *   ./sql.ts (COUNTED_EVENTS): processed track events and screen views.
  * - A person is the user_id; anonymous activity is attributed to the user when
  *   the install is linked to exactly one user (identity_links), otherwise it
  *   stays its own anonymous person. Shared devices are never merged.
- * - Days are calendar days in the app's timezone; ranges end now.
- * - Any report can be limited to a saved cohort (`cohortId`, see ./cohorts.ts).
- * Revenue, profiles, cohorts and saved reports live in sibling files.
+ * - Days are calendar days in the app's timezone. A range is a preset (last
+ *   7, 30 or 90 days, ending now) or custom calendar days (./range.ts); any
+ *   report can compare with the period of the same length just before it.
+ * - Any report can be limited to the people of an audience (`cohortId`, the
+ *   name saved reports have always used; see modules/audiences). Audiences
+ *   are the one segmentation layer: the same condition tree and SQL compiler
+ *   serve Analytics, Users and Engagement.
+ * Revenue, profiles and saved reports live in sibling files.
  */
 
-export const RANGES = [7, 30, 90] as const;
-export type RangeDays = (typeof RANGES)[number];
+export { RANGES, type RangeDays } from "./range";
 export const RANGE_SCHEMA = z.unknown().transform(rangeDays);
 export const BREAKDOWNS = ["platform", "app_version", "country"] as const;
 
 const STATEMENT_TIMEOUT = "15s";
 const MAX_GROUPS = 5;
 
-function rangeDays(v: unknown): RangeDays {
-  const n = Number(v);
-  return (RANGES as readonly number[]).includes(n) ? (n as RangeDays) : 30;
-}
-
 const eventName = z.string().trim().min(1).max(200);
+
+export { ANY_EVENT } from "./sql";
 
 export { PERSON } from "./sql";
 
@@ -48,10 +55,21 @@ export function rangeStart(days: number, now = new Date()): Date {
 
 /** Calendar days (YYYY-MM-DD) in `timezone` from range start to today, inclusive. */
 export function dayList(days: number, timezone: string, now = new Date()): string[] {
-  const fmt = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" });
-  const out = new Set<string>();
-  for (let i = days; i >= 0; i--) out.add(fmt.format(new Date(now.getTime() - i * 86_400_000)));
-  return [...out];
+  return datesBetween(localDate(rangeStart(days, now), timezone), localDate(now, timezone));
+}
+
+/** What a report shows about its range: the days it covers, and the comparison period when one was asked for. */
+export interface RangeInfo {
+  from: string;
+  to: string;
+  label: string;
+  preset: number | null;
+  previous: { from: string; to: string; label: string } | null;
+}
+
+function rangeInfo(range: ReportRange, timezone: string, compare: boolean | undefined): RangeInfo {
+  const prev = compare ? previousRange(range, timezone) : null;
+  return { from: range.from, to: range.to, label: range.label, preset: range.preset, previous: prev && { from: prev.from, to: prev.to, label: prev.label } };
 }
 
 /** A tenant transaction (RLS + permission check) with the analytics statement timeout. */
@@ -63,30 +81,58 @@ export function analyticsTx<T>(ctx: TenantContext, fn: (db: Db) => Promise<T>, p
 }
 const query = analyticsTx;
 
-/** A saved cohort's definition; the cohort must belong to the report's environment (RLS keeps it in the organization). */
-export async function loadCohortDefinition(db: Db, environmentId: string, id: string) {
+/** An audience's definition; it must be in the report's environment and not archived (RLS keeps it in the organization). */
+export async function loadAudienceDefinition(db: Db, environmentId: string, id: string): Promise<AudienceNode> {
+  if (!z.uuid().safeParse(id).success) throw new ValidationError("That audience doesn't exist in this environment.");
   const row = await db.one<{ definition: unknown }>(
-    "select definition from platform.analytics_cohorts where id = $1 and environment_id = $2",
+    "select definition from platform.audiences where id = $1 and environment_id = $2 and status <> 'archived'",
     [id, environmentId],
   );
-  if (!row) throw new ValidationError("That cohort doesn't exist in this environment.");
-  return cohortDefinitionSchema.parse(row.definition);
+  if (!row) throw new ValidationError("That audience doesn't exist in this environment.");
+  try {
+    return parseDefinition(row.definition);
+  } catch (e) {
+    if (e instanceof DefinitionError) throw new ValidationError(`That audience can't be used: ${e.message}`);
+    throw e;
+  }
+}
+
+/** SELECT of an audience's people (column `person`), its values added to `p`, whose $1 must be the environment id. */
+export async function audienceSql(db: Db, scope: { environmentId: string; timezone?: string }, id: string, p: Params): Promise<string> {
+  const def = await loadAudienceDefinition(db, scope.environmentId, id);
+  return compileAudience(def, scope.environmentId, { params: p, timezone: scope.timezone ?? "UTC" }).sql;
 }
 
 /**
  * The `ev` CTE (and the cohort CTE when filtering) with its bind values:
- * `base` must start with [environment id, range start].
+ * `base` must start with [environment id, range start]; `end` bounds the
+ * events (exclusive), none means up to now.
  */
 export async function eventsSource(
   db: Db,
   scope: { environmentId: string; timezone?: string },
   cohort: string | undefined,
   base: unknown[],
+  end?: Date,
 ): Promise<{ sql: string; p: Params }> {
   const p = new Params(base);
-  if (!cohort) return { sql: evCte(), p };
-  const def = await loadCohortDefinition(db, scope.environmentId, cohort);
-  return { sql: evCte(cohortSql(def, p, { timezone: scope.timezone ?? "UTC" })), p };
+  const cohortText = cohort ? await audienceSql(db, scope, cohort, p) : undefined;
+  return { sql: evCte(cohortText, end ? p.add(end) : undefined), p };
+}
+
+/** Events and distinct people in a range: of one event, or of every counted event (active people). */
+async function totalsIn(
+  db: Db,
+  scope: { environmentId: string; timezone?: string },
+  cohort: string | undefined,
+  range: Pick<ReportRange, "start" | "end">,
+  event: string | null,
+  filters: PropertyFilter[] = [],
+) {
+  const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start], range.end);
+  const where = [event === null ? "true" : `name = ${src.p.add(event)}`, ...filters.map((f) => propertyPredicate("properties", f, src.p))].join(" and ");
+  const row = await db.one<{ count: string; people: string }>(`with ${src.sql} select count(*) as count, count(distinct person) as people from ev where ${where}`, src.p.values);
+  return { count: Number(row?.count ?? 0), people: Number(row?.people ?? 0) };
 }
 
 // ── Event list ──────────────────────────────────────────────────────────────
@@ -99,12 +145,12 @@ export interface EventTotal {
 /** Every event seen in the range with its count and distinct people, most frequent first. */
 export async function topEvents(
   ctx: TenantContext,
-  scope: { environmentId: string; days: unknown; timezone?: string; cohortId?: unknown },
+  scope: { environmentId: string; days?: unknown; from?: string; to?: string; timezone?: string; cohortId?: unknown },
 ): Promise<EventTotal[]> {
-  const days = rangeDays(scope.days);
+  const range = resolveRange(scope, scope.timezone ?? "UTC");
   const cohort = cohortId.parse(scope.cohortId);
   return query(ctx, async (db) => {
-    const src = await eventsSource(db, scope, cohort, [scope.environmentId, rangeStart(days)]);
+    const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start], range.end);
     const rows = await db.query<{ name: string; count: string; people: string }>(
       `with ${src.sql} select name, count(*) as count, count(distinct person) as people from ev group by name order by count(*) desc, name limit 200`,
       src.p.values,
@@ -123,82 +169,174 @@ export interface TrendSeries {
 
 export interface Trend {
   event: string;
+  /** Bucket keys: each day, or the Monday of each week, or the first of each month. */
   days: string[];
+  interval: Interval;
   series: TrendSeries[];
   total: { count: number; people: number };
+  /** Totals of the comparison period, when one was asked for. */
+  previous: { count: number; people: number } | null;
   breakdown: string | null;
+  /** Event property filters applied (all must match). */
+  where: PropertyFilter[];
+  range: RangeInfo;
 }
+
+/** Event property filters on a report (the same filters as audience conditions). */
+export const MAX_EVENT_FILTERS = 3;
+const eventFilters = z.array(propertyFilterSchema).max(MAX_EVENT_FILTERS).optional().catch(undefined);
 
 export const trendSchema = z.object({
   event: eventName,
-  days: z.unknown().transform(rangeDays),
+  ...rangeFields,
+  interval: intervalField,
   breakdown: z.union([z.enum(BREAKDOWNS), z.string().regex(/^property:[A-Za-z0-9_.$-]{1,64}$/)]).optional().catch(undefined),
+  where: eventFilters,
   cohortId,
 });
 
-function groupExpr(breakdown: string | undefined): { sql: string; param?: string } {
-  if (!breakdown) return { sql: "'All'" };
-  if (breakdown === "platform") return { sql: "coalesce(platform, '(none)')" };
-  if (breakdown === "app_version") return { sql: "coalesce(app_version, '(none)')" };
-  if (breakdown === "country") return { sql: "coalesce(context->'location'->>'country', context->>'country', '(none)')" };
-  return { sql: "coalesce(properties->>$4, '(none)')", param: breakdown.slice("property:".length) };
+function groupExpr(breakdown: string | undefined, p: Params): string {
+  if (!breakdown) return "'All'";
+  if (breakdown === "platform") return "coalesce(platform, '(none)')";
+  if (breakdown === "app_version") return "coalesce(app_version, '(none)')";
+  if (breakdown === "country") return "coalesce(context->'location'->>'country', context->>'country', '(none)')";
+  return `coalesce(properties->>${p.add(breakdown.slice("property:".length))}, '(none)')`;
 }
 
-/** Daily counts and distinct people for one event, optionally split by a dimension (top 5, the rest as "Other"). */
+/**
+ * Counts and distinct people for one event per day, week or month, optionally
+ * split by a dimension: the 5 most frequent values, the rest together as
+ * "Other" (its people are counted distinct across those values, like any series).
+ */
 export async function eventTrend(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Trend> {
   const r = trendSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose an event.");
-  const { event, days, breakdown, cohortId: cohort } = r.data;
-  const group = groupExpr(breakdown);
+  const { event, breakdown, cohortId: cohort, compare } = r.data;
+  const where = r.data.where ?? [];
+  const range = resolveRange(r.data, scope.timezone);
+  const interval = defaultInterval(range, r.data.interval);
   return query(ctx, async (db) => {
-    const params: unknown[] = [scope.environmentId, rangeStart(days), scope.timezone, ...(group.param ? [group.param] : []), event];
-    const nameParam = `$${params.length}`;
-    const src = await eventsSource(db, scope, cohort, params);
+    const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start], range.end);
+    const p = src.p;
+    const match = [event === ANY_EVENT ? "true" : `name = ${p.add(event)}`, ...where.map((f) => propertyPredicate("properties", f, p))].join(" and ");
+    const group = groupExpr(breakdown, p);
+    let keep: string[] | null = null;
+    if (breakdown) {
+      const top = await db.query<{ g: string }>(
+        `with ${src.sql} select ${group} as g from ev where ${match} group by 1 order by count(*) desc, 1 limit ${MAX_GROUPS + 1}`,
+        p.values,
+      );
+      if (top.length > MAX_GROUPS) keep = top.slice(0, MAX_GROUPS).map((x) => x.g);
+    }
+    // Bound after the top-values query, which doesn't use them (Postgres can't type an unused bind).
+    const tz = p.add(scope.timezone);
+    const keepParam = keep ? p.add(keep) : null;
     const rows = await db.query<{ g: string; d: string; count: string; people: string }>(
       `with ${src.sql}
-       select ${group.sql} as g, (ts at time zone $3)::date as d, count(*) as count, count(distinct person) as people
-         from ev where name = ${nameParam} group by 1, 2`,
-      src.p.values,
+       select ${keepParam ? `case when g = any(${keepParam}::text[]) then g else 'Other' end` : "g"} as g, d, count(*) as count, count(distinct person) as people
+         from (select ${group} as g, ${bucketSql("ts", tz, interval)} as d, person from ev where ${match}) x
+        group by 1, 2`,
+      p.values,
     );
-    const totalsSrc = await eventsSource(db, scope, cohort, [scope.environmentId, rangeStart(days), event]);
-    const totals = await db.one<{ count: string; people: string }>(
-      `with ${totalsSrc.sql} select count(*) as count, count(distinct person) as people from ev where name = $3`,
-      totalsSrc.p.values,
-    );
-    const dayKeys = dayList(days, scope.timezone);
-    const byGroup = new Map<string, number>();
-    for (const row of rows) byGroup.set(row.g, (byGroup.get(row.g) ?? 0) + Number(row.count));
-    const ranked = [...byGroup.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => g);
-    const keep = new Set(ranked.slice(0, MAX_GROUPS));
+    const only = event === ANY_EVENT ? null : event;
+    const total = await totalsIn(db, scope, cohort, range, only, where);
+    const previous = compare ? await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), only, where) : null;
+    const keys = bucketKeys(range, interval);
     const series = new Map<string, TrendSeries>();
-    const ensure = (key: string) => {
-      if (!series.has(key)) series.set(key, { key, counts: dayKeys.map(() => 0), people: dayKeys.map(() => 0), total: 0 });
-      return series.get(key)!;
-    };
     for (const row of rows) {
-      const i = dayKeys.indexOf(row.d);
+      const i = keys.indexOf(row.d);
       if (i < 0) continue;
-      const s = ensure(keep.has(row.g) ? row.g : "Other");
+      if (!series.has(row.g)) series.set(row.g, { key: row.g, counts: keys.map(() => 0), people: keys.map(() => 0), total: 0 });
+      const s = series.get(row.g)!;
       s.counts[i] += Number(row.count);
-      // People are distinct per group and day; "Other" sums groups, so it's an upper bound there.
       s.people[i] += Number(row.people);
       s.total += Number(row.count);
     }
     return {
       event,
-      days: dayKeys,
-      series: [...series.values()].sort((a, b) => (a.key === "Other" ? 1 : b.key === "Other" ? -1 : b.total - a.total)),
-      total: { count: Number(totals!.count), people: Number(totals!.people) },
+      days: keys,
+      interval,
+      series: [...series.values()].sort((a, b) => (a.key === "Other" ? 1 : b.key === "Other" ? -1 : b.total - a.total || a.key.localeCompare(b.key))),
+      total,
+      previous,
       breakdown: breakdown ?? null,
+      where,
+      range: rangeInfo(range, scope.timezone, compare),
     };
   });
+}
+
+// ── Single-number results ───────────────────────────────────────────────────
+/** events / people: of one event; all_events: every counted event; active_people: anyone with one; new_people: first seen in the range. */
+export const KPI_METRICS = ["events", "people", "active_people", "all_events", "new_people"] as const;
+export type KpiMetric = (typeof KPI_METRICS)[number];
+
+export const kpiSchema = z
+  .object({
+    metric: z.enum(KPI_METRICS),
+    event: eventName.optional(),
+    ...rangeFields,
+    where: eventFilters,
+    cohortId,
+  })
+  .refine((k) => !(k.metric === "events" || k.metric === "people") || k.event, "Choose an event.");
+
+export interface Kpi {
+  metric: KpiMetric;
+  event: string | null;
+  value: number;
+  /** The comparison period's value, when one was asked for. */
+  previous: number | null;
+  /** Relative change from the comparison period (0.25 = +25%), or null. */
+  change: number | null;
+  range: RangeInfo;
+}
+
+/**
+ * One number for a range: how many times an event happened, how many people
+ * did it, or how many people were active at all (any counted event).
+ */
+export async function kpi(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Kpi> {
+  const r = kpiSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid metric.");
+  const { metric, cohortId: cohort, compare } = r.data;
+  const event = metric === "events" || metric === "people" ? (r.data.event === ANY_EVENT ? null : r.data.event!) : null;
+  const where = r.data.where ?? [];
+  const range = resolveRange(r.data, scope.timezone);
+  return query(ctx, async (db) => {
+    const measure = async (period: Pick<ReportRange, "start" | "end">) => {
+      if (metric === "new_people") return newPeopleIn(db, scope, cohort, period);
+      const t = await totalsIn(db, scope, cohort, period, event, where);
+      return metric === "events" || metric === "all_events" ? t.count : t.people;
+    };
+    const value = await measure(range);
+    const previous = compare ? await measure(previousRange(range, scope.timezone)) : null;
+    return { metric, event, value, previous, change: change(value, previous), range: rangeInfo(range, scope.timezone, compare) };
+  });
+}
+
+/**
+ * People first seen in a range: identified users by the earliest of their
+ * profile and their own installs, and anonymous installs (not linked to one
+ * user) by their own first sighting. Same people as audiences.
+ */
+async function newPeopleIn(db: Db, scope: { environmentId: string; timezone?: string }, cohort: string | undefined, range: Pick<ReportRange, "start" | "end">): Promise<number> {
+  const p = new Params([scope.environmentId]);
+  const audience = cohort ? await audienceSql(db, scope, cohort, p) : null;
+  const row = await db.one<{ n: string }>(
+    `with ${peopleCtes()}${audience ? `, cohort as (${audience})` : ""}
+     select count(*) as n from people
+      where first_seen_at >= ${p.add(range.start)} and first_seen_at < ${p.add(range.end)}${audience ? " and person in (select person from cohort)" : ""}`,
+    p.values,
+  );
+  return Number(row?.n ?? 0);
 }
 
 // ── Funnel ──────────────────────────────────────────────────────────────────
 export const funnelSchema = z.object({
   steps: z.array(eventName).min(2, "A funnel needs at least two steps.").max(6, "Use at most six steps."),
   windowDays: z.coerce.number().int().min(1).max(30).catch(7),
-  days: z.unknown().transform(rangeDays),
+  ...rangeFields,
   breakdown: z.enum(["platform"]).optional().catch(undefined),
   cohortId,
 });
@@ -217,24 +355,29 @@ export interface FunnelStep {
 export interface Funnel {
   steps: FunnelStep[];
   windowDays: number;
-  days: RangeDays;
+  days: number;
   breakdown: { key: string; people: number[] }[] | null;
+  /** The comparison period: people entering and completing every step, when one was asked for. */
+  previous: { entered: number; converted: number } | null;
+  range: RangeInfo;
 }
 
 /**
  * Ordered funnel: a person enters at their first step-1 event in the range and
  * converts on each later step done after the previous one, within the window
- * from entering.
+ * from entering (later steps may fall after the range ends).
  */
 export async function funnel(ctx: TenantContext, scope: { environmentId: string; timezone?: string }, input: unknown): Promise<Funnel> {
   const r = funnelSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
-  const { steps, windowDays, days, breakdown, cohortId: cohort } = r.data;
-  // $1 env, $2 range start, $3 window (days), $4.. step names.
-  const stepParam = (i: number) => `$${4 + i}`;
+  const { steps, windowDays, breakdown, cohortId: cohort, compare } = r.data;
+  const timezone = scope.timezone ?? "UTC";
+  const range = resolveRange(r.data, timezone);
+  // $1 env, $2 range start, $3 window (days), $4 range end, $5.. step names.
+  const stepParam = (i: number) => `$${5 + i}`;
   const ctes = [
     `s0 as (select distinct on (person) person, ts as t, id, ts as t0, ${breakdown ? "coalesce(platform, '(none)')" : "'all'"} as g
-            from ev where name = ${stepParam(0)} order by person, ts, id)`,
+            from ev where name = ${stepParam(0)} and ts < $4 order by person, ts, id)`,
     // Each step is the earliest matching event strictly after the previous step's
     // event (ties on timestamp broken by id), so a repeated step needs a second event.
     ...steps.slice(1).map(
@@ -253,12 +396,18 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
              from s${k} join s${k - 1} using (person) group by s${k}.g`,
     )
     .join(" union all ");
+  const run = async (db: Db, period: ReportRange) => {
+    const src = await eventsSource(db, scope, cohort, [scope.environmentId, period.start, windowDays, period.end, ...steps]);
+    return db.query<{ step: number; g: string; people: string; median: number | null }>(`with ${src.sql}, ${ctes.join(", ")} ${select}`, src.p.values);
+  };
   return query(ctx, async (db) => {
-    const src = await eventsSource(db, scope, cohort, [scope.environmentId, rangeStart(days), windowDays, ...steps]);
-    const rows = await db.query<{ step: number; g: string; people: string; median: number | null }>(
-      `with ${src.sql}, ${ctes.join(", ")} ${select}`,
-      src.p.values,
-    );
+    const rows = await run(db, range);
+    let previous: Funnel["previous"] = null;
+    if (compare) {
+      const prev = await run(db, previousRange(range, timezone));
+      const at = (k: number) => prev.filter((x) => Number(x.step) === k).reduce((n, x) => n + Number(x.people), 0);
+      previous = { entered: at(0), converted: at(steps.length - 1) };
+    }
     const people = steps.map((_, k) => rows.filter((x) => Number(x.step) === k).reduce((n, x) => n + Number(x.people), 0));
     // Without a breakdown there is one group, so its median is the overall median. Medians of groups can't be combined.
     const medians = breakdown
@@ -278,7 +427,7 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
         .map((key) => ({ key, people: steps.map((_, k) => Number(rows.find((x) => Number(x.step) === k && x.g === key)?.people ?? 0)) }))
         .sort((a, b) => b.people[0] - a.people[0]);
     }
-    return { steps: out, windowDays, days, breakdown: groups };
+    return { steps: out, windowDays, days: range.preset ?? datesBetween(range.from, range.to).length, breakdown: groups, previous, range: rangeInfo(range, timezone, compare) };
   });
 }
 
@@ -288,7 +437,7 @@ export const RETENTION_DAYS = [1, 3, 7, 14, 30] as const;
 export const retentionSchema = z.object({
   startEvent: eventName,
   returnEvent: eventName,
-  days: z.unknown().transform(rangeDays),
+  ...rangeFields,
   cohortId,
 });
 
@@ -304,50 +453,67 @@ export interface Retention {
   /** Weighted over cohorts old enough to measure each day. */
   overall: (number | null)[];
   people: number;
+  /** The comparison period's overall retention, when one was asked for. */
+  previous: (number | null)[] | null;
+  range: RangeInfo;
 }
 
 /**
- * N-day retention: people are grouped by the day of their first start event in
- * the range; a person is retained on day N if they did the return event on that
- * calendar day (in the app's timezone).
+ * N-day retention by the shared rule (./retention-rule.ts): people are grouped
+ * by the day of their first start event in the range; a person is retained on
+ * day N if they did the return event on that calendar day (in the app's
+ * timezone), which may be after the range ends.
  */
 export async function retention(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Retention> {
   const r = retentionSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose a start and a return event.");
-  const { startEvent, returnEvent, days, cohortId: cohort } = r.data;
+  const { cohortId: cohort, compare } = r.data;
+  const range = resolveRange(r.data, scope.timezone);
   return query(ctx, async (db) => {
-    const src = await eventsSource(db, scope, cohort, [scope.environmentId, rangeStart(days), scope.timezone, startEvent, returnEvent, [...RETENTION_DAYS]]);
-    const rows = await db.query<{ d0: string; n: number | null; size: string; returned: string }>(
-      `with ${src.sql},
-        starts as (select person, min((ts at time zone $3)::date) as d0 from ev where name = $4 group by person),
-        returns as (select distinct person, (ts at time zone $3)::date as d from ev where name = $5),
-        sizes as (select d0, count(*) as size from starts group by d0)
-       select s.d0, (r.d - s.d0) as n, z.size, count(distinct r.person) as returned
-         from starts s
-         join sizes z on z.d0 = s.d0
-         left join returns r on r.person = s.person and r.d - s.d0 = any($6)
-        group by s.d0, n, z.size`,
-      src.p.values,
-    );
-    const today = dayList(0, scope.timezone).at(-1)!;
-    const elapsed = (d0: string) => Math.round((Date.parse(today) - Date.parse(d0)) / 86_400_000);
-    const byDay = new Map<string, RetentionCohort>();
-    for (const row of rows) {
-      const day = row.d0;
-      if (!byDay.has(day)) {
-        byDay.set(day, { day, size: Number(row.size), returned: RETENTION_DAYS.map((n) => (n < elapsed(day) ? 0 : null)) });
-      }
-      if (row.n !== null) {
-        const i = RETENTION_DAYS.indexOf(Number(row.n) as (typeof RETENTION_DAYS)[number]);
-        if (i >= 0 && byDay.get(day)!.returned[i] !== null) byDay.get(day)!.returned[i] = Number(row.returned);
-      }
-    }
-    const cohorts = [...byDay.values()].sort((a, b) => b.day.localeCompare(a.day));
-    const overall = RETENTION_DAYS.map((_, i) => {
-      const eligible = cohorts.filter((c) => c.returned[i] !== null);
-      const size = eligible.reduce((n, c) => n + c.size, 0);
-      return size ? eligible.reduce((n, c) => n + (c.returned[i] ?? 0), 0) / size : null;
-    });
-    return { cohorts, overall, people: cohorts.reduce((n, c) => n + c.size, 0) };
+    const current = await retentionIn(db, scope, cohort, r.data, range);
+    const previous = compare ? (await retentionIn(db, scope, cohort, r.data, previousRange(range, scope.timezone))).overall : null;
+    return { ...current, previous, range: rangeInfo(range, scope.timezone, compare) };
   });
+}
+
+async function retentionIn(
+  db: Db,
+  scope: { environmentId: string; timezone: string },
+  cohort: string | undefined,
+  input: { startEvent: string; returnEvent: string },
+  range: ReportRange,
+): Promise<Pick<Retention, "cohorts" | "overall" | "people">> {
+  const { startEvent, returnEvent } = input;
+  const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start, scope.timezone, startEvent, returnEvent, [...RETENTION_DAYS], range.end]);
+  const rows = await db.query<{ d0: string; n: number | null; size: string; returned: string }>(
+    `with ${src.sql},
+      starts as (select person, min((ts at time zone $3)::date) as d0 from ev where (name = $4 or $4 = '${ANY_EVENT}') and ts < $7 group by person),
+      returns as (select distinct person, (ts at time zone $3)::date as d from ev where (name = $5 or $5 = '${ANY_EVENT}')),
+      sizes as (select d0, count(*) as size from starts group by d0)
+     select s.d0, (r.d - s.d0) as n, z.size, count(distinct r.person) as returned
+       from starts s
+       join sizes z on z.d0 = s.d0
+       left join returns r on r.person = s.person and r.d - s.d0 = any($6)
+      group by s.d0, n, z.size`,
+    src.p.values,
+  );
+  const today = localDate(new Date(), scope.timezone);
+  const byDay = new Map<string, RetentionCohort>();
+  for (const row of rows) {
+    const day = row.d0;
+    if (!byDay.has(day)) {
+      byDay.set(day, { day, size: Number(row.size), returned: RETENTION_DAYS.map((n) => (measurable(day, n, today) ? 0 : null)) });
+    }
+    if (row.n !== null) {
+      const i = RETENTION_DAYS.indexOf(Number(row.n) as (typeof RETENTION_DAYS)[number]);
+      if (i >= 0 && byDay.get(day)!.returned[i] !== null) byDay.get(day)!.returned[i] = Number(row.returned);
+    }
+  }
+  const cohorts = [...byDay.values()].sort((a, b) => b.day.localeCompare(a.day));
+  const overall = RETENTION_DAYS.map((_, i) => {
+    const eligible = cohorts.filter((c) => c.returned[i] !== null);
+    const size = eligible.reduce((n, c) => n + c.size, 0);
+    return size ? eligible.reduce((n, c) => n + (c.returned[i] ?? 0), 0) / size : null;
+  });
+  return { cohorts, overall, people: cohorts.reduce((n, c) => n + c.size, 0) };
 }

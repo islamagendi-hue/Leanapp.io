@@ -23,7 +23,7 @@ export async function setGrowthModelAction(orgSlug: string, appSlug: string, app
 export async function setMappingHistoryAction(orgSlug: string, appSlug: string, appId: string, on: boolean, _: ActionState): Promise<ActionState> {
   try {
     await setMappingHistory(await requireTenant(orgSlug), appId, on);
-    revalidatePath(`${base(orgSlug, appSlug)}/implementation/validation`);
+    revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/events`);
     return { ok: true, message: on ? "Mapping history on. All past events are being re-mapped." : "Mapping history off." };
   } catch (err) {
     return toActionError(err);
@@ -33,7 +33,7 @@ export async function setMappingHistoryAction(orgSlug: string, appSlug: string, 
 export async function revertMappingAction(orgSlug: string, appSlug: string, appId: string, mappingId: string, revision: number, _: ActionState): Promise<ActionState> {
   try {
     await revertMapping(await requireTenant(orgSlug), appId, mappingId, revision);
-    revalidatePath(`${base(orgSlug, appSlug)}/implementation/validation`);
+    revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/events`);
     return { ok: true, message: `Reverted to revision ${revision}.` };
   } catch (err) {
     return toActionError(err);
@@ -45,7 +45,7 @@ export async function saveGrowthDefinitionAction(orgSlug: string, appSlug: strin
     const ctx = await requireTenant(orgSlug);
     const r = await setDraftGrowth({ kind: "user", ctx }, appId, definitionInputFromFields((k) => form.get(k)?.toString()));
     revalidatePath(`${base(orgSlug, appSlug)}/growth/setup`);
-    revalidatePath(`${base(orgSlug, appSlug)}/implementation/plan`);
+    revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan`);
     return {
       ok: true,
       message: `Saved in draft v${r.version}${r.draftCreated ? " (new draft)" : ""}. Approve and publish it on the tracking plan page to apply it.`,

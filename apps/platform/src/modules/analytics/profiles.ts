@@ -4,7 +4,8 @@ import type { Db } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { loadRevenueRules, NO_CURRENCY, revenueCtes } from "./revenue";
-import { analyticsTx } from "./service";
+import { analyticsTx, audienceSql } from "./service";
+import { propertyFilterSchema, propertyPredicate, type PropertyFilter } from "@/modules/audiences/definition";
 import { Params } from "./sql";
 
 /**
@@ -24,32 +25,65 @@ const idSchema = z.string().trim().min(1).max(256);
 export type PersonRef = { userId: string } | { anonymousId: string };
 
 export interface SearchResult {
-  users: { userId: string; firstSeen: Date; lastSeen: Date }[];
+  users: { userId: string; firstSeen: Date; lastSeen: Date; properties: Record<string, unknown> }[];
   installs: { anonymousId: string; platform: string | null; firstSeen: Date; lastSeen: Date; linkedUsers: string[] }[];
 }
 
 const likePrefix = (q: string) => `${q.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
 
-/** Users and installs whose id starts with `q` (exact matches first); recently seen users when `q` is empty. */
-export async function searchPeople(ctx: TenantContext, environmentId: string, q: unknown, opts: { limit?: number } = {}): Promise<SearchResult> {
+export const MAX_USER_FILTERS = 3;
+export const MAX_USER_COLUMNS = 5;
+
+export interface SearchOptions {
+  limit?: number;
+  /** User property filters (catalog properties); all must match. */
+  filters?: PropertyFilter[];
+  /** User properties to return with each user. */
+  columns?: string[];
+  /** Only members of this audience (computed now, like a report filter). */
+  audienceId?: string;
+  /** The project's timezone, for audiences with date ranges. */
+  timezone?: string;
+}
+
+/**
+ * Users and installs whose id starts with `q` (exact matches first); recently
+ * seen users when `q` is empty. Property filters and an audience narrow the
+ * users (installs have no user properties, so they're left out when filtering).
+ */
+export async function searchPeople(ctx: TenantContext, environmentId: string, q: unknown, opts: SearchOptions = {}): Promise<SearchResult> {
   const query = typeof q === "string" ? q.trim().slice(0, 256) : "";
   const limit = Math.min(Math.max(opts.limit ?? 25, 1), 100);
+  const filters = (opts.filters ?? []).slice(0, MAX_USER_FILTERS).map((f) => {
+    const r = propertyFilterSchema.safeParse(f);
+    if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid filter.");
+    return r.data;
+  });
+  const columns = [...new Set(opts.columns ?? [])].filter((c) => /^[A-Za-z0-9_$][A-Za-z0-9_.$-]{0,63}$/.test(c)).slice(0, MAX_USER_COLUMNS);
   return analyticsTx(
     ctx,
     async (db) => {
-      if (!query) {
-        const users = await db.query<{ external_id: string; first_seen_at: Date; last_seen_at: Date }>(
-          `select external_id, first_seen_at, last_seen_at from platform.app_users where environment_id = $1 order by last_seen_at desc, external_id limit $2`,
-          [environmentId, limit],
-        );
-        return { users: users.map((u) => ({ userId: u.external_id, firstSeen: u.first_seen_at, lastSeen: u.last_seen_at })), installs: [] };
-      }
-      const users = await db.query<{ external_id: string; first_seen_at: Date; last_seen_at: Date }>(
-        `select external_id, first_seen_at, last_seen_at from platform.app_users
-          where environment_id = $1 and external_id like $2
-          order by external_id = $3 desc, last_seen_at desc limit $4`,
-        [environmentId, likePrefix(query), query, limit],
+      const p = new Params([environmentId]);
+      const where = [`u.environment_id = $1`];
+      const audience = opts.audienceId ? await audienceSql(db, { environmentId, timezone: opts.timezone }, opts.audienceId, p) : null;
+      if (audience) where.push("u.external_id in (select person from audience)");
+      if (query) where.push(`u.external_id like ${p.add(likePrefix(query))}`);
+      for (const f of filters) where.push(propertyPredicate("u.properties", f, p));
+      const props = columns.length
+        ? `coalesce((select jsonb_object_agg(k.key, k.value) from jsonb_each(u.properties) k where k.key = any(${p.add(columns)}::text[])), '{}'::jsonb)`
+        : `'{}'::jsonb`;
+      const order = query ? `u.external_id = ${p.add(query)} desc, u.last_seen_at desc` : "u.last_seen_at desc, u.external_id";
+      const users = await db.query<{ external_id: string; first_seen_at: Date; last_seen_at: Date; props: Record<string, unknown> }>(
+        `${audience ? `with audience as (${audience}) ` : ""}select u.external_id, u.first_seen_at, u.last_seen_at, ${props} as props from platform.app_users u
+          where ${where.join(" and ")}
+          order by ${order} limit ${p.add(limit)}`,
+        p.values,
       );
+      const result: SearchResult = {
+        users: users.map((u) => ({ userId: u.external_id, firstSeen: u.first_seen_at, lastSeen: u.last_seen_at, properties: u.props })),
+        installs: [],
+      };
+      if (!query || filters.length || audience) return result;
       const installs = await db.query<{ anonymous_id: string; platform: string | null; first_seen_at: Date; last_seen_at: Date; linked: string[] }>(
         `select a.anonymous_id, a.platform, a.first_seen_at, a.last_seen_at,
                 coalesce((select array_agg(il.user_id order by il.user_id) from platform.identity_links il
@@ -59,10 +93,8 @@ export async function searchPeople(ctx: TenantContext, environmentId: string, q:
           order by a.anonymous_id = $3 desc, a.last_seen_at desc limit $4`,
         [environmentId, likePrefix(query), query, limit],
       );
-      return {
-        users: users.map((u) => ({ userId: u.external_id, firstSeen: u.first_seen_at, lastSeen: u.last_seen_at })),
-        installs: installs.map((a) => ({ anonymousId: a.anonymous_id, platform: a.platform, firstSeen: a.first_seen_at, lastSeen: a.last_seen_at, linkedUsers: a.linked })),
-      };
+      result.installs = installs.map((a) => ({ anonymousId: a.anonymous_id, platform: a.platform, firstSeen: a.first_seen_at, lastSeen: a.last_seen_at, linkedUsers: a.linked }));
+      return result;
     },
     PERMISSION,
   );

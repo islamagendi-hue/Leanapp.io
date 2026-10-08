@@ -1,11 +1,12 @@
 import "server-only";
 import { z } from "zod";
-import { isUniqueViolation } from "@/lib/db";
+import { isUniqueViolation, type Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify } from "@/lib/slug";
-import { audit } from "@/modules/audit/service";
+import { audit, type AuditAction } from "@/modules/audit/service";
 import { assertCanAddApp } from "@/modules/billing/enforcement";
 import { insertSdkKey } from "@/modules/credentials/service";
+import { enqueueReprocess } from "@/modules/reprocess/jobs";
 import type { EnvironmentType } from "@/modules/credentials/keys";
 import { validTimezone } from "@/modules/organizations/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
@@ -103,6 +104,14 @@ export function listApps(ctx: TenantContext): Promise<App[]> {
   );
 }
 
+/** Whether the environment has received any event yet (the Overview's "Connect your app" state). */
+export function environmentHasEvents(ctx: TenantContext, environmentId: string): Promise<boolean> {
+  return tenantTx(ctx, "apps.read", async (db) => {
+    const row = await db.one<{ found: boolean }>("select exists (select 1 from platform.events where environment_id = $1) as found", [environmentId]);
+    return !!row?.found;
+  });
+}
+
 export function getAppBySlug(ctx: TenantContext, slug: string): Promise<{ app: App; environments: Environment[] }> {
   return tenantTx(ctx, "apps.read", async (db) => {
     const app = await db.one<App>(`select ${APP_COLUMNS} from platform.apps a where a.slug = $1`, [slug]);
@@ -113,5 +122,108 @@ export function getAppBySlug(ctx: TenantContext, slug: string): Promise<{ app: A
       [app.id],
     );
     return { app, environments };
+  });
+}
+
+// ── Project settings and lifecycle ───────────────────────────────────────────
+
+export const updateAppSchema = z.object({
+  name: createAppSchema.shape.name,
+  description: createAppSchema.shape.description,
+  category: createAppSchema.shape.category,
+});
+
+export const appLocaleSchema = z.object({
+  timezone: z.string().trim().min(1, "Choose a timezone.").max(64).refine(validTimezone, "Unknown timezone."),
+  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Use a 3-letter currency code."),
+});
+
+/** Archived projects, for the workspace's project list (restore lives in each one's settings). */
+export function listArchivedApps(ctx: TenantContext): Promise<App[]> {
+  return tenantTx(ctx, "apps.read", (db) =>
+    db.query<App>(`select ${APP_COLUMNS} from platform.apps a where a.status = 'archived' order by a.updated_at desc`),
+  );
+}
+
+/** Writes the changed columns of one app and audits them as `action`; returns what changed (nothing: a no-op). */
+async function changeApp(ctx: TenantContext, appId: string, after: Record<string, string | null>, action: AuditAction, onChange?: (db: Db, changed: string[]) => Promise<void>): Promise<void> {
+  const cols = Object.keys(after);
+  await tenantTx(ctx, "apps.update", async (db) => {
+    const before = await db.one<Record<string, string | null>>(`select ${cols.join(", ")} from platform.apps where id = $1 for update`, [appId]);
+    if (!before) throw new NotFoundError("App");
+    const changed = cols.filter((k) => after[k] !== before[k]);
+    if (!changed.length) return;
+    await db.query(
+      `update platform.apps set ${changed.map((k, i) => `${k} = $${i + 2}`).join(", ")} where id = $1`,
+      [appId, ...changed.map((k) => after[k])],
+    );
+    await audit(db, {
+      organizationId: ctx.organizationId, actorUserId: ctx.userId, action, targetType: "app", targetId: appId,
+      metadata: { changed: Object.fromEntries(changed.map((k) => [k, { from: before[k], to: after[k] }])) },
+    });
+    await onChange?.(db, changed);
+  });
+}
+
+/** Renames or re-describes a project. The slug, and so every URL and SDK key, stays as it is. */
+export async function updateApp(ctx: TenantContext, appId: string, input: unknown): Promise<void> {
+  const r = updateAppSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  await changeApp(ctx, appId, { name: r.data.name, description: r.data.description || null, category: r.data.category || null }, "app.updated");
+}
+
+/** The timezone reports bucket days in and the currency revenue is shown in. Changing them rebuilds Activation. */
+export async function updateAppLocale(ctx: TenantContext, appId: string, input: unknown): Promise<void> {
+  const r = appLocaleSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  await changeApp(ctx, appId, { timezone: r.data.timezone, default_currency: r.data.defaultCurrency }, "app.locale_updated", async (db, changed) => {
+    // Activation's retention days are calendar days in the app's timezone (and revenue
+    // falls back to its currency), so growth state is rebuilt when either changes.
+    const app = await db.one<{ features: Record<string, unknown> }>("select features from platform.apps where id = $1", [appId]);
+    if (app?.features?.growth_model === true) await enqueueReprocess(db, appId, "growth_rebuild", `${changed.join(" and ").replace("default_currency", "currency")} changed`, ctx.userId);
+  });
+}
+
+/**
+ * Archives a project: its SDK keys stop being accepted (credentials only authenticate active apps),
+ * it leaves the project list and the plan's app count, and all its data is kept for a restore.
+ */
+export function archiveApp(ctx: TenantContext, appId: string): Promise<void> {
+  return tenantTx(ctx, "apps.delete", async (db) => {
+    const app = await db.one<{ status: string }>("select status from platform.apps where id = $1 for update", [appId]);
+    if (!app) throw new NotFoundError("App");
+    if (app.status === "archived") throw new ConflictError("This project is already archived.");
+    await db.query("update platform.apps set status = 'archived' where id = $1", [appId]);
+    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "app.archived", targetType: "app", targetId: appId });
+  });
+}
+
+/** Brings an archived project back, if the plan has room for another active app. */
+export function restoreApp(ctx: TenantContext, appId: string): Promise<void> {
+  return tenantTx(ctx, "apps.delete", async (db) => {
+    const app = await db.one<{ status: string }>("select status from platform.apps where id = $1 for update", [appId]);
+    if (!app) throw new NotFoundError("App");
+    if (app.status !== "archived") throw new ConflictError("This project is not archived.");
+    await assertCanAddApp(db, ctx.organizationId);
+    await db.query("update platform.apps set status = 'active' where id = $1", [appId]);
+    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "app.restored", targetType: "app", targetId: appId });
+  });
+}
+
+/**
+ * Pauses or resumes one environment. A paused environment's SDK keys are refused, so it stops
+ * receiving events; its data stays. Production can't be paused here: that is what archiving is for.
+ */
+export function setEnvironmentStatus(ctx: TenantContext, environmentId: string, status: "active" | "disabled"): Promise<void> {
+  return tenantTx(ctx, "apps.update", async (db) => {
+    const env = await db.one<{ type: EnvironmentType; status: string }>("select type, status from platform.environments where id = $1 for update", [environmentId]);
+    if (!env) throw new NotFoundError("Environment");
+    if (env.type === "production") throw new ValidationError("Production can't be paused. Archive the project instead.");
+    if (env.status === status) return;
+    await db.query("update platform.environments set status = $2 where id = $1", [environmentId, status]);
+    await audit(db, {
+      organizationId: ctx.organizationId, actorUserId: ctx.userId, action: status === "active" ? "environment.enabled" : "environment.disabled",
+      targetType: "environment", targetId: environmentId, metadata: { type: env.type },
+    });
   });
 }

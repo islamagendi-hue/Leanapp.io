@@ -12,7 +12,7 @@ import { processPendingEvents } from "@/modules/processing/processor";
 import { signIn } from "@/modules/auth/service";
 import { apiSecretKey } from "@/server/api";
 import { SESSION_COOKIE } from "@/server/session";
-import * as exportRoute from "@/app/o/[org]/apps/[app]/privacy/export/route";
+import * as exportRoute from "@/app/o/[org]/apps/[app]/settings/privacy/export/route";
 import { makeTenant } from "./helpers";
 
 type T = Awaited<ReturnType<typeof makeTenant>>;
@@ -205,7 +205,7 @@ describe("API authentication", () => {
 });
 
 describe("dashboard export download", () => {
-  const url = () => `http://app.test/o/${t.org.slug}/apps/${t.app.slug}/privacy/export`;
+  const url = () => `http://app.test/o/${t.org.slug}/apps/${t.app.slug}/settings/privacy/export`;
   const call = async (headers: Record<string, string>) => {
     const { token } = await signIn({ email: t.user.email, password: "correct-horse-9" }, { ip: "10.3.0.1" });
     const body = new URLSearchParams({ environment: t.dev.id, user_id: "u2", anonymous_id: "" });

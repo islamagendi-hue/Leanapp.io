@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { EnvSwitcher } from "@/components/EnvSwitcher";
 import { fmtDate, StatusPill } from "@/components/engage/shared";
 import { describeNode } from "@/modules/audiences/definition";
 import { listAudiences } from "@/modules/audiences/service";
@@ -13,7 +12,7 @@ export default async function AudiencesPage(props: PageProps<"/o/[org]/apps/[app
   const sp = await props.searchParams;
   const { ctx, environments } = await loadApp(org, app);
   requirePermission(ctx, "audiences.read");
-  const env = pickEnvironment(environments, sp.env);
+  const env = await pickEnvironment(environments, sp.env);
   const audiences = await listAudiences(ctx, env.id, { includeArchived: sp.archived === "1" });
   const base = `/o/${org}/apps/${app}/engage/audiences`;
 
@@ -25,7 +24,6 @@ export default async function AudiencesPage(props: PageProps<"/o/[org]/apps/[app
           <p className="mt-1 max-w-2xl text-ink-2">Groups of people defined by what they did, who they are and how they use your app. Active audiences are recomputed on a schedule and can start automations when people enter or leave.</p>
         </div>
         <div className="flex items-center gap-3">
-          <EnvSwitcher path={base} current={env.type} />
           {can(ctx.role, "audiences.manage") && <Link className="btn" href={`${base}/new?env=${env.type}`}>New audience</Link>}
         </div>
       </div>

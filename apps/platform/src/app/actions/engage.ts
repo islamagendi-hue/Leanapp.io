@@ -92,7 +92,7 @@ export async function automationLifecycleAction(orgSlug: string, appSlug: string
 }
 
 // ── Webhooks ────────────────────────────────────────────────────────────────
-const hooksPath = (org: string, app: string) => `${appBase(org, app)}/developers/webhooks`;
+const hooksPath = (org: string, app: string) => `${appBase(org, app)}/settings/dev-ops/webhooks`;
 
 export async function createWebhookAction(orgSlug: string, appSlug: string, environmentId: string, _: ActionState, form: FormData): Promise<ActionState> {
   try {
@@ -142,7 +142,7 @@ export async function retryDeliveryAction(orgSlug: string, appSlug: string, webh
 }
 
 // ── Integrations ────────────────────────────────────────────────────────────
-const integrationsPath = (org: string, app: string) => `${appBase(org, app)}/engage/integrations`;
+const integrationsPath = (org: string, app: string) => `${appBase(org, app)}/settings/dev-ops/channels`;
 
 export async function configureIntegrationAction(orgSlug: string, appSlug: string, environmentId: string, provider: "fcm" | "apns" | "resend" | "whatsapp", _: ActionState, form: FormData): Promise<ActionState> {
   try {

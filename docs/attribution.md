@@ -1,10 +1,10 @@
 # Attribution
 
-LeanApp is its own mobile measurement partner: it does not import AppsFlyer, Adjust or Branch data. The target design (installs and attribution as first-class records, the go.leanapp.io link service, deferred deep links, SKAN, network integrations, MVP vs later and what can't be replicated) is in [attribution architecture](attribution-architecture.md). This page describes what is built today.
+LeanApp attributes installs from its own event stream and its own tracking links; it does not import AppsFlyer, Adjust or Branch data. In the product this is **Acquisition (Beta)**, and it is not presented as a full mobile measurement partner (no cost import, ROAS, fraud prevention, multi-touch, view-through or ad-network-reported installs). The target design (installs and attribution as first-class records, the go.leanapp.io link service, deferred deep links, SKAN, network integrations, MVP vs later and what can't be replicated) is in [attribution architecture](attribution-architecture.md). This page describes what is built today.
 
 **Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, settings, and SKAdNetwork / AdAttributionKit postback copies with conversion value schemas (server side). Not built: the iOS SDK applying conversion values, view-through (impression) attribution, ad-network cost import, MMP import (AppsFlyer / Adjust / Branch), first-touch and linear reporting models.
 
-Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migration `0012_attribution.sql`. Dashboard: app → Attribution (Overview, Tracking links, Postbacks, Settings).
+Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migration `0012_attribution.sql`. Dashboard: app → Acquisition (Beta): Overview, Sources & campaigns, Attribution, Tracking links & QR, Deep links. Settings live in Settings → Dev Ops → Attribution.
 
 ## Why it matters here
 
@@ -80,7 +80,14 @@ Credentials are encrypted at rest (AES-256-GCM, `INTEGRATIONS_ENCRYPTION_KEY`), 
 
 ## Reports
 
-App → Attribution: clicks, installs (attributed / organic / probabilistic / reinstalls), re-engagements, installs per day, installs by source and campaign, conversions and revenue by source and campaign (per currency), and per-link click → install rates, for 7 / 30 / 90 days per environment. `attribution.read` sees them; `attribution.manage` edits links, postbacks and settings (owner, admin, marketer; analysts read only; developers don't see attribution).
+App → Acquisition (Beta), labelled Beta on every page with a "What Acquisition (Beta) measures" note:
+
+- **Overview** (`/acquisition`): clicks, installs, attributed and organic shares, installs per day, top 5 sources, top 5 links (click → install) and credited revenue.
+- **Sources & campaigns** (`/acquisition/sources`): installs by source and campaign (deterministic, probabilistic, re-engagements), and conversions and revenue by campaign per currency.
+- **Attribution** (`/acquisition/attribution`): how installs were matched (deterministic, probabilistic, organic, reinstalls), the matching rules in force (linking to Settings → Dev Ops → Attribution), SKAdNetwork postbacks by source identifier (linking to the SKAN setup), and what the Beta doesn't include.
+- **Tracking links & QR** (`/acquisition/links`): links with clicks and installs, create / pause / resume, and each link's share URL with campaign / placement overrides and an SVG QR code (`?link={code}`). The old QR address on Deep links (`/acquisition/deep-links?link=…`) forwards here.
+
+The numbers: clicks, installs (attributed / organic / probabilistic / reinstalls), re-engagements, installs per day, installs by source and campaign, conversions and revenue by source and campaign (per currency), and per-link click → install rates, for 7 / 30 / 90 days per environment. `attribution.read` sees them; `attribution.manage` edits links, postbacks and settings (owner, admin, marketer; analysts read only; developers don't see attribution).
 
 ## SKAdNetwork / AdAttributionKit
 

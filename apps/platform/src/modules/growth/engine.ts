@@ -24,6 +24,8 @@ export interface GrowthConfig {
   versionId: string | null;
   definition: GrowthDefinition;
   defaultCurrency: string;
+  /** The app's timezone: retention days are calendar days in it. */
+  timezone: string;
   apply: { sql: string; extra: unknown[] };
   rebuild: { sql: string; extra: unknown[] };
 }
@@ -33,12 +35,13 @@ export async function growthConfig(db: Db, appId: string): Promise<GrowthConfig 
   const row = await db.one<{
     features: Record<string, unknown>;
     default_currency: string;
+    timezone: string;
     version_id: string | null;
     growth: unknown;
     activation_event: string | null;
     north_star_event: string | null;
   }>(
-    `select a.features, a.default_currency, v.id as version_id, v.growth, v.activation_event, v.north_star_event
+    `select a.features, a.default_currency, a.timezone, v.id as version_id, v.growth, v.activation_event, v.north_star_event
        from platform.apps a
        left join platform.tracking_plans p on p.app_id = a.id
        left join platform.tracking_plan_versions v on v.id = p.published_version_id
@@ -48,17 +51,18 @@ export async function growthConfig(db: Db, appId: string): Promise<GrowthConfig 
   if (!row || row.features?.growth_model !== true) return null;
   const events = row.version_id ? await loadPlanEvents(db, row.version_id) : [];
   const definition = effectiveDefinition(row.version_id ? row : null, events);
-  return compileConfig(appId, row.version_id, definition, row.default_currency);
+  return compileConfig(appId, row.version_id, definition, row.default_currency, row.timezone);
 }
 
-export function compileConfig(appId: string, versionId: string | null, definition: GrowthDefinition, defaultCurrency: string): GrowthConfig {
-  const apply = applyBatchSql(definition, defaultCurrency);
-  const rebuild = rebuildSelectSql(definition, defaultCurrency);
+export function compileConfig(appId: string, versionId: string | null, definition: GrowthDefinition, defaultCurrency: string, timezone: string): GrowthConfig {
+  const apply = applyBatchSql(definition, defaultCurrency, timezone);
+  const rebuild = rebuildSelectSql(definition, defaultCurrency, timezone);
   return {
     appId,
     versionId,
     definition,
     defaultCurrency,
+    timezone,
     apply: { sql: apply.sql, extra: apply.params.values.slice(3) },
     rebuild: { sql: rebuild.sql, extra: rebuild.params.values.slice(5) },
   };

@@ -12,10 +12,13 @@
  * is the user_id; an install linked to exactly one user belongs to that user;
  * an install linked to none or to several users (a shared device) is its own
  * anonymous person "anon:<anonymous_id>". Shared devices are never merged.
+ * Event conditions count events by the analytics counting rule (COUNTED_EVENTS),
+ * so an audience used as a report filter agrees with the report's numbers.
  *
  * Pure module (no database access) so it can be unit tested.
  */
 import { z } from "zod";
+import { COUNTED_EVENTS } from "@/modules/analytics/sql";
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 export const PROPERTY_OPS = ["eq", "neq", "gt", "gte", "lt", "lte", "contains", "not_contains", "in", "exists", "not_exists"] as const;
@@ -46,6 +49,9 @@ export const propertyFilterSchema = z
 export type PropertyFilter = z.infer<typeof propertyFilterSchema>;
 
 const days = z.coerce.number().int().min(1).max(365);
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a YYYY-MM-DD date.").refine((s) => !Number.isNaN(Date.parse(s)), "Not a valid date.");
+/** Calendar days, both included, in the project's timezone. */
+export const dateRangeSchema = z.object({ from: isoDate, to: isoDate }).refine((r) => r.from <= r.to, "The start date must be on or before the end date.");
 
 export const eventLeafSchema = z.object({
   type: z.literal("event"),
@@ -55,6 +61,8 @@ export const eventLeafSchema = z.object({
   countOp: z.enum(COUNT_OPS).default("gte"),
   count: z.coerce.number().int().min(1).max(1_000_000).default(1),
   withinDays: days.default(30),
+  /** Between two dates instead of the last `withinDays` days. */
+  between: dateRangeSchema.optional(),
   /** Automations only: count events since the run was triggered instead of the last N days. */
   sinceTrigger: z.boolean().optional(),
   where: z.array(propertyFilterSchema).max(5).default([]),
@@ -125,6 +133,7 @@ export function parseDefinition(input: unknown, opts: { allowSinceTrigger?: bool
     maxDepth = Math.max(maxDepth, d);
     count++;
     if (leaf.type === "event" && leaf.sinceTrigger && !opts.allowSinceTrigger) throw new DefinitionError('"Since the trigger" is only available in automation conditions.');
+    if (leaf.type === "event" && leaf.sinceTrigger && leaf.between) throw new DefinitionError('Choose either "since the trigger" or a date range.');
   });
   if (maxDepth > MAX_DEPTH) throw new DefinitionError(`Conditions can be nested at most ${MAX_DEPTH} levels deep.`);
   if (count > MAX_LEAVES) throw new DefinitionError(`Use at most ${MAX_LEAVES} conditions.`);
@@ -146,7 +155,13 @@ function firstMessage(issues: readonly Issue[]): string | null {
 }
 
 // ── Compiler ────────────────────────────────────────────────────────────────
-class Params {
+/** Bind values collected while compiling; `add` returns the placeholder. Same shape as the analytics Params. */
+export interface ParamSink {
+  readonly values: unknown[];
+  add(v: unknown): string;
+}
+
+class Params implements ParamSink {
   readonly values: unknown[] = [];
   add(v: unknown): string {
     this.values.push(v);
@@ -163,7 +178,7 @@ function numeric(col: string, key: string): string {
 const CMP: Record<string, string> = { eq: "=", gt: ">", gte: ">=", lt: "<", lte: "<=" };
 
 /** Predicate for one property filter on a jsonb column expression (a fixed, trusted string). */
-export function propertyPredicate(col: string, f: PropertyFilter, p: Params): string {
+export function propertyPredicate(col: string, f: PropertyFilter, p: ParamSink): string {
   const key = p.add(f.property);
   const text = `(${col}->>${key})`;
   switch (f.op) {
@@ -203,6 +218,13 @@ export interface CompileOptions {
   personKey?: string;
   /** Start of "since the trigger" windows. */
   triggerAt?: Date;
+  /** Timezone of date-range windows (the project's). Default UTC. */
+  timezone?: string;
+  /**
+   * Bind values to add to, when the audience is embedded in a larger query
+   * (analytics reports). Its $1 must already be the environment id.
+   */
+  params?: ParamSink;
 }
 
 export interface Compiled {
@@ -212,20 +234,60 @@ export interface Compiled {
 }
 
 /**
+ * The people of an environment as CTEs `solo`, `user_installs` and `people`
+ * (person, props, first_seen_at, last_seen_at, platforms). $1 is the
+ * environment id; `person` (a placeholder) limits it to one person.
+ * Identified users take the earliest / latest of their profile and the
+ * installs linked only to them; other installs are anonymous people.
+ */
+export function peopleCtes(person?: string | null): string {
+  return `solo as (
+      select anonymous_id, min(user_id) as user_id from platform.identity_links
+       where environment_id = $1 group by anonymous_id having count(*) = 1),
+    user_installs as (
+      select s.user_id, min(a.first_seen_at) as first_seen_at, max(a.last_seen_at) as last_seen_at,
+             array_remove(array_agg(distinct a.platform), null) as platforms
+        from solo s join platform.anonymous_users a on a.environment_id = $1 and a.anonymous_id = s.anonymous_id
+       group by s.user_id),
+    people as (
+      select u.external_id as person, u.properties as props,
+             least(u.first_seen_at, i.first_seen_at) as first_seen_at, greatest(u.last_seen_at, i.last_seen_at) as last_seen_at,
+             coalesce(i.platforms, '{}') as platforms
+        from platform.app_users u left join user_installs i on i.user_id = u.external_id
+       where u.environment_id = $1${person ? ` and u.external_id = ${person}` : ""}
+      union all
+      select 'anon:' || a.anonymous_id, coalesce(a.first_context->'traits', '{}'::jsonb), a.first_seen_at, a.last_seen_at,
+             array_remove(array[a.platform], null)
+        from platform.anonymous_users a
+       where a.environment_id = $1 and not exists (select 1 from solo s where s.anonymous_id = a.anonymous_id)${person ? ` and 'anon:' || a.anonymous_id = ${person}` : ""})`;
+}
+
+/**
  * Compiles a definition into `select person from …` for one environment.
  * People with a pending deletion request are always excluded.
  */
 export function compileAudience(def: AudienceNode, environmentId: string, opts: CompileOptions = {}): Compiled {
-  const p = new Params();
-  p.add(environmentId); // $1
+  let p: ParamSink;
+  if (opts.params) {
+    if (opts.params.values[0] !== environmentId) throw new Error("compileAudience: $1 must be the environment id.");
+    p = opts.params;
+  } else {
+    p = new Params();
+    p.add(environmentId); // $1
+  }
   const ctes: string[] = [];
   const joins: string[] = [];
   const person = opts.personKey !== undefined ? p.add(opts.personKey) : null;
 
-  const window = (leaf: { withinDays: number; sinceTrigger?: boolean }) => {
+  const window = (leaf: { withinDays: number; sinceTrigger?: boolean; between?: { from: string; to: string } }) => {
     if (leaf.sinceTrigger) {
       if (!opts.triggerAt) throw new DefinitionError('"Since the trigger" needs a trigger time.');
       return `e."timestamp" >= ${p.add(opts.triggerAt.toISOString())}::timestamptz`;
+    }
+    if (leaf.between) {
+      const tz = p.add(opts.timezone ?? "UTC");
+      return `e."timestamp" >= (${p.add(leaf.between.from)}::date::timestamp at time zone ${tz}::text)
+             and e."timestamp" < ((${p.add(leaf.between.to)}::date + 1)::timestamp at time zone ${tz}::text)`;
     }
     return `e."timestamp" >= now() - make_interval(days => ${p.add(leaf.withinDays)}::int)`;
   };
@@ -244,7 +306,7 @@ export function compileAudience(def: AudienceNode, environmentId: string, opts: 
         ctes.push(`${alias} as (
           select ${PERSON_EXPR} as person, count(*) as n
             from platform.events e ${PERSON_JOIN}
-           where e.environment_id = $1 and e.type = 'track' and coalesce(e.user_id, e.anonymous_id) is not null
+           where e.environment_id = $1 and ${COUNTED_EVENTS} and coalesce(e.user_id, e.anonymous_id) is not null
              and coalesce(e.canonical_name, e.event_name) = ${p.add(n.event)}::text
              and ${window(n)}${filters}${personFilter}
            group by 1)`);
@@ -263,7 +325,7 @@ export function compileAudience(def: AudienceNode, environmentId: string, opts: 
         ctes.push(`${alias} as (
           select ${PERSON_EXPR} as person, sum(${numeric("e.properties", key)}) as total
             from platform.events e ${PERSON_JOIN}
-           where e.environment_id = $1 and e.type = 'track' and coalesce(e.user_id, e.anonymous_id) is not null
+           where e.environment_id = $1 and ${COUNTED_EVENTS} and coalesce(e.user_id, e.anonymous_id) is not null
              and ${window(n)}${names}${personFilter}
            group by 1)`);
         joins.push(`left join ${alias} on ${alias}.person = p.person`);
@@ -283,25 +345,7 @@ export function compileAudience(def: AudienceNode, environmentId: string, opts: 
   };
 
   const where = compileNode(def);
-  const sql = `with solo as (
-      select anonymous_id, min(user_id) as user_id from platform.identity_links
-       where environment_id = $1 group by anonymous_id having count(*) = 1),
-    user_installs as (
-      select s.user_id, min(a.first_seen_at) as first_seen_at, max(a.last_seen_at) as last_seen_at,
-             array_remove(array_agg(distinct a.platform), null) as platforms
-        from solo s join platform.anonymous_users a on a.environment_id = $1 and a.anonymous_id = s.anonymous_id
-       group by s.user_id),
-    people as (
-      select u.external_id as person, u.properties as props,
-             least(u.first_seen_at, i.first_seen_at) as first_seen_at, greatest(u.last_seen_at, i.last_seen_at) as last_seen_at,
-             coalesce(i.platforms, '{}') as platforms
-        from platform.app_users u left join user_installs i on i.user_id = u.external_id
-       where u.environment_id = $1${person ? ` and u.external_id = ${person}` : ""}
-      union all
-      select 'anon:' || a.anonymous_id, coalesce(a.first_context->'traits', '{}'::jsonb), a.first_seen_at, a.last_seen_at,
-             array_remove(array[a.platform], null)
-        from platform.anonymous_users a
-       where a.environment_id = $1 and not exists (select 1 from solo s where s.anonymous_id = a.anonymous_id)${person ? ` and 'anon:' || a.anonymous_id = ${person}` : ""})${ctes.length ? ",\n    " + ctes.join(",\n    ") : ""}
+  const sql = `with ${peopleCtes(person)}${ctes.length ? ",\n    " + ctes.join(",\n    ") : ""}
     select p.person from people p
       ${joins.join("\n      ")}
      where ${where}
@@ -330,7 +374,7 @@ export function describeNode(n: AudienceNode): string {
     case "not":
       return `NOT ${describeNode(n.child)}`;
     case "event": {
-      const when = n.sinceTrigger ? "since the trigger" : `in the last ${n.withinDays} days`;
+      const when = n.sinceTrigger ? "since the trigger" : n.between ? (n.between.from === n.between.to ? `on ${n.between.from}` : `between ${n.between.from} and ${n.between.to}`) : `in the last ${n.withinDays} days`;
       const where = n.where.length ? ` where ${n.where.map(describeFilter).join(" and ")}` : "";
       if (!n.did) return `did not do ${n.event}${where} ${when}`;
       const times = n.countOp === "gte" ? (n.count === 1 ? "" : ` at least ${n.count} times`) : n.countOp === "eq" ? ` exactly ${n.count} times` : ` at most ${n.count} times`;

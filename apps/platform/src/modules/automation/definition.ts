@@ -33,6 +33,8 @@ export const triggerSchema = z.discriminatedUnion("type", [
     at: z.string().regex(HHMM, "Use HH:MM (24-hour)."),
     weekday: z.coerce.number().int().min(0).max(6).optional(),
   }),
+  /** One send to everyone in an audience at `at` (or as soon as activated, if `at` has passed). Used by campaigns. */
+  z.object({ type: z.literal("once"), audienceId: uuid, at: z.iso.datetime({ offset: true, message: "Choose when to send." }) }),
 ]);
 export type Trigger = z.infer<typeof triggerSchema>;
 
@@ -78,6 +80,8 @@ export const stepSchema = z.discriminatedUnion("type", [
     phoneProperty: propertyName.default("phone"),
   }),
   z.object({ type: z.literal("update_user_property"), property: propertyName, value: scalar }),
+  /** Ends the run here (e.g. the end of a branch's "yes" path). */
+  z.object({ type: z.literal("exit") }),
   z.object({
     type: z.literal("send_event"), event: eventName,
     properties: z.record(propertyName, scalar).refine((p) => Object.keys(p).length <= 20, "At most 20 properties.").default({}),
@@ -96,6 +100,14 @@ export const definitionSchema = z
     frequencyCap: z.object({ messages: z.coerce.number().int().min(1).max(100), hours: z.coerce.number().int().min(1).max(720) }).nullable().default({ messages: 3, hours: 24 }),
     /** Push and email wait out these local hours (organization timezone). In-app messages are not affected. */
     quietHours: z.object({ start: z.string().regex(HHMM, "Use HH:MM."), end: z.string().regex(HHMM, "Use HH:MM.") }).nullable().default({ start: "22:00", end: "08:00" }),
+    /**
+     * Conversion goal: the event that means the flow worked, done within
+     * `withinDays` of the trigger. Reported per flow; with stopOnConversion
+     * the run ends as soon as the person converts, so no more messages go out.
+     */
+    goal: z.object({ event: eventName, withinDays: z.coerce.number().int().min(1).max(90).default(7), stopOnConversion: z.boolean().default(true) }).nullable().default(null),
+    /** Exit event: the run ends as soon as the person does this event after the trigger. */
+    exitEvent: z.string().trim().max(200).nullable().default(null).transform((v) => v || null),
   })
   .superRefine((d, ctx) => {
     d.steps.forEach((s, i) => {
@@ -107,6 +119,9 @@ export const definitionSchema = z
         else if (s.else.goto >= d.steps.length) ctx.addIssue({ code: "custom", path: ["steps", i], message: `Step ${i + 1}: there is no step ${s.else.goto + 1}.` });
       }
     });
+    const triggerEvent = d.trigger.type === "event" ? d.trigger.event : null;
+    if (d.goal && d.goal.event === triggerEvent) ctx.addIssue({ code: "custom", path: ["goal"], message: "The goal must be a different event from the trigger." });
+    if (d.exitEvent && d.exitEvent === triggerEvent) ctx.addIssue({ code: "custom", path: ["exitEvent"], message: "The exit event must be a different event from the trigger." });
     if (d.trigger.type === "schedule" && d.trigger.every === "week" && d.trigger.weekday === undefined) {
       ctx.addIssue({ code: "custom", path: ["trigger"], message: "Choose a weekday for a weekly schedule." });
     }
@@ -162,6 +177,7 @@ export function describeStep(s: Step): string {
     case "whatsapp": return `WhatsApp template: ${s.template} (${s.language})`;
     case "update_user_property": return `Set user property ${s.property} = ${JSON.stringify(s.value)}`;
     case "send_event": return `Send event ${s.event}`;
+    case "exit": return "Exit";
   }
 }
 
@@ -174,5 +190,6 @@ export function describeTrigger(t: Trigger, audienceName: (id: string) => string
       const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
       return `${t.every === "day" ? "Every day" : `Every ${days[t.weekday ?? 0]}`} at ${t.at} for everyone in ${audienceName(t.audienceId)}`;
     }
+    case "once": return `Once at ${t.at} for everyone in ${audienceName(t.audienceId)}`;
   }
 }

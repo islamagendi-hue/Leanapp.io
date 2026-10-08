@@ -8,7 +8,18 @@
 | Flutter (Dart) | `leanapp_analytics` (`sdks/flutter`) | **Built**, 25 tests with a mock HTTP client, `flutter analyze` clean. Not yet on pub.dev. |
 | Server | REST API with a secret key ([API](api.md)) | **Built** |
 
-The native SDKs are built but not yet published to a package registry, so apps add them from this repository (see each SDK's README). Publishing needs the owner's Sonatype/Maven Central account and signing key, a public Git tag for Swift Package Manager (and optionally a CocoaPods trunk account), and a pub.dev verified publisher.
+What each SDK does **not** do yet (the dashboard's SDK & API keys page shows the same list, from `apps/platform/src/modules/implementation/sdks.ts`):
+
+| SDK | Not built yet |
+| --- | --- |
+| JavaScript / React Native | Play install referrer on React Native (needs a native module), `deep_link_url` on opens, in-app message display, deferred / resolve deep link calls |
+| Android | consent per purpose (`optOut` / `optIn` only), in-app message display, deferred / resolve deep link calls |
+| iOS | consent per purpose (`optOut` / `optIn` only), SKAdNetwork / AdAttributionKit conversion values, in-app message display, deferred / resolve deep link calls |
+| Flutter | consent per purpose (`optOut` / `optIn` only), install referrer without a plugin, in-app message display, deferred / resolve deep link calls |
+
+The dashboard's snippets (SDK & API keys, and the per-event snippets on the tracking plan) use only calls that exist in these SDKs; `sdks.test.ts` checks every call against the SDK sources, so a renamed method fails the unit tests.
+
+The SDKs are built but not yet published to a package registry, so apps add them from this repository (see each SDK's README). Publishing needs the owner's Sonatype/Maven Central account and signing key, a public Git tag for Swift Package Manager (and optionally a CocoaPods trunk account), and a pub.dev verified publisher.
 
 ## Design principles
 
@@ -134,7 +145,7 @@ What every SDK must send so the [attribution engine](attribution.md) can match i
 | `context.device.id` | context | always, when the platform allows a stable install-independent id | reinstall detection |
 | `context.campaign.install_referrer` | Android | on `app_installed` (hold it until the Play Install Referrer API answers, ~10 s max) | LeanApp links put `click_id=lac_…&utm_source=…&utm_campaign=…&deep_link=…` in the Play referrer: exact match |
 | `context.campaign.referrer_click_timestamp_seconds`, `install_begin_timestamp_seconds`, `google_play_instant` | Android | with the referrer | lookback check on the store click |
-| `context.attribution.deep_link_url` | all | on the app open caused by a deep / universal link, and on `app_installed` when a deferred deep link is known | `click_id` and `utm_*` in the URL |
+| `context.attribution.deep_link_url` | all | on the app open caused by a deep / universal link (native SDKs; no SDK calls the deferred deep link API yet, see [deep links](deep-links.md)) | `click_id` and `utm_*` in the URL |
 | `context.attribution.click_id` | all | when the app was opened from a URL with `click_id` | exact match (install) and re-engagement (later opens) |
 | `context.attribution.gclid` / `gbraid` / `wbraid` / `fbclid` / `ttclid` / `ScCid` / `twclid` / `msclkid` | all | when present in the opening URL or referrer | ad-network deterministic match and network postbacks |
 | `context.attribution.utm_source` … `utm_content` | all | when present | campaign labels |

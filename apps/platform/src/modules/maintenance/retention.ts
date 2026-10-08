@@ -23,6 +23,8 @@ const OPERATIONAL = [
   // Idempotency replays and the debugger's "rejected today" only look back hours; 30 days leaves room for support questions.
   { label: "event_batches", sql: "delete from platform.event_batches where received_at < now() - interval '30 days'" },
   { label: "api_request_logs", sql: "delete from platform.api_request_logs where created_at < now() - interval '30 days'" },
+  // Report results are reused for minutes (analytics/cache.ts); expired ones are never read.
+  { label: "report_cache", sql: "delete from platform.report_cache where expires_at < now()" },
 ] as const;
 
 export async function purgeOperationalData(): Promise<Record<string, number>> {

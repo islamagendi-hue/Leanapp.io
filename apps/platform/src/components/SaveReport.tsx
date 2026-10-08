@@ -8,7 +8,7 @@ export function SaveReport({ org, app, environmentId, kind, query }: {
 }) {
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(query)) {
-    if (k === "env" || v === undefined) continue;
+    if (k === "env" || k === "fresh" || v === undefined) continue;
     for (const item of Array.isArray(v) ? v : [v]) q.append(k, item);
   }
   return (

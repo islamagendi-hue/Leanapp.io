@@ -15,6 +15,10 @@ import { enqueueTriggers, stepRuns } from "@/modules/automation/engine";
 import { activateAutomation, archiveAutomation, createAutomation, getAutomation } from "@/modules/automation/service";
 import { authenticateIngestionKey, type IngestionPrincipal } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
+import { deliveryByChannel, sendTestMessage, TEST_SENDS_PER_HOUR } from "@/modules/messaging/delivery";
+import { pendingInAppMessages } from "@/modules/messaging/in-app";
+import { rateOf } from "@/modules/messaging/metrics";
+import { ValidationError } from "@/lib/errors";
 import { addEmailDomain, deleteEmailTemplate, getEmailDomain, refreshEmailDomain, saveEmailTemplate } from "@/modules/messaging/email";
 import { configureResend, configureWhatsApp, listIntegrations } from "@/modules/messaging/integrations";
 import { processPendingEvents } from "@/modules/processing/processor";
@@ -323,5 +327,59 @@ describe("email campaigns", () => {
     expect((await runsOf(id)).filter((r) => r.user_key === "w1").flatMap((r) => r.log).filter((l) => l.type === "email").map((l) => l.detail)).toContain("Not sent: suppressed");
     await archiveAutomation(t.ctx, id);
     await deleteEmailTemplate(t.ctx, templateId);
+  });
+});
+
+describe("channels & delivery (PR 11)", () => {
+  it("counts what each channel can report, and marks the rest as not available", async () => {
+    const d = await deliveryByChannel(t.ctx, t.dev.id, 30);
+    // WhatsApp: w1 sent and read (receipts applied above); w3 failed.
+    expect(d.whatsapp).toEqual({ sent: 1, failed: 1, delivered: 1, opened: 1, clicked: null });
+    // Email: Resend accepted w1's email; no delivery events exist for email yet.
+    expect(d.email).toEqual({ sent: 1, failed: 0, delivered: null, opened: null, clicked: null });
+    expect(d.push).toEqual({ sent: 0, failed: 0, delivered: null, opened: null, clicked: null });
+    expect(d.in_app).toEqual({ sent: 0, failed: 0, delivered: null, opened: 0, clicked: 0 });
+    expect(rateOf(d.whatsapp.opened, d.whatsapp.sent)).toBe(1);
+    expect(rateOf(d.email.opened, d.email.sent)).toBeNull();
+  });
+
+  it("sends tests to one person through the real path, and says exactly what happened", async () => {
+    await send([{ type: "identify", anonymous_id: "a5", user_id: "w5", user_properties: { phone: "+966 55 000 0005", email: "nour@example.com" } }]);
+    const test = (input: Record<string, unknown>) => sendTestMessage(t.ctx, t.dev.id, input);
+
+    expect(await test({ channel: "email", userId: "w5" })).toEqual({ ok: true, message: "Sent. Resend accepted the email." });
+    expect(JSON.parse(sent("/emails").at(-1)!.body)).toMatchObject({ to: ["nour@example.com"], subject: "LeanApp test message" });
+    expect(await test({ channel: "email", userId: "w1" })).toEqual({ ok: false, message: "Not sent: this person is on the suppression list." });
+
+    expect(await test({ channel: "whatsapp", userId: "w5", whatsappTemplate: "welcome|en_US" })).toMatchObject({ ok: true });
+    expect(sent("/v23.0/1110001/messages").map((c) => JSON.parse(c.body)).at(-1)).toMatchObject({ to: "966550000005", template: { name: "welcome" } });
+    expect((await test({ channel: "whatsapp", userId: "w5", whatsappTemplate: "cart_reminder|ar" })).message).toMatch(/needs 2 variables and a header variable/);
+    expect((await test({ channel: "whatsapp", userId: "w5", whatsappTemplate: "promo|en_US" })).message).toMatch(/pending, not approved/);
+    expect((await test({ channel: "whatsapp", userId: "w2", whatsappTemplate: "welcome|en_US" })).message).toMatch(/no valid E.164 phone number/);
+
+    expect((await test({ channel: "push", userId: "w5" })).message).toMatch(/no active push token/);
+    expect((await test({ channel: "in_app", userId: "w5" })).ok).toBe(true);
+    const inbox = await pendingInAppMessages(sdk, { userId: "w5" });
+    expect(inbox.map((m) => m.title)).toEqual(["LeanApp test message"]);
+
+    await expect(test({ channel: "email", userId: "nobody" })).rejects.toThrow(/No person with the user ID "nobody"/);
+    await expect(test({ channel: "sms", userId: "w5" })).rejects.toBeInstanceOf(ValidationError);
+    await expect(sendTestMessage({ ...t.ctx, role: "viewer" }, t.dev.id, { channel: "email", userId: "w5" })).rejects.toThrow(/permission/);
+    await expect(sendTestMessage(other.ctx, t.dev.id, { channel: "email", userId: "w5" })).rejects.toThrow(/not found/i);
+
+    // Test sends are audited, and never counted as campaign or flow messages.
+    const audits = await withSystem((db) => db.query<{ metadata: { channel: string; ok: boolean } }>("select metadata from platform.audit_logs where organization_id = $1 and action = 'message.test_sent' order by created_at", [t.org.id]));
+    expect(audits.map((a) => `${a.metadata.channel}:${a.metadata.ok}`)).toContain("email:true");
+    const d = await deliveryByChannel(t.ctx, t.dev.id, 30);
+    expect([d.email.sent, d.whatsapp.sent, d.in_app.sent]).toEqual([1, 1, 0]);
+  });
+
+  it("limits test sends per environment", async () => {
+    await withSystem((db) => db.query(
+      `insert into platform.notifications (organization_id, environment_id, channel, provider, user_key, status, payload)
+       select $1, $2, 'email', 'resend', 'w5', 'sent', '{"test": true}' from generate_series(1, $3)`,
+      [t.org.id, t.dev.id, TEST_SENDS_PER_HOUR],
+    ));
+    await expect(sendTestMessage(t.ctx, t.dev.id, { channel: "in_app", userId: "w5" })).rejects.toThrow(/At most 20 test messages an hour/);
   });
 });

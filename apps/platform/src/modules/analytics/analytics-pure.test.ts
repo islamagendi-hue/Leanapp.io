@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { cohortInputFromForm, describeCohort, formDefaults } from "./cohort-form";
+import { compileAudience, describeNode, parseDefinition } from "@/modules/audiences/definition";
 import { inputFromParams, paramsFromConfig, toSearch } from "./report-params";
 import { catalogRules, revenueRules, ruleFor } from "./revenue-rules";
-import { cohortDefinitionSchema, cohortSql, evCte, Params, PROPERTY_OP_LABELS, propertyFilterSchema, propertyPredicate } from "./sql";
+import { evCte, Params, propertyFilterSchema, propertyPredicate } from "./sql";
 
 describe("revenue rules", () => {
   it("derives revenue and refund events from the catalog", () => {
@@ -33,20 +33,13 @@ describe("revenue rules", () => {
   });
 });
 
-describe("cohort definitions", () => {
+describe("activation property filters", () => {
   it("validates property filters", () => {
     expect(propertyFilterSchema.safeParse({ name: "plan", op: "eq", value: "gold" }).success).toBe(true);
     expect(propertyFilterSchema.safeParse({ name: "plan", op: "eq" }).success).toBe(false);
     expect(propertyFilterSchema.safeParse({ name: "age", op: "gt", value: "x" }).success).toBe(false);
     expect(propertyFilterSchema.safeParse({ name: "age", op: "exists" }).success).toBe(true);
     expect(propertyFilterSchema.safeParse({ name: "a b", op: "exists" }).success).toBe(false);
-  });
-
-  it("needs a condition and an ordered date range", () => {
-    expect(cohortDefinitionSchema.safeParse({}).success).toBe(false);
-    expect(cohortDefinitionSchema.safeParse({ event: { name: "x", range: { kind: "between", from: "2026-02-01", to: "2026-01-01" } } }).success).toBe(false);
-    const ok = cohortDefinitionSchema.parse({ event: { name: "x", range: { kind: "last", days: "30" } } });
-    expect(ok.event).toEqual({ name: "x", minCount: 1, range: { kind: "last", days: 30 } });
   });
 
   it("keeps values in bind parameters", () => {
@@ -57,23 +50,36 @@ describe("cohort definitions", () => {
     const n = new Params();
     expect(propertyPredicate("u.properties", { name: "age", op: "gte", value: "30" }, n)).toContain(">= $2::numeric");
   });
+});
 
-  it("builds event, user property and combined cohorts", () => {
-    const now = new Date("2026-10-06T00:00:00Z");
-    const p = new Params(["env"]);
-    const def = cohortDefinitionSchema.parse({
-      event: { name: "purchase_completed", minCount: 2, range: { kind: "between", from: "2026-09-01", to: "2026-09-30" }, property: { name: "revenue", op: "gt", value: "10" } },
-      userProperty: { name: "plan", op: "eq", value: "gold" },
+describe("audiences as report filters", () => {
+  it("embed in a report's query, continuing its bind values", () => {
+    const def = parseDefinition({
+      type: "and",
+      children: [
+        { type: "event", event: "purchase_completed", countOp: "gte", count: 2, between: { from: "2026-09-01", to: "2026-09-30" }, where: [{ property: "revenue", op: "gt", value: 10 }] },
+        { type: "user_property", property: "plan", op: "eq", value: "gold" },
+      ],
     });
-    const sql = cohortSql(def, p, { timezone: "Asia/Riyadh", now });
-    expect(sql).toContain(" intersect ");
-    expect(sql).toContain("having count(*) >= ");
-    expect(p.values).toEqual(["env", "Asia/Riyadh", "2026-09-01", "2026-09-30", "purchase_completed", "revenue", "10", 2, "plan", "gold", "plan", "gold"]);
-    const last = new Params(["env"]);
-    cohortSql(cohortDefinitionSchema.parse({ event: { name: "x", range: { kind: "last", days: 7 } } }), last, { timezone: "UTC", now });
-    expect(last.values.slice(1, 3)).toEqual([new Date("2026-09-29T00:00:00Z"), now]);
-    expect(evCte("select 'u1' as person")).toContain("in (select person from cohort)");
+    const p = new Params(["env", new Date("2026-09-01T00:00:00Z")]);
+    const { sql, params } = compileAudience(def, "env", { params: p, timezone: "Asia/Riyadh" });
+    expect(params).toBe(p.values);
+    expect(p.values.slice(0, 2)).toEqual(["env", new Date("2026-09-01T00:00:00Z")]);
+    expect(p.values).toContain("Asia/Riyadh");
+    expect(p.values).toContain("2026-09-30");
+    expect(sql).toMatch(/at time zone \$\d+::text/);
+    expect(sql).toContain("e.type in ('track', 'screen') and e.processed_at is not null");
+    expect(evCte(sql)).toContain("in (select person from cohort)");
     expect(evCte()).not.toContain("cohort");
+    expect(describeNode(def)).toBe('(did purchase_completed where revenue > 10 at least 2 times between 2026-09-01 and 2026-09-30 AND user plan is "gold")');
+    expect(() => compileAudience(def, "other", { params: new Params(["env"]) })).toThrow(/environment id/);
+  });
+
+  it("validate date ranges", () => {
+    expect(() => parseDefinition({ type: "event", event: "x", between: { from: "2026-02-01", to: "2026-01-01" } })).toThrow(/start date/);
+    expect(() => parseDefinition({ type: "event", event: "x", between: { from: "2026-02-30x", to: "2026-03-01" } })).toThrow();
+    expect(() => parseDefinition({ type: "event", event: "x", sinceTrigger: true, between: { from: "2026-01-01", to: "2026-01-02" } }, { allowSinceTrigger: true })).toThrow(/either/);
+    expect(describeNode(parseDefinition({ type: "event", event: "x", between: { from: "2026-01-01", to: "2026-01-01" } }))).toBe("did x on 2026-01-01");
   });
 });
 
@@ -88,21 +94,5 @@ describe("report params", () => {
     expect(paramsFromConfig("retention", { startEvent: "a", returnEvent: "b", days: 30 }).toString()).toBe("start=a&return=b&days=30");
     expect(inputFromParams("revenue", toSearch({ by: "platform" }))).toMatchObject({ breakdown: "platform" });
     expect(paramsFromConfig("revenue", { days: 90, breakdown: "event" }).toString()).toBe("by=event&days=90");
-  });
-});
-
-describe("cohort form", () => {
-  const form = (o: Record<string, string>) => new Map(Object.entries(o)) as unknown as FormData;
-
-  it("skips empty conditions and round-trips a definition", () => {
-    const input = cohortInputFromForm(form({ name: "Gold", event: "", upName: "plan", upOp: "eq", upValue: "gold" }));
-    expect(input.definition).toEqual({ event: undefined, userProperty: { name: "plan", op: "eq", value: "gold" } });
-    const full = cohortInputFromForm(form({
-      name: "Big", event: "purchase_completed", minCount: "2", rangeKind: "between", from: "2026-09-01", to: "2026-09-30", epName: "revenue", epOp: "gt", epValue: "100",
-    }));
-    const def = cohortDefinitionSchema.parse(full.definition);
-    expect(formDefaults(def)).toMatchObject({ event: "purchase_completed", minCount: "2", rangeKind: "between", from: "2026-09-01", ep: { name: "revenue", op: "gt", value: "100" } });
-    expect(describeCohort(def, PROPERTY_OP_LABELS)).toBe("Did purchase_completed at least 2 times between 2026-09-01 and 2026-09-30 where revenue > 100");
-    expect(describeCohort(cohortDefinitionSchema.parse(input.definition), PROPERTY_OP_LABELS)).toBe("People whose user property plan is gold");
   });
 });

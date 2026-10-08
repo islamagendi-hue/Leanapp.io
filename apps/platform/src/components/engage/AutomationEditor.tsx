@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { ActionForm, type FormState } from "@/components/ActionForm";
-import { ConditionBuilder, ParsedInput, parseValue, type Json } from "./ConditionBuilder";
+import { flowNodes, insertStep, moveStep, removeStep } from "@/modules/automation/flow";
+import { ConditionBuilder, ParsedInput, parseValue, type Json, type PropertyLists } from "./ConditionBuilder";
 
 type Step = Json & { type: string };
 type Definition = {
@@ -11,11 +12,15 @@ type Definition = {
   entry: { mode: string; cooldownHours: number };
   frequencyCap: { messages: number; hours: number } | null;
   quietHours: { start: string; end: string } | null;
+  goal?: { event: string; withinDays: number; stopOnConversion: boolean } | null;
+  exitEvent?: string | null;
 };
 
+/** Node kinds offered in the builder; "condition" and "branch" are both branch steps (else exit / else jump). */
 const STEP_TYPES: [string, string][] = [
   ["delay", "Wait"],
-  ["branch", "Condition (branch)"],
+  ["condition", "Condition: continue only if"],
+  ["branch", "Branch: if / otherwise"],
   ["push", "Push notification"],
   ["in_app", "In-app message"],
   ["email", "Email"],
@@ -23,13 +28,32 @@ const STEP_TYPES: [string, string][] = [
   ["webhook", "Webhook"],
   ["update_user_property", "Update user property"],
   ["send_event", "Send event"],
+  ["exit", "Exit"],
 ];
+const KIND: Record<string, { label: string; tone: string }> = {
+  delay: { label: "Wait", tone: "border-s-ink-3" },
+  condition: { label: "Condition", tone: "border-s-warn" },
+  branch: { label: "Branch", tone: "border-s-warn" },
+  push: { label: "Message", tone: "border-s-accent" },
+  in_app: { label: "Message", tone: "border-s-accent" },
+  email: { label: "Message", tone: "border-s-accent" },
+  whatsapp: { label: "Message", tone: "border-s-accent" },
+  webhook: { label: "Action", tone: "border-s-line-strong" },
+  update_user_property: { label: "Action", tone: "border-s-line-strong" },
+  send_event: { label: "Action", tone: "border-s-line-strong" },
+  exit: { label: "Exit", tone: "border-s-alert" },
+};
+const kindOf = (s: Step) => (s.type === "branch" ? (s.else === "exit" ? "condition" : "branch") : s.type);
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
-function defaultStep(type: string): Step {
+/** A new step of `type` placed at index `at` of a flow with `total` steps (after insertion). */
+function defaultStep(type: string, at = 0, total = 1): Step {
+  const condition = { type: "event", event: "", did: false, countOp: "gte", count: 1, withinDays: 30, where: [], sinceTrigger: true };
   switch (type) {
     case "delay": return { type, amount: 1, unit: "hours" };
-    case "branch": return { type, condition: { type: "event", event: "", did: false, countOp: "gte", count: 1, withinDays: 30, where: [], sinceTrigger: true }, else: "exit" };
+    case "condition": return { type: "branch", condition, else: "exit" };
+    case "branch": return { type, condition, else: at + 2 < total ? { goto: at + 2 } : "exit" };
+    case "exit": return { type };
     case "push": return { type, title: "", body: "" };
     case "in_app": return { type, title: "", body: "", expiresInHours: 72 };
     case "email": return { type, subject: "", body: "" };
@@ -46,6 +70,8 @@ export const DEFAULT_DEFINITION: Definition = {
   entry: { mode: "every_time", cooldownHours: 0 },
   frequencyCap: { messages: 3, hours: 24 },
   quietHours: { start: "22:00", end: "08:00" },
+  goal: null,
+  exitEvent: null,
 };
 
 export interface WhatsAppTemplateOption { name: string; language: string; status: string; body_params: number; header_params: number; body_text: string | null }
@@ -53,12 +79,13 @@ export interface EmailTemplateOption { id: string; name: string; subject: string
 type Channels = { whatsappTemplates: WhatsAppTemplateOption[]; emailTemplates: EmailTemplateOption[] };
 
 export function AutomationEditor({
-  save, initial, name, events, audiences, webhooks, timezone, whatsappTemplates = [], emailTemplates = [],
+  save, initial, name, events, properties, audiences, webhooks, timezone, whatsappTemplates = [], emailTemplates = [],
 }: Partial<Channels> & {
   save: (state: FormState, form: FormData) => Promise<FormState>;
   initial: Definition;
   name: string;
   events: string[];
+  properties?: PropertyLists;
   audiences: { id: string; name: string; status: string }[];
   webhooks: { id: string; url: string; description: string | null }[];
   timezone: string;
@@ -66,12 +93,9 @@ export function AutomationEditor({
   const [d, setD] = useState<Definition>(initial);
   const set = (patch: Partial<Definition>) => setD({ ...d, ...patch });
   const setStep = (i: number, s: Step) => set({ steps: d.steps.map((x, j) => (j === i ? s : x)) });
-  const move = (i: number, by: number) => {
-    const steps = [...d.steps];
-    const [s] = steps.splice(i, 1);
-    steps.splice(i + by, 0, s);
-    set({ steps });
-  };
+  const move = (i: number, by: number) => set({ steps: moveStep(d.steps, i, i + by) });
+  const insert = (at: number, type: string) => set({ steps: insertStep(d.steps, at, defaultStep(type, at, d.steps.length + 1)) });
+  const nodes = flowNodes(d.steps);
   const t = d.trigger;
   const audienceSelect = (
     <select className="input w-auto" value={String(t.audienceId ?? "")} onChange={(e) => set({ trigger: { ...t, audienceId: e.target.value } })} aria-label="Audience">
@@ -86,7 +110,7 @@ export function AutomationEditor({
       <datalist id="automation-events">{events.map((e) => <option key={e} value={e} />)}</datalist>
       <label className="block max-w-md"><span className="label">Name</span><input name="name" className="input" defaultValue={name} required maxLength={80} /></label>
 
-      <fieldset className="space-y-2 rounded-lg border border-line p-4">
+      <fieldset className="space-y-2 rounded-lg border border-line border-s-4 border-s-ink bg-card p-4" data-step="trigger">
         <legend className="px-1 text-sm font-bold">Trigger</legend>
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <select className="input w-auto" value={t.type} onChange={(e) => {
@@ -120,33 +144,69 @@ export function AutomationEditor({
         <p className="help">Only events and audience changes after activation start runs. Events sent by automations never trigger automations.</p>
       </fieldset>
 
-      <fieldset className="space-y-3 rounded-lg border border-line p-4">
-        <legend className="px-1 text-sm font-bold">Steps</legend>
-        <ol className="space-y-3">
-          {d.steps.map((s, i) => (
-            <li key={i} className="space-y-2 rounded-lg border border-line bg-card p-3">
-              <div className="flex flex-wrap items-center gap-2 text-sm">
-                <span className="font-mono text-xs text-ink-3">{i + 1}.</span>
-                <select className="input w-auto" value={s.type} onChange={(e) => setStep(i, defaultStep(e.target.value))}>
-                  {STEP_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-                </select>
-                <span className="ms-auto flex gap-2 text-xs">
-                  {i > 0 && <button type="button" className="hover:underline" onClick={() => move(i, -1)}>↑</button>}
-                  {i < d.steps.length - 1 && <button type="button" className="hover:underline" onClick={() => move(i, 1)}>↓</button>}
-                  {d.steps.length > 1 && <button type="button" className="text-alert hover:underline" onClick={() => set({ steps: d.steps.filter((_, j) => j !== i) })}>Remove</button>}
-                </span>
-              </div>
-              <StepFields step={s} index={i} total={d.steps.length} onChange={(n) => setStep(i, n)} events={events} webhooks={webhooks} whatsappTemplates={whatsappTemplates} emailTemplates={emailTemplates} />
-            </li>
-          ))}
+      <fieldset className="space-y-0" aria-label="Flow">
+        <legend className="sr-only">Steps</legend>
+        <ol className="space-y-0">
+          {d.steps.map((s, i) => {
+            const k = kindOf(s);
+            const n = nodes[i];
+            return (
+              <li key={i}>
+                <Connector onInsert={d.steps.length < 50 ? (type) => insert(i, type) : undefined} />
+                <div className={`space-y-2 rounded-lg border border-line border-s-4 bg-card p-3 ${KIND[k]?.tone ?? ""}`} data-step={k}>
+                  <div className="flex flex-wrap items-center gap-2 text-sm">
+                    <span className="font-mono text-xs text-ink-3">{i + 1}.</span>
+                    <span className="pill border-line text-xs">{KIND[k]?.label ?? k}</span>
+                    <select className="input w-auto" value={k} onChange={(e) => setStep(i, defaultStep(e.target.value, i, d.steps.length))} aria-label={`Step ${i + 1} type`}>
+                      {STEP_TYPES.map(([key, l]) => <option key={key} value={key}>{l}</option>)}
+                    </select>
+                    <span className="ms-auto flex gap-2 text-xs">
+                      {i > 0 && <button type="button" className="hover:underline" onClick={() => move(i, -1)} aria-label={`Move step ${i + 1} up`}>↑</button>}
+                      {i < d.steps.length - 1 && <button type="button" className="hover:underline" onClick={() => move(i, 1)} aria-label={`Move step ${i + 1} down`}>↓</button>}
+                      {d.steps.length > 1 && <button type="button" className="text-alert hover:underline" onClick={() => set({ steps: removeStep(d.steps, i) })}>Remove</button>}
+                    </span>
+                  </div>
+                  <StepFields step={s} index={i} total={d.steps.length} onChange={(x) => setStep(i, x)} events={events} properties={properties} webhooks={webhooks} whatsappTemplates={whatsappTemplates} emailTemplates={emailTemplates} />
+                  {s.type === "branch" && (
+                    <p className="flex flex-wrap gap-2 text-xs">
+                      <span className="pill border-accent/40 text-accent-ink">Yes → step {i + 2 <= d.steps.length ? i + 2 : "end"}</span>
+                      <span className={`pill ${n.broken ? "border-alert/40 text-alert" : "border-warn/40 text-warn"}`}>No → {n.no === "exit" ? "exit" : `step ${n.no}`}{n.broken ? " (must be a later step)" : ""}</span>
+                    </p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ol>
-        {d.steps.length < 50 && (
-          <select className="input w-auto text-sm" value="" onChange={(e) => e.target.value && set({ steps: [...d.steps, defaultStep(e.target.value)] })}>
-            <option value="">+ Add step…</option>
-            {STEP_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-        )}
-        <p className="help">Text can use {"{{user.<property>}}"} and {"{{event.<property>}}"} (the trigger event).</p>
+        <Connector onInsert={d.steps.length < 50 ? (type) => insert(d.steps.length, type) : undefined} />
+        <div className="rounded-lg border border-dashed border-line px-3 py-2 text-center text-sm text-ink-3">End of flow</div>
+        <p className="help mt-2">Text can use {"{{user.<property>}}"} and {"{{event.<property>}}"} (the trigger event). A branch&apos;s &ldquo;yes&rdquo; path runs into the next steps; end it with Exit when the &ldquo;no&rdquo; path follows.</p>
+      </fieldset>
+
+      <fieldset className="grid gap-4 rounded-lg border border-line p-4 md:grid-cols-2">
+        <legend className="px-1 text-sm font-bold">Goal and exit</legend>
+        <div className="space-y-2 text-sm">
+          <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={Boolean(d.goal)} onChange={(e) => set({ goal: e.target.checked ? { event: "", withinDays: 7, stopOnConversion: true } : null })} /> Conversion goal</label>
+          {d.goal && (
+            <div className="space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                The person does
+                <input className="input w-52" list="automation-events" placeholder="event name" value={d.goal.event} onChange={(e) => set({ goal: { ...d.goal!, event: e.target.value } })} aria-label="Goal event" />
+                within
+                <input className="input w-20" type="number" min={1} max={90} value={d.goal.withinDays} onChange={(e) => set({ goal: { ...d.goal!, withinDays: Number(e.target.value) } })} aria-label="Goal window (days)" /> days
+              </div>
+              <label className="flex items-center gap-2"><input type="checkbox" checked={d.goal.stopOnConversion} onChange={(e) => set({ goal: { ...d.goal!, stopOnConversion: e.target.checked } })} /> Stop the flow for people who converted</label>
+            </div>
+          )}
+          <p className="help">Counted from the trigger. The flow&apos;s page reports how many people converted.</p>
+        </div>
+        <div className="space-y-2 text-sm">
+          <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={d.exitEvent !== null && d.exitEvent !== undefined} onChange={(e) => set({ exitEvent: e.target.checked ? "" : null })} /> Exit event</label>
+          {d.exitEvent !== null && d.exitEvent !== undefined && (
+            <input className="input w-60" list="automation-events" placeholder="event name" value={d.exitEvent} onChange={(e) => set({ exitEvent: e.target.value })} aria-label="Exit event" />
+          )}
+          <p className="help">When the person does this event after the trigger, their run ends before the next step, e.g. an order placed during a cart reminder flow.</p>
+        </div>
       </fieldset>
 
       <fieldset className="grid gap-4 rounded-lg border border-line p-4 md:grid-cols-3">
@@ -188,8 +248,8 @@ export function AutomationEditor({
   );
 }
 
-function StepFields({ step: s, index, total, onChange, events, webhooks, whatsappTemplates, emailTemplates }: Channels & {
-  step: Step; index: number; total: number; onChange: (s: Step) => void; events: string[];
+function StepFields({ step: s, index, total, onChange, events, properties, webhooks, whatsappTemplates, emailTemplates }: Channels & {
+  step: Step; index: number; total: number; onChange: (s: Step) => void; events: string[]; properties?: PropertyLists;
   webhooks: { id: string; url: string; description: string | null }[];
 }) {
   const text = (k: string, label: string, max: number, area = false) => (
@@ -200,6 +260,8 @@ function StepFields({ step: s, index, total, onChange, events, webhooks, whatsap
     </label>
   );
   switch (s.type) {
+    case "exit":
+      return <p className="text-sm text-ink-2">The run ends here.</p>;
     case "delay":
       return (
         <div className="flex items-center gap-2 text-sm">
@@ -214,7 +276,7 @@ function StepFields({ step: s, index, total, onChange, events, webhooks, whatsap
       return (
         <div className="space-y-2 text-sm">
           <p>Continue if the person matches:</p>
-          <ConditionBuilder value={s.condition as Step} onChange={(c) => onChange({ ...s, condition: c })} events={events} allowSinceTrigger />
+          <ConditionBuilder value={s.condition as Step} onChange={(c) => onChange({ ...s, condition: c })} events={events} properties={properties} allowSinceTrigger />
           <label className="flex flex-wrap items-center gap-2">Otherwise
             <select className="input w-auto" value={elseValue} onChange={(e) => onChange({ ...s, else: e.target.value === "exit" ? "exit" : { goto: Number(e.target.value) } })}>
               <option value="exit">end the run</option>
@@ -311,4 +373,20 @@ function StepFields({ step: s, index, total, onChange, events, webhooks, whatsap
         </div>
       );
   }
+}
+
+/** The line between two nodes, with an insert menu. */
+function Connector({ onInsert }: { onInsert?: (type: string) => void }) {
+  return (
+    <div className="flex flex-col items-center py-1" aria-hidden={!onInsert}>
+      <span className="h-3 w-px bg-line-strong" />
+      {onInsert && (
+        <select className="input h-7 min-h-0 w-auto rounded-full px-2 py-0 text-xs" value="" onChange={(e) => e.target.value && onInsert(e.target.value)} aria-label="Insert a step here">
+          <option value="">+</option>
+          {STEP_TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+        </select>
+      )}
+      <span className="h-3 w-px bg-line-strong" />
+    </div>
+  );
 }

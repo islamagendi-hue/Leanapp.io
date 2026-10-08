@@ -10,7 +10,8 @@ const num = (n: number) => n.toLocaleString("en-US");
 const day = (d: Date) => new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 const money = (cents: number, currency: string) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency, minimumFractionDigits: cents % 100 ? 2 : 0 }).format(cents / 100);
-const limitText = (n: number | null, unit: string) => (n === null ? `Unlimited ${unit}` : `${num(n)} ${unit}`);
+/** `unit` is plural; `one` is the singular used when the limit is exactly 1 ("1 app", not "1 apps"). */
+const limitText = (n: number | null, unit: string, one = unit) => (n === null ? `Unlimited ${unit}` : `${num(n)} ${n === 1 ? one : unit}`);
 
 const STATUS: Record<string, { label: string; tone: string }> = {
   active: { label: "Active", tone: "border-accent/40 text-accent-ink" },
@@ -67,8 +68,8 @@ function PlanCard({ p, org, connected, reason }: { p: PlanOption; org: string; c
       </p>
       <ul className="space-y-1 text-sm text-ink-2">
         <li>{limitText(p.limits.events, "events / month")}</li>
-        <li>{limitText(p.limits.apps, "apps")}</li>
-        <li>{limitText(p.limits.seats, "members")}</li>
+        <li>{limitText(p.limits.apps, "apps", "app")}</li>
+        <li>{limitText(p.limits.seats, "members", "member")}</li>
         <li>{p.limits.retentionDays === null ? "Unlimited data retention" : `${num(p.limits.retentionDays)} days of data`}</li>
       </ul>
       <div className="mt-auto">
@@ -151,7 +152,7 @@ export default async function BillingPage(props: PageProps<"/o/[org]/settings/bi
         {!b.canManage && <p className="text-xs text-ink-3">Only owners can change the plan or payment details.</p>}
       </section>
 
-      <section className="card space-y-5">
+      <section id="usage" className="card scroll-mt-24 space-y-5">
         <h2 className="h2">Usage in {month}</h2>
         <ul className="space-y-5">
           {u.lines.map((l) => <UsageBar key={l.key} l={l} />)}
