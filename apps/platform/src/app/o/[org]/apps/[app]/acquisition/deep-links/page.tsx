@@ -1,16 +1,15 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createChannelLinkAction } from "@/app/actions/deep-links";
+import { AcquisitionHeader } from "@/components/acquisition/AcquisitionHeader";
 import { ActionForm } from "@/components/ActionForm";
 import { listLinks } from "@/modules/attribution/service";
 import { can } from "@/modules/rbac/authorize";
 import { CHANNEL_PRESETS, linkUrl } from "@/modules/deeplinks/pure";
-import { qrSvg } from "@/modules/deeplinks/qr";
 import { configLinkBase, getConfig } from "@/modules/deeplinks/service";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "Link builder" };
-
-const str = (v: string | string[] | undefined) => (typeof v === "string" ? v.trim().slice(0, 100) : "");
+export const metadata = { title: "Deep links" };
 
 export default async function LinkBuilderPage(props: PageProps<"/o/[org]/apps/[app]/acquisition/deep-links">) {
   const { org, app } = await props.params;
@@ -18,65 +17,31 @@ export default async function LinkBuilderPage(props: PageProps<"/o/[org]/apps/[a
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "attribution.read");
   const env = await pickEnvironment(environments, sp.env);
+  const base = `/o/${org}/apps/${app}/acquisition`;
+  // A link's URL & QR code moved to Tracking links & QR; keep old addresses working.
+  if (typeof sp.link === "string") {
+    const q = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) if (typeof v === "string") q.set(k, v);
+    redirect(`${base}/links?${q}`);
+  }
   const [links, config] = await Promise.all([listLinks(ctx, a.id, env.id), can(ctx.role, "deep_links.read") ? getConfig(ctx, a.id, env.id) : null]);
   const manage = can(ctx.role, "attribution.manage");
-  const base = `/o/${org}/apps/${app}/acquisition/deep-links`;
   const linkBase = configLinkBase(config);
   const urlOf = (code: string) => linkUrl(linkBase, code, config?.link_prefix ?? null);
 
-  // Selected link: full URL with optional per-placement overrides, and its QR code.
-  const selected = links.find((l) => l.code === str(sp.link)) ?? null;
-  const overrides = { utm_campaign: str(sp.utm_campaign), utm_content: str(sp.utm_content) };
-  let shareUrl = "";
-  let svg = "";
-  if (selected) {
-    const u = new URL(urlOf(selected.code));
-    for (const [k, v] of Object.entries(overrides)) if (v) u.searchParams.set(k, v);
-    shareUrl = u.toString();
-    svg = qrSvg(shareUrl, { title: `QR code for ${selected.name}` });
-  }
   const iosDefault = config?.ios_app_store_id ? `https://apps.apple.com/app/id${config.ios_app_store_id}` : "";
   const androidId = config?.android_play_store_id ?? config?.android_package;
   const androidDefault = androidId ? `https://play.google.com/store/apps/details?id=${androidId}` : "";
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="h1">Link builder</h1>
-          <p className="mt-1 max-w-2xl text-ink-2">
-            One link works in every channel: ads, email, SMS, WhatsApp, QR codes, influencers and your website. It opens the app when installed, goes to the store when not,
-            and carries the deep link through the install. Use one link per channel or placement so reports stay clean.
-          </p>
-        </div>
-      </div>
+      <AcquisitionHeader base={base} current="/deep-links" env={env.type} title="Deep links"
+        description="One link works in every channel: ads, email, SMS, WhatsApp, QR codes, influencers and your website. It opens the app when installed, goes to the store when not, and carries the deep link through the install. Use one link per channel or placement so reports stay clean." />
       {!config && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
           Deep links aren&apos;t set up for {env.type} yet, so links redirect to the stores but won&apos;t open an installed app.{" "}
           <Link href={`/o/${org}/apps/${app}/settings/dev-ops/deep-links?env=${env.type}`} className="underline">Set them up</Link>.
         </p>
-      )}
-
-      {selected && (
-        <section className="card grid gap-6 md:grid-cols-[1fr_220px]">
-          <div className="space-y-3">
-            <h2 className="h2">{selected.name}</h2>
-            <p className="text-sm text-ink-2">{selected.source}{selected.medium ? ` / ${selected.medium}` : ""}{selected.campaign ? ` · ${selected.campaign}` : ""}{selected.deep_link_path ? ` → ${selected.deep_link_path}` : ""}</p>
-            <code className="code block break-all" dir="ltr">{shareUrl}</code>
-            <form method="get" className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-              <input type="hidden" name="env" value={env.type} />
-              <input type="hidden" name="link" value={selected.code} />
-              <label className="block"><span className="label">Campaign (override)</span><input name="utm_campaign" className="input" defaultValue={overrides.utm_campaign} placeholder={selected.campaign ?? "eid_2026"} /></label>
-              <label className="block"><span className="label">Placement / creative</span><input name="utm_content" className="input" defaultValue={overrides.utm_content} placeholder="poster_riyadh_park" /></label>
-              <button type="submit" className="btn-secondary">Update</button>
-            </form>
-            <p className="help">Overrides are added to the URL (utm_campaign, utm_content) and recorded with each click; source and medium stay the link&apos;s.</p>
-          </div>
-          <div className="space-y-2">
-            <div className="rounded-lg border border-line bg-white p-2" dangerouslySetInnerHTML={{ __html: svg }} />
-            <a className="btn-secondary w-full justify-center" download={`leanapp-${selected.code}.svg`} href={`data:image/svg+xml;base64,${Buffer.from(svg).toString("base64")}`}>Download SVG</a>
-          </div>
-        </section>
       )}
 
       <section className="card overflow-x-auto p-0">
@@ -95,7 +60,7 @@ export default async function LinkBuilderPage(props: PageProps<"/o/[org]/apps/[a
                   <td className="text-sm">{l.source}{l.medium ? ` / ${l.medium}` : ""}<div className="text-ink-3">{[l.campaign, l.creative].filter(Boolean).join(" · ") || "–"}</div></td>
                   <td className="font-mono text-xs" dir="ltr">{l.deep_link_path ?? "–"}</td>
                   <td className="text-end tabular-nums">{l.clicks_7d.toLocaleString("en-US")}</td>
-                  <td><Link href={`${base}?env=${env.type}&link=${l.code}`} className="btn-secondary min-h-8 px-3">URL &amp; QR</Link></td>
+                  <td><Link href={`${base}/links?env=${env.type}&link=${l.code}`} className="btn-secondary min-h-8 px-3">URL &amp; QR</Link></td>
                 </tr>
               ))}
             </tbody>

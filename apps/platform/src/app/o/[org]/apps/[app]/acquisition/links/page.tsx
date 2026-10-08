@@ -1,13 +1,15 @@
+import Link from "next/link";
 import { createLinkAction, setLinkStatusAction } from "@/app/actions/attribution";
+import { AcquisitionHeader, num } from "@/components/acquisition/AcquisitionHeader";
+import { LinkShareCard } from "@/components/acquisition/LinkShareCard";
 import { ActionForm } from "@/components/ActionForm";
 import { can } from "@/modules/rbac/authorize";
 import { listLinks } from "@/modules/attribution/service";
-import { publicBaseUrl } from "@/server/env";
+import { linkUrl } from "@/modules/deeplinks/pure";
+import { configLinkBase, getConfig } from "@/modules/deeplinks/service";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "Tracking links" };
-
-const num = (n: number) => n.toLocaleString("en-US");
+export const metadata = { title: "Tracking links & QR" };
 
 export default async function LinksPage(props: PageProps<"/o/[org]/apps/[app]/acquisition/links">) {
   const { org, app } = await props.params;
@@ -15,26 +17,19 @@ export default async function LinksPage(props: PageProps<"/o/[org]/apps/[app]/ac
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "attribution.read");
   const env = await pickEnvironment(environments, sp.env);
-  const links = await listLinks(ctx, a.id, env.id);
+  const [links, config] = await Promise.all([listLinks(ctx, a.id, env.id), can(ctx.role, "deep_links.read") ? getConfig(ctx, a.id, env.id) : null]);
   const manage = can(ctx.role, "attribution.manage");
-  const api = publicBaseUrl();
+  const base = `/o/${org}/apps/${app}/acquisition`;
+  const linkBase = configLinkBase(config);
+  const urlOf = (code: string) => linkUrl(linkBase, code, config?.link_prefix ?? null);
+  const selected = links.find((l) => l.code === sp.link) ?? null;
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <h1 className="h1">Tracking links</h1>
-          <p className="mt-1 max-w-2xl text-ink-2">
-            One link per campaign or ad. It sends iPhone users to the App Store, Android users to Google Play with the click id in the install referrer, and
-            everyone else to your web page. Clicks from crawlers, link previews and prefetches are not counted.
-          </p>
-        </div>
-      </div>
-      {env.type !== "production" && (
-        <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
-          These links record clicks into <strong>{env.type}</strong>. Installs only match clicks of the same environment: use production links in live campaigns.
-        </p>
-      )}
+      <AcquisitionHeader base={base} current="/links" env={env.type} title="Tracking links & QR"
+        description="One link per campaign, ad or placement. It sends iPhone users to the App Store, Android users to Google Play with the click id in the install referrer, and everyone else to your web page. Clicks from crawlers, link previews and prefetches are not counted. Installs only match clicks of the same environment." />
+
+      {selected && <LinkShareCard link={selected} url={urlOf(selected.code)} env={env.type} sp={sp} />}
 
       <section className="card overflow-x-auto p-0">
         {links.length === 0 ? (
@@ -47,7 +42,7 @@ export default async function LinksPage(props: PageProps<"/o/[org]/apps/[app]/ac
                 <tr key={l.id}>
                   <td>
                     <div className="font-medium">{l.name}{l.status !== "active" && <span className="pill ms-2 border-line">{l.status}</span>}</div>
-                    <code className="font-mono text-xs break-all text-ink-2">{api}/l/{l.code}</code>
+                    <code className="font-mono text-xs break-all text-ink-2" dir="ltr">{urlOf(l.code)}</code>
                   </td>
                   <td className="text-sm">
                     <div>{l.source}{l.medium ? ` / ${l.medium}` : ""}</div>
@@ -62,7 +57,8 @@ export default async function LinksPage(props: PageProps<"/o/[org]/apps/[app]/ac
                   <td className="text-end tabular-nums">{num(l.clicks_7d)}</td>
                   <td className="text-end tabular-nums">{num(l.clicks)}</td>
                   <td className="text-end tabular-nums">{num(l.installs)}</td>
-                  <td>
+                  <td className="space-y-1">
+                    <Link href={`${base}/links?env=${env.type}&link=${l.code}`} className="btn-secondary min-h-8 px-3">URL &amp; QR</Link>
                     {manage && (
                       <ActionForm
                         action={setLinkStatusAction.bind(null, org, app, l.id, l.status === "active" ? "paused" : "active")}

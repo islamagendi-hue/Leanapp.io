@@ -501,6 +501,37 @@ test("flow builder: trigger, steps with an insert menu, goal and exit event", as
   await expect(page.getByText(/Exit event: app_uninstalled/)).toBeVisible();
 });
 
+test("acquisition (beta): overview, sources, attribution, and a tracking link with its QR code", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/acquisition?env=development`);
+  await expect(page.getByRole("heading", { name: "Acquisition Beta", level: 1 })).toBeVisible();
+  await expect(page.getByText("What Acquisition (Beta) measures")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Acquisition numbers" }).getByText("Installs", { exact: true })).toBeVisible();
+  const tabs = page.getByRole("navigation", { name: "Acquisition" });
+  await tabs.getByRole("link", { name: "Sources & campaigns" }).click();
+  await expect(page.getByRole("heading", { name: "Sources & campaigns Beta", level: 1 })).toBeVisible();
+  await expect(page.getByText(/no cost, CPI or ROAS/)).toBeVisible();
+  await tabs.getByRole("link", { name: "Attribution" }).click();
+  await expect(page.getByRole("heading", { name: "How installs were matched" })).toBeVisible();
+  await expect(page.getByRole("link", { name: "SKAdNetwork setup" })).toHaveAttribute("href", /settings\/dev-ops\/attribution\/skan$/);
+  await expect(page.getByText("Multi-touch and view-through attribution")).toBeVisible();
+
+  await tabs.getByRole("link", { name: "Tracking links & QR" }).click();
+  await page.getByRole("textbox", { name: "Name" }).fill("Poster QR");
+  await page.getByRole("textbox", { name: "Source" }).fill("offline");
+  await page.getByRole("textbox", { name: "Web fallback URL" }).fill("https://example.com/app");
+  await page.getByRole("button", { name: "Create link" }).click();
+  await expect(page.getByRole("cell", { name: /Poster QR/ })).toBeVisible();
+  await page.getByRole("row", { name: /Poster QR/ }).getByRole("link", { name: "URL & QR" }).click();
+  const share = page.getByRole("region", { name: "URL and QR code" });
+  await expect(share.getByRole("link", { name: "Download SVG" })).toBeVisible();
+  // The old address of a link's QR code (on Deep links) forwards here.
+  const code = new URL(page.url()).searchParams.get("link");
+  await page.goto(`${appBase}/acquisition/deep-links?env=development&link=${code}`);
+  await expect(page).toHaveURL(/\/acquisition\/links\?/);
+  await expect(page.getByRole("region", { name: "URL and QR code" })).toBeVisible();
+});
+
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}?env=development`);
