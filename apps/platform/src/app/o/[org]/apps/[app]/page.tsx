@@ -48,7 +48,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
       )}
 
       {visible.length > 0 && (
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 sm:max-lg:[&>*:last-child:nth-child(odd)]:col-span-2 lg:[&>*:last-child:nth-child(3n+1)]:col-span-3">
           {visible.map((s) => (
             <Link key={s.href} href={s.href} className="card block hover:border-line-strong">
               <p className="font-medium">{s.label}</p>

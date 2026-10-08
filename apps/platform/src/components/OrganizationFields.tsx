@@ -1,3 +1,4 @@
+import { MODEL_LABELS } from "@/modules/implementation/catalog/models";
 import { INDUSTRIES } from "@/modules/organizations/service";
 import { COUNTRIES, CURRENCIES, TIMEZONES } from "@/modules/organizations/regions";
 
@@ -28,7 +29,7 @@ export function OrganizationFields({
           <label className="label" htmlFor="industry">Industry</label>
           <select className="input" id="industry" name="industry" defaultValue={values.industry}>
             <option value="">Choose…</option>
-            {INDUSTRIES.map((i) => <option key={i} value={i}>{i.replace(/_/g, " ")}</option>)}
+            {INDUSTRIES.map((i) => <option key={i} value={i}>{MODEL_LABELS[i]}</option>)}
           </select>
         </div>
         <div>

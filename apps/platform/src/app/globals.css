@@ -54,6 +54,9 @@
     font-family: var(--font-sans);
     line-height: 1.55;
   }
+  /* Line balance (Adams): headings split evenly, short blocks balanced, no stranded last word. */
+  h1, h2, h3, h4, h5, h6, summary { text-wrap: balance; }
+  p, li, dd, dt, blockquote, figcaption, label { text-wrap: pretty; text-wrap: balance; }
   ::selection { background: var(--color-accent); color: var(--color-paper); }
   :focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 }
