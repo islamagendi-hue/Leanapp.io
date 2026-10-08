@@ -52,7 +52,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
         <button className="btn" type="submit">Show</button>
       </form>
 
-      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the report shows everyone.</p>}
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}
 
       <p className="rounded-lg bg-paper-2 px-3 py-2 text-sm text-ink-2">
         Amounts are shown in the currency each event was sent in. There is no currency conversion, so each currency is totalled separately and never added to another.

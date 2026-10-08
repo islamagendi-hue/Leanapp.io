@@ -33,7 +33,7 @@ A member can assign roles up to their own rank and can only manage members of a 
 | implementation.read | ✓ | ✓ | ✓ | ✓ | ✓ |
 | implementation.edit / approve / mapping | ✓ | ✓ | ✓ | | |
 | analytics.read | ✓ | ✓ | ✓ | ✓ | ✓ |
-| analytics.write (save cohorts and reports) | ✓ | ✓ | | ✓ | ✓ |
+| analytics.write (save reports) | ✓ | ✓ | | ✓ | ✓ |
 | growth.read | ✓ | ✓ | ✓ | ✓ | ✓ |
 | growth.write | ✓ | ✓ | ✓ | | |
 | users.read | ✓ | ✓ | ✓ | ✓ | |
@@ -42,7 +42,8 @@ A member can assign roles up to their own rank and can only manage members of a 
 | deep_links.read | ✓ | ✓ | ✓ | ✓ | ✓ |
 | deep_links.manage (link domains, iOS / Android app association) | ✓ | ✓ | ✓ | | |
 | audiences.read | ✓ | ✓ | | ✓ | ✓ |
-| audiences.manage, automations.read / manage | ✓ | ✓ | | | ✓ |
+| audiences.manage | ✓ | ✓ | | ✓ | ✓ |
+| automations.read / manage | ✓ | ✓ | | | ✓ |
 | integrations.read | ✓ | ✓ | ✓ | | ✓ |
 | integrations.manage, webhooks.manage | ✓ | ✓ | ✓ | | |
 | privacy.manage, audit.read | ✓ | ✓ | | | |

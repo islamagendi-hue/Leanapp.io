@@ -177,7 +177,7 @@ describe("permissions and isolation", () => {
     expect((await previewAudience(other.ctx, other.dev.id, { type: "event", event: "purchase" })).sample).toEqual(["u1"]);
   });
 
-  it("analysts read, marketers manage, developers neither", async () => {
+  it("analysts and marketers manage (analysts made cohorts), developers neither", async () => {
     const roles = ["analyst", "marketer", "developer"] as const;
     const ctxs = await Promise.all(
       roles.map(async (role, i) => {
@@ -188,7 +188,7 @@ describe("permissions and isolation", () => {
     );
     const [analyst, marketer, developer] = ctxs;
     await expect(listAudiences(analyst, t.dev.id)).resolves.toBeDefined();
-    await expect(createAudience(analyst, t.dev.id, { name: "No", definition: { type: "event", event: "x" } })).rejects.toThrow(/permission/);
+    await expect(createAudience(analyst, t.dev.id, { name: "Analyst's", definition: { type: "event", event: "x" } })).resolves.toHaveProperty("id");
     await expect(createAudience(marketer, t.dev.id, { name: "Yes", definition: { type: "event", event: "x" } })).resolves.toHaveProperty("id");
     await expect(listAudiences(developer, t.dev.id)).rejects.toThrow(/permission/);
   });

@@ -4,7 +4,7 @@ import type { Db } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { loadRevenueRules, NO_CURRENCY, revenueCtes } from "./revenue";
-import { analyticsTx } from "./service";
+import { analyticsTx, audienceSql } from "./service";
 import { propertyFilterSchema, propertyPredicate, type PropertyFilter } from "@/modules/audiences/definition";
 import { Params } from "./sql";
 
@@ -40,12 +40,16 @@ export interface SearchOptions {
   filters?: PropertyFilter[];
   /** User properties to return with each user. */
   columns?: string[];
+  /** Only members of this audience (computed now, like a report filter). */
+  audienceId?: string;
+  /** The project's timezone, for audiences with date ranges. */
+  timezone?: string;
 }
 
 /**
  * Users and installs whose id starts with `q` (exact matches first); recently
- * seen users when `q` is empty. Property filters narrow the users (installs
- * have no user properties, so they're left out when filtering).
+ * seen users when `q` is empty. Property filters and an audience narrow the
+ * users (installs have no user properties, so they're left out when filtering).
  */
 export async function searchPeople(ctx: TenantContext, environmentId: string, q: unknown, opts: SearchOptions = {}): Promise<SearchResult> {
   const query = typeof q === "string" ? q.trim().slice(0, 256) : "";
@@ -61,6 +65,8 @@ export async function searchPeople(ctx: TenantContext, environmentId: string, q:
     async (db) => {
       const p = new Params([environmentId]);
       const where = [`u.environment_id = $1`];
+      const audience = opts.audienceId ? await audienceSql(db, { environmentId, timezone: opts.timezone }, opts.audienceId, p) : null;
+      if (audience) where.push("u.external_id in (select person from audience)");
       if (query) where.push(`u.external_id like ${p.add(likePrefix(query))}`);
       for (const f of filters) where.push(propertyPredicate("u.properties", f, p));
       const props = columns.length
@@ -68,7 +74,7 @@ export async function searchPeople(ctx: TenantContext, environmentId: string, q:
         : `'{}'::jsonb`;
       const order = query ? `u.external_id = ${p.add(query)} desc, u.last_seen_at desc` : "u.last_seen_at desc, u.external_id";
       const users = await db.query<{ external_id: string; first_seen_at: Date; last_seen_at: Date; props: Record<string, unknown> }>(
-        `select u.external_id, u.first_seen_at, u.last_seen_at, ${props} as props from platform.app_users u
+        `${audience ? `with audience as (${audience}) ` : ""}select u.external_id, u.first_seen_at, u.last_seen_at, ${props} as props from platform.app_users u
           where ${where.join(" and ")}
           order by ${order} limit ${p.add(limit)}`,
         p.values,
@@ -77,7 +83,7 @@ export async function searchPeople(ctx: TenantContext, environmentId: string, q:
         users: users.map((u) => ({ userId: u.external_id, firstSeen: u.first_seen_at, lastSeen: u.last_seen_at, properties: u.props })),
         installs: [],
       };
-      if (!query || filters.length) return result;
+      if (!query || filters.length || audience) return result;
       const installs = await db.query<{ anonymous_id: string; platform: string | null; first_seen_at: Date; last_seen_at: Date; linked: string[] }>(
         `select a.anonymous_id, a.platform, a.first_seen_at, a.last_seen_at,
                 coalesce((select array_agg(il.user_id order by il.user_id) from platform.identity_links il

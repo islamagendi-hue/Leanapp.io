@@ -28,8 +28,8 @@ export const PERMISSIONS = {
   "implementation.edit": "Answer the questionnaire and edit draft tracking plans",
   "implementation.approve": "Approve and publish tracking plan versions",
   "implementation.mapping": "Accept or reject event mappings",
-  "analytics.read": "View analytics, funnels, retention and cohorts",
-  "analytics.write": "Save cohorts and analytics reports",
+  "analytics.read": "View analytics, funnels and retention",
+  "analytics.write": "Save analytics reports",
   "growth.read": "View growth definitions and growth state",
   "growth.write": "Edit growth definitions in the draft tracking plan",
   "users.read": "View end-user profiles",
@@ -58,9 +58,9 @@ export const ROLE_INFO: Record<Role, { name: string; description: string; rank: 
   owner: { name: "Owner", description: "Full access including billing, members and deletion.", rank: 100 },
   admin: { name: "Admin", description: "Full operational access except billing changes and deleting the organization.", rank: 80 },
   developer: { name: "Developer", description: "Apps, environments, SDK, keys, events, integrations and webhooks.", rank: 50 },
-  analyst: { name: "Analyst", description: "Analytics, funnels, retention, cohorts, attribution and users.", rank: 30 },
+  analyst: { name: "Analyst", description: "Analytics, funnels, retention, audiences, attribution and users.", rank: 30 },
   marketer: { name: "Marketer", description: "Audiences, automations, campaigns, analytics, users and attribution.", rank: 30 },
-  viewer: { name: "Viewer", description: "Read-only access to analytics, activation and users.", rank: 10 },
+  viewer: { name: "Viewer", description: "Read-only access to analytics, activation, audiences and users.", rank: 10 },
 };
 
 const read: Permission[] = ["organization.read", "members.read", "apps.read", "implementation.read"];
@@ -88,7 +88,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "deep_links.read",
     "deep_links.manage",
   ],
-  analyst: [...read, "events.read", "analytics.read", "analytics.write", "growth.read", "users.read", "attribution.read", "audiences.read", "deep_links.read"],
+  analyst: [...read, "events.read", "analytics.read", "analytics.write", "growth.read", "users.read", "attribution.read", "audiences.read", "audiences.manage", "deep_links.read"],
   marketer: [
     ...read,
     "analytics.read",
@@ -105,7 +105,7 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "integrations.read",
   ],
   // Read-only: sees reports and people, changes nothing and sees no keys, members or configuration.
-  viewer: ["organization.read", "apps.read", "analytics.read", "growth.read", "users.read"],
+  viewer: ["organization.read", "apps.read", "analytics.read", "growth.read", "users.read", "audiences.read"],
 };
 
 export const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES as readonly string[]).includes(v);

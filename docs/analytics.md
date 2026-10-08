@@ -1,12 +1,12 @@
 # Analytics
 
-**Status: built on Postgres** (`src/modules/analytics/`, app → Analytics). Overview page at `…/analytics` lists the reports, saved reports and cohorts of the selected environment.
+**Status: built on Postgres** (`src/modules/analytics/`, app → Analytics). Overview page at `…/analytics` lists the reports and saved reports of the selected environment.
 
 - **Events:** every event in the range with counts and distinct people; a daily chart for one event, optionally split by platform, app version, country or an event property (top 5 values, the rest as Other).
 - **Funnels:** 2–6 ordered steps, a conversion window of 1–30 days, conversion from start and from the previous step, median time between steps, optional split by platform.
 - **Retention:** cohorts by the day of a person's first start event; day 1, 3, 7, 14 and 30 returns, as a heat map with a weighted average. Days that aren't over yet are left empty.
 - **Revenue** (`revenue.ts`, `revenue-rules.ts`): totals per currency (gross, refunds, net, transactions, paying people, ARPU, ARPPU), a daily net chart per currency, and a breakdown by platform, event or any event property.
-- **Cohorts** (`cohorts.ts`): saved groups of people, usable as a filter in events, funnels, retention and revenue.
+- **Audience filter**: any [audience](audiences.md) limits events, funnels, retention, revenue and the Users list to its people.
 - **User profiles** (`profiles.ts`, needs `users.read`): search by user ID or anonymous ID (prefix), and a profile with identity, user properties, first/last seen, latest platform and app version, sessions, revenue per currency and a paged event timeline.
 - **Saved reports** (`saved-reports.ts`): named trend, funnel, retention and revenue configurations per environment, opened as links that re-run the report on current data.
 
@@ -24,17 +24,15 @@ The amount is the first of `revenue`, `price` (subscriptions) or `fee` (money mo
 
 **No currency conversion.** Each event's `currency` (ISO 4217, case-insensitive) is kept; totals, charts and breakdowns are per currency and different currencies are never added together. Events without a valid currency are shown under "No currency". ARPU divides a currency's net revenue by everyone active in the range (any track event); ARPPU by the people who had a revenue event in that currency.
 
-### Cohorts
+### Audiences as report filters (formerly cohorts)
 
-A definition (stored in `platform.analytics_cohorts`, per app environment):
+Cohorts merged into [Audiences](audiences.md) (migration `0024_cohorts_into_audiences.sql`). There is one segmentation layer: the audience condition tree (AND / OR / NOT over events, properties, revenue, platform, first and last seen) and its one SQL compiler serve Analytics, Users and Engagement.
 
-- **Event condition** (optional): did event X at least N times, in the last 1–365 days or between two dates (calendar days in the app's timezone), optionally only counting events where an event property matches.
-- **User property condition** (optional): identified users by their profile properties (identify traits), and anonymous installs not linked to exactly one user by their anonymous traits.
-- With both, a person must match both. At least one is required.
-
-Property conditions: is, is not, contains (case-insensitive), >, ≥, <, ≤ (numbers or numeric strings), is set, is not set. "is not" and comparisons only match people who have the property.
-
-Members are computed on demand with the analytics statement timeout and never stored, so a cohort is always current; the cohorts page computes each size in its own query and shows "–" if one takes too long. A cohort can only filter reports in its own environment; a deleted cohort in a saved report falls back to everyone with a notice.
+- Every report (events, funnels, retention, revenue) and the Users list take "People in audience". The URL parameter is still `cohort` and saved reports still store `cohortId`, so old links and saved reports keep working.
+- Every saved cohort was copied into `platform.audiences` with the **same id** as a draft. The conversion keeps the same people: "is not" becomes "is set AND is not", because cohorts never matched people without the property. `analytics_cohorts` is kept unchanged but nothing writes to it.
+- Members are computed when the report runs, inside the report's query and with its statement timeout, so a draft audience works as a filter too. Event conditions count by the same rule as the reports (`COUNTED_EVENTS`), and date ranges are calendar days in the app's timezone.
+- Archived audiences, or audiences in another environment, don't filter: the report shows everyone with a notice.
+- `/analytics/cohorts` and `/analytics/cohorts/<id>` redirect to Audiences.
 
 ### Profiles and identity
 
@@ -42,9 +40,9 @@ A user's profile includes the anonymous activity of installs linked only to that
 
 ### Permissions
 
-`analytics.read` views reports, cohorts and saved reports. `analytics.write` (owner, admin, analyst, marketer) creates, edits and deletes cohorts and saved reports; these changes are audited (`cohort.*`, `saved_report.*`). Profiles and user search need `users.read` (owner, admin, developer, analyst).
+`analytics.read` views reports and saved reports, and filters them by an audience. `analytics.write` (owner, admin, analyst, marketer) saves and deletes reports (audited as `saved_report.*`). Audiences need `audiences.manage` (owner, admin, analyst, marketer). Profiles and user search need `users.read` (owner, admin, developer, analyst).
 
-Not built yet: activation reports, attribution breakdowns (channel and campaign) for revenue, multi-condition cohort trees (the [audiences](audiences.md) builder will cover AND/OR/NOT), sharing cohorts with audiences, CSV export.
+Not built yet: activation reports, attribution breakdowns (channel and campaign) for revenue, CSV export.
 
 ## Scope (phase 2)
 
@@ -53,7 +51,7 @@ Not built yet: activation reports, attribution breakdowns (channel and campaign)
 | Event explorer | Counts and uniques over time, filter and group by property |
 | Funnels | Ordered steps with conversion windows, broken down by property, platform, campaign |
 | Retention | N-day and unbounded retention from a start event to a return event |
-| Cohorts | Saved user groups by behaviour or property (shared with [audiences](audiences.md)) |
+| Audiences | Saved user groups by behaviour or property, one layer for Analytics, Users and Engagement ([audiences](audiences.md)) |
 | Revenue | Revenue by day, platform and property per currency (built); by channel and campaign once attribution exists |
 | User profiles | Timeline per user across devices |
 | Activation | Time to activation event, activation rate by acquisition channel |

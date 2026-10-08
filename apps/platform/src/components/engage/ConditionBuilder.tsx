@@ -50,6 +50,13 @@ export function defaultLeaf(type: string): Node {
   }
 }
 
+/** A YYYY-MM-DD date `n` days before today (the browser's calendar; the server reads it in the project's timezone). */
+function daysAgo(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 /** Typed value from a text box: numbers and booleans become JSON numbers and booleans; "in" takes a comma list. */
 export function parseValue(op: string, raw: string): unknown {
   if (op === "exists" || op === "not_exists") return undefined;
@@ -197,15 +204,31 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
             )}
             {leaf.sinceTrigger ? <span>since the trigger</span> : (
               <>
-                <span>in the last</span>
-                <input className="input w-20" type="number" min={1} max={365} value={String(leaf.withinDays ?? 30)} onChange={num("withinDays")} aria-label="Days" />
-                <span>days</span>
+                <select className="input w-auto" value={leaf.between ? "between" : "last"} aria-label="When"
+                  onChange={(e) => {
+                    onChange(e.target.value === "between" ? { ...leaf, between: { from: daysAgo(Number(leaf.withinDays) || 30), to: daysAgo(0) } } : { ...leaf, between: undefined });
+                  }}>
+                  <option value="last">in the last</option>
+                  <option value="between">between</option>
+                </select>
+                {leaf.between ? (
+                  <>
+                    <input className="input w-40" type="date" value={String((leaf.between as Json).from ?? "")} onChange={(e) => onChange({ ...leaf, between: { ...(leaf.between as Json), from: e.target.value } })} aria-label="From" />
+                    <span>and</span>
+                    <input className="input w-40" type="date" value={String((leaf.between as Json).to ?? "")} onChange={(e) => onChange({ ...leaf, between: { ...(leaf.between as Json), to: e.target.value } })} aria-label="To" />
+                  </>
+                ) : (
+                  <>
+                    <input className="input w-20" type="number" min={1} max={365} value={String(leaf.withinDays ?? 30)} onChange={num("withinDays")} aria-label="Days" />
+                    <span>days</span>
+                  </>
+                )}
               </>
             )}
           </div>
           {allowSinceTrigger && (
             <label className="inline-flex items-center gap-1 text-xs text-ink-2">
-              <input type="checkbox" checked={Boolean(leaf.sinceTrigger)} onChange={(e) => onChange({ ...leaf, sinceTrigger: e.target.checked || undefined })} /> Count only since the automation was triggered
+              <input type="checkbox" checked={Boolean(leaf.sinceTrigger)} onChange={(e) => onChange({ ...leaf, sinceTrigger: e.target.checked || undefined, ...(e.target.checked ? { between: undefined } : {}) })} /> Count only since the automation was triggered
             </label>
           )}
           {where.map((f, i) => (

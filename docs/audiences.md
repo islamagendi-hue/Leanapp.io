@@ -1,6 +1,8 @@
 # Audiences
 
-**Status: built (Phase 4).** Code: `apps/platform/src/modules/audiences`. Tables: `audiences`, `audience_members`, `audience_events`, `audience_snapshots`. The original `audience_conditions` table is unused, because the definition is stored as JSON on `audiences.definition`. Permissions: `audiences.read`, `audiences.manage`. Dashboard: app → Engage → Audiences.
+**Status: built (Phase 4).** Code: `apps/platform/src/modules/audiences`. Tables: `audiences`, `audience_members`, `audience_events`, `audience_snapshots`. The original `audience_conditions` table is unused, because the definition is stored as JSON on `audiences.definition`. Permissions: `audiences.read`, `audiences.manage`. Dashboard: app → Audiences.
+
+Audiences are the one segmentation layer: the same definitions filter every analytics report and the Users list (computed when the report runs, drafts included), and drive Engagement. Analytics cohorts were merged into audiences; see [analytics](analytics.md#audiences-as-report-filters-formerly-cohorts).
 
 ## Definition
 
@@ -8,7 +10,7 @@ A tree of `and` / `or` / `not` nodes, with at most 5 levels and 20 leaves, built
 
 | Leaf | Meaning |
 | --- | --- |
-| `event` | Did (or didn't) do event *E* at least / exactly / at most *n* times within the last *N* days (default 30, max 365), with up to 5 event property filters |
+| `event` | Did (or didn't) do event *E* at least / exactly / at most *n* times within the last *N* days (default 30, max 365) or `between` two dates (calendar days in the app's timezone), with up to 5 event property filters. Events count by the analytics rule: processed `track` and `screen` events |
 | `user_property` | Latest profile property (from `identify`) compared with `eq`, `neq`, `gt`, `gte`, `lt`, `lte`, `contains`, `not_contains`, `in`, `exists`, `not_exists` |
 | `first_seen` / `last_seen` | Within or before the last *N* days |
 | `platform` | Has used the app on `ios`, `android`, `web`, `react_native`, `flutter` or `backend` |

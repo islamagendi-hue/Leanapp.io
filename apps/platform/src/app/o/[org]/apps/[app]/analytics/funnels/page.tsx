@@ -67,7 +67,7 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
         </div>
       </form>
 
-      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the funnel shows everyone.</p>}
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the funnel shows everyone.</p>}
       {!result ? (
         <p className="text-sm text-ink-3">Choose at least two steps. {events.length === 0 && "There are no events in this environment and range yet."}</p>
       ) : (

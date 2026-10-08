@@ -296,8 +296,8 @@ test("a viewer sees reports and people, and can change nothing", async ({ page, 
   await expect(v.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(v.getByRole("link", { name: "Get started" })).toHaveCount(0);
   const menu = v.getByRole("navigation", { name: "Food Express Pro" });
-  for (const name of ["Events & trends", "Funnels", "Users", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
-  for (const name of ["Audiences", "Flows", "Tracking links & QR"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
+  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
+  for (const name of ["Flows", "Tracking links & QR"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
   await v.goto(`${appBase}/analytics/events`);
   await expect(v.getByRole("heading", { name: "Events", level: 1 })).toBeVisible();
 
@@ -344,6 +344,36 @@ test("property catalog: Attributes lists what the app sends, and Users filter by
   await page.getByLabel("Value 1").fill("Jeddah");
   await page.getByRole("button", { name: "Search" }).click();
   await expect(page.getByText("No user matches these filters.")).toBeVisible();
+});
+
+test("cohorts are audiences: an old cohort link opens the audience, which filters reports and Users", async ({ page }) => {
+  await signIn(page);
+  // A cohort saved before the change, copied the way the migration does it.
+  const db = new Client({ connectionString: process.env.DATABASE_URL });
+  await db.connect();
+  const { rows: [cohort] } = await db.query<{ id: string }>(
+    `insert into platform.analytics_cohorts (organization_id, app_id, environment_id, name, definition)
+     select e.organization_id, e.app_id, e.id, 'Riyadh people', '{"userProperty":{"name":"city","op":"eq","value":"Riyadh"}}'
+       from platform.environments e join platform.apps a on a.id = e.app_id join platform.organizations o on o.id = a.organization_id
+      where e.type = 'development' and '/o/' || o.slug || '/apps/' || a.slug = $1
+     returning id`,
+    [new URL(appBase).pathname],
+  );
+  await db.query("select platform.copy_cohorts_to_audiences()");
+  await db.end();
+
+  await page.goto(`${appBase}/analytics/cohorts/${cohort.id}`);
+  await expect(page).toHaveURL(new RegExp(`/engage/audiences/${cohort.id}$`));
+  await expect(page.getByRole("heading", { name: /Riyadh people/, level: 1 })).toBeVisible();
+  const use = page.getByText("Use this audience in").locator("..");
+  await use.getByRole("link", { name: "Users", exact: true }).click();
+  await expect(page.getByRole("link", { name: "u-77" })).toBeVisible();
+  await expect(page.getByRole("combobox", { name: "People in audience" })).toHaveValue(cohort.id);
+
+  await page.goto(`${appBase}/analytics/events?env=development&cohort=${cohort.id}`);
+  await expect(page.getByRole("combobox", { name: "People in audience" })).toHaveValue(cohort.id);
+  await page.goto(`${appBase}/analytics/cohorts?env=development`);
+  await expect(page).toHaveURL(/\/engage\/audiences\?env=development$/);
 });
 
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {

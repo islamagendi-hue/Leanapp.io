@@ -55,7 +55,6 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
           { label: "Revenue", href: `${base}/analytics/revenue`, perm: "analytics.read" },
           { label: "Activation", href: `${base}/growth`, perm: "growth.read" },
           { label: "Dashboards", soon: true, perm: "analytics.read" },
-          // Cohorts are listed (and opened) from saved reports until they merge into Audiences.
           { label: "Saved reports", href: `${base}/analytics`, perm: "analytics.read" },
         ]),
       },

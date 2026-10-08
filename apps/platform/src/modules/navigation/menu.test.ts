@@ -48,8 +48,8 @@ describe("navigation menu", () => {
     expect(marketerSettings).toContain("Dev Ops/Messaging channels");
     expect(labels(settingsMenu("owner", "acme", base))).toContain("Project/Privacy requests");
 
-    // Viewer: reports and people only; no engagement, acquisition, Dev Ops or workspace admin.
-    expect(labels(projectMenu("viewer", base))).toEqual(["Overview", "Analytics", "Analytics/Events & trends", "Analytics/Funnels", "Analytics/Retention", "Analytics/Revenue", "Analytics/Activation", "Analytics/Dashboards", "Analytics/Saved reports", "Users", "Settings"]);
+    // Viewer: reports, people and audiences (read only); no engagement, acquisition, Dev Ops or workspace admin.
+    expect(labels(projectMenu("viewer", base))).toEqual(["Overview", "Analytics", "Analytics/Events & trends", "Analytics/Funnels", "Analytics/Retention", "Analytics/Revenue", "Analytics/Activation", "Analytics/Dashboards", "Analytics/Saved reports", "Users", "Audiences", "Settings"]);
     const viewerSettings = labels(settingsMenu("viewer", "acme", base));
     expect(viewerSettings.filter((l) => !l.includes("/"))).toEqual(["Workspace", "Project", "Security"]);
     expect(viewerSettings).toEqual(expect.arrayContaining(["Project/General", "Project/Environments", "Project/Timezone & currency"]));

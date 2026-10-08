@@ -41,6 +41,17 @@ export default async function AudiencePage(props: PageProps<"/o/[org]/apps/[app]
         )}
       </div>
 
+      {a.status !== "archived" && (can(ctx.role, "analytics.read") || can(ctx.role, "users.read")) && (
+        <section className="card flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+          <span className="text-ink-2">Use this audience in</span>
+          {can(ctx.role, "analytics.read") && (["events", "funnels", "retention", "revenue"] as const).map((r) => (
+            <Link key={r} className="underline" href={`/o/${org}/apps/${app}/analytics/${r}?${new URLSearchParams({ env: env.type, cohort: a.id })}`}>{r[0].toUpperCase() + r.slice(1)}</Link>
+          ))}
+          {can(ctx.role, "users.read") && <Link className="underline" href={`/o/${org}/apps/${app}/analytics/users?${new URLSearchParams({ env: env.type, cohort: a.id })}`}>Users</Link>}
+          <span className="text-xs text-ink-3">Reports compute it at the time they run{a.status === "draft" ? ", so a draft works there too" : ""}.</span>
+        </section>
+      )}
+
       {a.status !== "draft" && (
         <div className="grid gap-4 sm:grid-cols-3">
           <div className="card"><p className="label">People now</p><p className="text-3xl font-bold tabular-nums">{a.member_count.toLocaleString("en-US")}</p></div>

@@ -3,14 +3,14 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import type { Permission } from "@/modules/rbac/permissions";
-import { propertyFilterSchema, propertyPredicate, type PropertyFilter } from "@/modules/audiences/definition";
+import { compileAudience, DefinitionError, parseDefinition, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { measurable } from "./retention-rule";
 import {
   bucketKeys, bucketSql, change, datesBetween, defaultInterval, intervalField, localDate, previousRange, rangeDays, rangeFields, resolveRange,
   type Interval, type ReportRange,
 } from "./range";
-import { cohortDefinitionSchema, cohortSql, evCte, Params } from "./sql";
+import { evCte, Params } from "./sql";
 
 /**
  * Analytics on Postgres (ADR-002): event trends, funnels and retention for
@@ -27,8 +27,11 @@ import { cohortDefinitionSchema, cohortSql, evCte, Params } from "./sql";
  * - Days are calendar days in the app's timezone. A range is a preset (last
  *   7, 30 or 90 days, ending now) or custom calendar days (./range.ts); any
  *   report can compare with the period of the same length just before it.
- * - Any report can be limited to a saved cohort (`cohortId`, see ./cohorts.ts).
- * Revenue, profiles, cohorts and saved reports live in sibling files.
+ * - Any report can be limited to the people of an audience (`cohortId`, the
+ *   name saved reports have always used; see modules/audiences). Audiences
+ *   are the one segmentation layer: the same condition tree and SQL compiler
+ *   serve Analytics, Users and Engagement.
+ * Revenue, profiles and saved reports live in sibling files.
  */
 
 export { RANGES, type RangeDays } from "./range";
@@ -76,14 +79,26 @@ export function analyticsTx<T>(ctx: TenantContext, fn: (db: Db) => Promise<T>, p
 }
 const query = analyticsTx;
 
-/** A saved cohort's definition; the cohort must belong to the report's environment (RLS keeps it in the organization). */
-export async function loadCohortDefinition(db: Db, environmentId: string, id: string) {
+/** An audience's definition; it must be in the report's environment and not archived (RLS keeps it in the organization). */
+export async function loadAudienceDefinition(db: Db, environmentId: string, id: string): Promise<AudienceNode> {
+  if (!z.uuid().safeParse(id).success) throw new ValidationError("That audience doesn't exist in this environment.");
   const row = await db.one<{ definition: unknown }>(
-    "select definition from platform.analytics_cohorts where id = $1 and environment_id = $2",
+    "select definition from platform.audiences where id = $1 and environment_id = $2 and status <> 'archived'",
     [id, environmentId],
   );
-  if (!row) throw new ValidationError("That cohort doesn't exist in this environment.");
-  return cohortDefinitionSchema.parse(row.definition);
+  if (!row) throw new ValidationError("That audience doesn't exist in this environment.");
+  try {
+    return parseDefinition(row.definition);
+  } catch (e) {
+    if (e instanceof DefinitionError) throw new ValidationError(`That audience can't be used: ${e.message}`);
+    throw e;
+  }
+}
+
+/** SELECT of an audience's people (column `person`), its values added to `p`, whose $1 must be the environment id. */
+export async function audienceSql(db: Db, scope: { environmentId: string; timezone?: string }, id: string, p: Params): Promise<string> {
+  const def = await loadAudienceDefinition(db, scope.environmentId, id);
+  return compileAudience(def, scope.environmentId, { params: p, timezone: scope.timezone ?? "UTC" }).sql;
 }
 
 /**
@@ -99,7 +114,7 @@ export async function eventsSource(
   end?: Date,
 ): Promise<{ sql: string; p: Params }> {
   const p = new Params(base);
-  const cohortText = cohort ? cohortSql(await loadCohortDefinition(db, scope.environmentId, cohort), p, { timezone: scope.timezone ?? "UTC" }) : undefined;
+  const cohortText = cohort ? await audienceSql(db, scope, cohort, p) : undefined;
   return { sql: evCte(cohortText, end ? p.add(end) : undefined), p };
 }
 

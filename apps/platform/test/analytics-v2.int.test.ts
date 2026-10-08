@@ -1,18 +1,19 @@
 /**
  * Analytics beyond v1: user profiles (search, stitching, timeline), revenue
- * per currency with refunds, saved cohorts used as report filters, saved
- * reports, analytics.write / users.read permissions and tenant isolation.
+ * per currency with refunds, audiences (and the cohorts copied into them) as
+ * report and Users filters, saved reports, analytics.write / users.read
+ * permissions and tenant isolation.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { withSystem, withTenant } from "@/lib/db";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
-import { cohortMembers, createCohort, deleteCohort, getCohort, listCohorts, previewCohortSize, updateCohort } from "@/modules/analytics/cohorts";
 import { getProfile, profileTimeline, searchPeople, type Profile } from "@/modules/analytics/profiles";
-import { paramsFromConfig } from "@/modules/analytics/report-params";
+import { inputFromParams, paramsFromConfig } from "@/modules/analytics/report-params";
 import { NO_CURRENCY, revenueReport } from "@/modules/analytics/revenue";
 import { deleteSavedReport, listSavedReports, saveReport } from "@/modules/analytics/saved-reports";
 import { eventTrend, funnel, retention, topEvents } from "@/modules/analytics/service";
 import { authenticateIngestionKey } from "@/modules/credentials/service";
+import { archiveAudience, createAudience, getAudience, listAudiences, previewAudience } from "@/modules/audiences/service";
 import { ingest } from "@/modules/ingestion/service";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { ROLE_PERMISSIONS, ROLES } from "@/modules/rbac/permissions";
@@ -157,70 +158,98 @@ describe("user profiles", () => {
   });
 });
 
-describe("cohorts", () => {
-  let buyers: string;
-  let gold: string;
+describe("cohorts become audiences", () => {
+  const ids: Record<string, string> = {};
+  const legacy: Record<string, unknown> = {
+    Buyers: { event: { name: "purchase_completed", minCount: 1, range: { kind: "last", days: 30 } } },
+    "Repeat buyers": { event: { name: "purchase_completed", minCount: 2, range: { kind: "last", days: 30 } } },
+    "Big spenders": { event: { name: "purchase_completed", minCount: 1, range: { kind: "last", days: 30 }, property: { name: "revenue", op: "gt", value: "30" } } },
+    "Recent buyers": { event: { name: "purchase_completed", minCount: 1, range: { kind: "last", days: 2 } } },
+    "That day": { event: { name: "purchase_completed", minCount: 1, range: { kind: "between", from: daysAgo(5).slice(0, 10), to: daysAgo(5).slice(0, 10) } } },
+    Gold: { userProperty: { name: "plan", op: "eq", value: "gold" } },
+    "Thirty plus": { userProperty: { name: "age", op: "gte", value: "30" } },
+    "Has a plan": { userProperty: { name: "plan", op: "exists", value: "" } },
+    "Not gold": { userProperty: { name: "plan", op: "neq", value: "gold" } },
+    "Gold buyers": { event: { name: "purchase_completed", minCount: 1, range: { kind: "last", days: 30 } }, userProperty: { name: "plan", op: "eq", value: "gold" } },
+  };
+  const size = async (name: string) => {
+    const { audience } = await getAudience(A.ctx, ids[name]);
+    return (await previewAudience(A.ctx, A.dev.id, audience.definition)).size;
+  };
 
-  it("creates cohorts and computes their members", async () => {
-    buyers = (await createCohort(A.ctx, A.dev.id, { name: "Buyers", definition: { event: { name: "purchase_completed", range: { kind: "last", days: 30 } } } })).id;
-    expect(await cohortMembers(A.ctx, scope, buyers, { limit: 10 })).toMatchObject({ size: 3 });
-    const sample = (await cohortMembers(A.ctx, scope, buyers, { limit: 10 })).sample.map((m) => m.person).sort();
-    expect(sample).toEqual(["anon:a4", "u1", "u2"]);
+  it("copies every saved cohort into an audience with the same id and the same people", async () => {
+    await withSystem(async (db) => {
+      for (const [name, definition] of Object.entries(legacy)) {
+        const row = await db.one<{ id: string }>(
+          "insert into platform.analytics_cohorts (organization_id, app_id, environment_id, name, definition, created_by) values ($1, $2, $3, $4, $5, $6) returning id",
+          [A.org.id, A.app.id, A.dev.id, name, JSON.stringify(definition), A.user.id],
+        );
+        ids[name] = row!.id;
+      }
+      await db.query("insert into platform.analytics_cohorts (organization_id, app_id, environment_id, name, definition) values ($1, $2, $3, 'Broken', '{}')", [A.org.id, A.app.id, A.dev.id]);
+    });
+    // A report saved with a cohort before the change.
+    await saveReport(A.ctx, A.dev.id, { name: "Gold buyers' purchases", kind: "trend", query: new URLSearchParams({ event: "purchase_completed", days: "30", cohort: ids["Gold buyers"] }) });
 
-    const size = (definition: unknown) => previewCohortSize(A.ctx, scope, definition);
-    expect(await size({ event: { name: "purchase_completed", minCount: 2, range: { kind: "last", days: 30 } } })).toBe(1);
-    expect(await size({ event: { name: "purchase_completed", range: { kind: "last", days: 30 }, property: { name: "revenue", op: "gt", value: "30" } } })).toBe(1);
-    expect(await size({ event: { name: "purchase_completed", range: { kind: "last", days: 2 } } })).toBe(1); // only the tablet bought yesterday
-    const from = daysAgo(5).slice(0, 10);
-    expect(await size({ event: { name: "purchase_completed", range: { kind: "between", from, to: from } } })).toBe(1);
-    // User property: identified users by profile, unstitched installs by anonymous traits.
-    expect(await size({ userProperty: { name: "plan", op: "eq", value: "gold" } })).toBe(2); // u1, anon:a3
-    expect(await size({ userProperty: { name: "age", op: "gte", value: "30" } })).toBe(1);
-    expect(await size({ userProperty: { name: "plan", op: "exists" } })).toBe(3);
-    gold = (await createCohort(A.ctx, A.dev.id, {
-      name: "Gold buyers",
-      definition: { event: { name: "purchase_completed", range: { kind: "last", days: 30 } }, userProperty: { name: "plan", op: "eq", value: "gold" } },
-    })).id;
-    expect((await cohortMembers(A.ctx, scope, gold, { limit: 5 })).sample.map((m) => m.person)).toEqual(["u1"]);
+    const copied = await withSystem((db) => db.one<{ n: number }>("select platform.copy_cohorts_to_audiences() as n"));
+    expect(copied!.n).toBeGreaterThanOrEqual(Object.keys(legacy).length);
+    expect((await withSystem((db) => db.one<{ n: number }>("select platform.copy_cohorts_to_audiences() as n")))!.n).toBe(0); // runs again safely
+
+    const list = await listAudiences(A.ctx, A.dev.id);
+    for (const [name, id] of Object.entries(ids)) expect(list.find((a) => a.id === id)).toMatchObject({ name, status: "draft" });
+    expect(list.some((a) => a.name === "Broken")).toBe(false); // nothing to convert
+
+    // The same people as the cohort had (see the batch above).
+    expect(await size("Buyers")).toBe(3); // u1, u2 and the shared tablet
+    expect(await size("Repeat buyers")).toBe(1);
+    expect(await size("Big spenders")).toBe(1);
+    expect(await size("Recent buyers")).toBe(1); // only the tablet bought yesterday
+    expect(await size("That day")).toBe(1);
+    expect(await size("Gold")).toBe(2); // u1, and anon:a3 by its anonymous traits
+    expect(await size("Thirty plus")).toBe(1);
+    expect(await size("Has a plan")).toBe(3);
+    expect(await size("Not gold")).toBe(1); // like cohorts, people without a plan don't count
+    const { audience } = await getAudience(A.ctx, ids["Gold buyers"]);
+    expect((await previewAudience(A.ctx, A.dev.id, audience.definition)).sample).toEqual(["u1"]);
   });
 
-  it("validates definitions and names", async () => {
-    await expect(createCohort(A.ctx, A.dev.id, { name: "Empty", definition: {} })).rejects.toBeInstanceOf(ValidationError);
-    await expect(createCohort(A.ctx, A.dev.id, { name: "", definition: { userProperty: { name: "plan", op: "exists" } } })).rejects.toBeInstanceOf(ValidationError);
-    await expect(createCohort(A.ctx, A.dev.id, { name: "Bad", definition: { userProperty: { name: "age", op: "gt", value: "old" } } })).rejects.toBeInstanceOf(ValidationError);
-    await expect(createCohort(A.ctx, A.dev.id, { name: "Bad", definition: { userProperty: { name: "x'); drop", op: "exists" } } })).rejects.toBeInstanceOf(ValidationError);
-    await expect(createCohort(A.ctx, A.dev.id, { name: "buyers", definition: { userProperty: { name: "plan", op: "exists" } } })).rejects.toBeInstanceOf(ConflictError);
-  });
-
-  it("filters events, funnels, retention and revenue", async () => {
+  it("filters events, funnels, retention and revenue by an audience", async () => {
+    const gold = ids["Gold buyers"];
     const trend = await eventTrend(A.ctx, scope, { event: "purchase_completed", days: 30, cohortId: gold });
     expect(trend.total).toEqual({ count: 3, people: 1 });
     expect((await topEvents(A.ctx, { ...scope, days: 30, cohortId: gold })).map((e) => e.name)).not.toContain("tip_sent");
-    const f = await funnel(A.ctx, scope, { steps: ["app_installed", "purchase_completed"], windowDays: 7, days: 30, cohortId: buyers });
+    const f = await funnel(A.ctx, scope, { steps: ["app_installed", "purchase_completed"], windowDays: 7, days: 30, cohortId: ids.Buyers });
     expect(f.steps.map((s) => s.people)).toEqual([2, 2]);
     const r = await retention(A.ctx, scope, { startEvent: "app_installed", returnEvent: "purchase_completed", days: 30, cohortId: gold });
     expect(r.people).toBe(1);
     const rev = await revenueReport(A.ctx, scope, { days: 30, cohortId: gold });
     expect(rev.currencies.map((c) => [c.currency, c.net])).toEqual([["SAR", 100], ["USD", 10]]);
     expect(rev.activeUsers).toBe(1);
+    // An audience made in Audiences works the same way.
+    const free = (await createAudience(A.ctx, A.dev.id, { name: "Free plan", definition: { type: "user_property", property: "plan", op: "eq", value: "free" } })).id;
+    expect((await eventTrend(A.ctx, scope, { event: "purchase_completed", days: 30, cohortId: free })).total).toEqual({ count: 1, people: 1 });
   });
 
-  it("updates and deletes with an audit trail", async () => {
-    await updateCohort(A.ctx, A.dev.id, buyers, { name: "Repeat buyers", definition: { event: { name: "purchase_completed", minCount: 2, range: { kind: "last", days: 30 } } } });
-    expect((await getCohort(A.ctx, A.dev.id, buyers)).name).toBe("Repeat buyers");
-    expect((await cohortMembers(A.ctx, scope, buyers)).size).toBe(1);
-    const tmp = (await createCohort(A.ctx, A.dev.id, { name: "Temp", definition: { userProperty: { name: "plan", op: "exists" } } })).id;
-    await deleteCohort(A.ctx, A.dev.id, tmp);
-    await expect(getCohort(A.ctx, A.dev.id, tmp)).rejects.toBeInstanceOf(NotFoundError);
+  it("keeps reports saved with a cohort working", async () => {
+    const saved = (await listSavedReports(A.ctx, A.dev.id)).find((r) => r.name === "Gold buyers' purchases")!;
+    expect(saved.config.cohortId).toBe(ids["Gold buyers"]);
+    const trend = await eventTrend(A.ctx, scope, inputFromParams("trend", paramsFromConfig("trend", saved.config)));
+    expect(trend.total).toEqual({ count: 3, people: 1 });
+  });
+
+  it("filters the Users list by an audience", async () => {
+    expect((await searchPeople(A.ctx, A.dev.id, "", { audienceId: ids.Buyers })).users.map((u) => u.userId).sort()).toEqual(["u1", "u2"]);
+    expect((await searchPeople(A.ctx, A.dev.id, "u", { audienceId: ids.Buyers, filters: [{ property: "plan", op: "eq", value: "free" }] })).users.map((u) => u.userId)).toEqual(["u2"]);
+    await expect(searchPeople(A.ctx, A.dev.id, "", { audienceId: "not-a-uuid" })).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("stops filtering by archived audiences and keeps audiences in their environment", async () => {
+    const tmp = (await createAudience(A.ctx, A.dev.id, { name: "Temp", definition: { type: "user_property", property: "plan", op: "exists" } })).id;
+    await archiveAudience(A.ctx, tmp);
     await expect(eventTrend(A.ctx, scope, { event: "purchase_completed", days: 30, cohortId: tmp })).rejects.toBeInstanceOf(ValidationError);
-    const actions = await withSystem((db) => db.query<{ action: string }>("select action from platform.audit_logs where organization_id = $1 and action like 'cohort.%'", [A.org.id]));
-    expect(actions.map((a) => a.action).sort()).toEqual(["cohort.created", "cohort.created", "cohort.created", "cohort.deleted", "cohort.updated"]);
-  });
-
-  it("keeps cohorts in their environment", async () => {
     const prod = A.environments.find((e) => e.type === "production")!;
-    expect(await listCohorts(A.ctx, prod.id)).toEqual([]);
-    await expect(eventTrend(A.ctx, { environmentId: prod.id, timezone: "UTC" }, { event: "purchase_completed", days: 30, cohortId: gold })).rejects.toBeInstanceOf(ValidationError);
+    expect(await listAudiences(A.ctx, prod.id)).toEqual([]);
+    await expect(eventTrend(A.ctx, { environmentId: prod.id, timezone: "UTC" }, { event: "purchase_completed", days: 30, cohortId: ids.Gold })).rejects.toBeInstanceOf(ValidationError);
   });
 });
 
@@ -232,11 +261,11 @@ describe("saved reports", () => {
     await saveReport(A.ctx, A.dev.id, { name: "Install to purchase", kind: "funnel", query: funnelQuery });
     await saveReport(A.ctx, A.dev.id, { name: "Revenue", kind: "revenue", query: new URLSearchParams({ days: "30", by: "platform" }) });
     const list = await listSavedReports(A.ctx, A.dev.id);
-    expect(list.map((r) => r.name)).toEqual(["Install to purchase", "Purchases by product", "Revenue"]);
+    expect(list.map((r) => r.name)).toEqual(["Gold buyers' purchases", "Install to purchase", "Purchases by product", "Revenue"]);
     const trend = list.find((r) => r.id === trendId)!;
     expect(trend.config).toEqual({ event: "purchase_completed", days: 7, breakdown: "property:product" });
     expect(paramsFromConfig("trend", trend.config).toString()).toBe("event=purchase_completed&by=property&property=product&days=7");
-    expect(paramsFromConfig("funnel", list[0].config).toString()).toBe("step=app_installed&step=purchase_completed&window=3&split=platform&days=90");
+    expect(paramsFromConfig("funnel", list[1].config).toString()).toBe("step=app_installed&step=purchase_completed&window=3&split=platform&days=90");
 
     await expect(saveReport(A.ctx, A.dev.id, { name: "No event", kind: "trend", query: new URLSearchParams() })).rejects.toBeInstanceOf(ValidationError);
     await expect(saveReport(A.ctx, A.dev.id, { name: "x", kind: "pie", query: new URLSearchParams() })).rejects.toBeInstanceOf(ValidationError);
@@ -260,39 +289,40 @@ describe("permissions", () => {
     const viewer = { ...A.ctx, role: "viewer" as const };
     const marketer = { ...A.ctx, role: "marketer" as const };
     const analyst = { ...A.ctx, role: "analyst" as const };
-    const def = { name: "Dev cohort", definition: { userProperty: { name: "plan", op: "exists" } } };
-    await expect(createCohort(developer, A.dev.id, def)).rejects.toBeInstanceOf(ForbiddenError);
+    const def = { name: "Dev audience", definition: { type: "user_property", property: "plan", op: "exists" } };
+    await expect(createAudience(developer, A.dev.id, def)).rejects.toBeInstanceOf(ForbiddenError);
     await expect(saveReport(developer, A.dev.id, { name: "r", kind: "revenue", query: new URLSearchParams() })).rejects.toBeInstanceOf(ForbiddenError);
-    const cohorts = await listCohorts(developer, A.dev.id); // reading is analytics.read
-    await expect(deleteCohort(developer, A.dev.id, cohorts[0].id)).rejects.toBeInstanceOf(ForbiddenError);
+    // Filtering a report by an audience only needs analytics.read.
+    const [audience] = await listAudiences(A.ctx, A.dev.id);
+    await expect(eventTrend(developer, scope, { event: "purchase_completed", days: 30, cohortId: audience.id })).resolves.toBeDefined();
     await expect(revenueReport(developer, scope, { days: 7 })).resolves.toBeDefined();
-    // Marketers read people (the Users section); viewers read them but can't save cohorts or reports.
+    // Marketers read people (the Users section); viewers read them and audiences but can't save audiences or reports.
     await expect(searchPeople(marketer, A.dev.id, "u")).resolves.toBeDefined();
     await expect(searchPeople(viewer, A.dev.id, "u")).resolves.toBeDefined();
     await expect(revenueReport(viewer, scope, { days: 7 })).resolves.toBeDefined();
-    await expect(createCohort(viewer, A.dev.id, { ...def, name: "Viewer cohort" })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(createAudience(viewer, A.dev.id, { ...def, name: "Viewer audience" })).rejects.toBeInstanceOf(ForbiddenError);
+    await expect(listAudiences(viewer, A.dev.id)).resolves.not.toHaveLength(0);
     await expect(saveReport(viewer, A.dev.id, { name: "r", kind: "revenue", query: new URLSearchParams() })).rejects.toBeInstanceOf(ForbiddenError);
-    await expect(createCohort(marketer, A.dev.id, { ...def, name: "Marketer cohort" })).resolves.toBeDefined();
-    await expect(createCohort(analyst, A.dev.id, { ...def, name: "Analyst cohort" })).resolves.toBeDefined();
+    await expect(createAudience(marketer, A.dev.id, { ...def, name: "Marketer audience" })).resolves.toBeDefined();
+    // Analysts made cohorts, so they make audiences.
+    await expect(createAudience(analyst, A.dev.id, { ...def, name: "Analyst audience" })).resolves.toBeDefined();
     await expect(getProfile(analyst, scope, { userId: "u1" })).resolves.toBeDefined();
   });
 });
 
 describe("tenant isolation", () => {
-  it("never shows or changes another organization's cohorts, reports or people", async () => {
-    const [cohort] = await listCohorts(A.ctx, A.dev.id);
+  it("never shows or changes another organization's audiences, reports or people", async () => {
+    const [cohort] = await listAudiences(A.ctx, A.dev.id);
     const [report] = await listSavedReports(A.ctx, A.dev.id);
-    expect(await listCohorts(B.ctx, A.dev.id)).toEqual([]);
+    expect(await listAudiences(B.ctx, A.dev.id)).toEqual([]);
     expect(await listSavedReports(B.ctx, A.dev.id)).toEqual([]);
-    await expect(getCohort(B.ctx, A.dev.id, cohort.id)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(cohortMembers(B.ctx, { environmentId: A.dev.id, timezone: "UTC" }, cohort.id)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(deleteCohort(B.ctx, A.dev.id, cohort.id)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(updateCohort(B.ctx, A.dev.id, cohort.id, { name: "x", definition: { userProperty: { name: "a", op: "exists" } } })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(getAudience(B.ctx, cohort.id)).rejects.toBeInstanceOf(NotFoundError);
     await expect(deleteSavedReport(B.ctx, A.dev.id, report.id)).rejects.toBeInstanceOf(NotFoundError);
-    await expect(createCohort(B.ctx, A.dev.id, { name: "Steal", definition: { userProperty: { name: "a", op: "exists" } } })).rejects.toBeInstanceOf(NotFoundError);
+    await expect(createAudience(B.ctx, A.dev.id, { name: "Steal", definition: { type: "user_property", property: "a", op: "exists" } })).rejects.toBeInstanceOf(NotFoundError);
     await expect(saveReport(B.ctx, A.dev.id, { name: "Steal", kind: "revenue", query: new URLSearchParams() })).rejects.toBeInstanceOf(NotFoundError);
-    // A's cohort can't filter B's reports, even in B's own environment.
+    // A's audience can't filter B's reports or users, even in B's own environment.
     await expect(eventTrend(B.ctx, { environmentId: B.dev.id, timezone: "UTC" }, { event: "purchase_completed", cohortId: cohort.id })).rejects.toBeInstanceOf(ValidationError);
+    await expect(searchPeople(B.ctx, B.dev.id, "", { audienceId: cohort.id })).rejects.toBeInstanceOf(ValidationError);
     // B sees none of A's people or revenue.
     expect(await searchPeople(B.ctx, A.dev.id, "u")).toEqual({ users: [], installs: [] });
     await expect(getProfile(B.ctx, { environmentId: A.dev.id }, { userId: "u1" })).rejects.toBeInstanceOf(NotFoundError);
@@ -302,6 +332,7 @@ describe("tenant isolation", () => {
       await db.query("set local role platform_app");
       return [
         ...(await db.query("select id from platform.analytics_cohorts")),
+        ...(await db.query("select id from platform.audiences")),
         ...(await db.query("select id from platform.analytics_saved_reports")),
       ];
     });

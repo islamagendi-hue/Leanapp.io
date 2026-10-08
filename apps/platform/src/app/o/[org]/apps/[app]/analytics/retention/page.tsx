@@ -38,7 +38,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
     <div className="space-y-6">
       <AnalyticsHeader title="Retention" description="Of the people who did a start event on a given day, how many came back and did the return event N days later." env={env.type} />
 
-      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the report shows everyone.</p>}
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}
       {!r ? (
         <div className="card"><p>No events in this environment in {(() => { const x = resolveRange(range, a.timezone); return x.preset ? `the ${x.label.toLowerCase()}` : x.label; })()}.</p></div>
       ) : (

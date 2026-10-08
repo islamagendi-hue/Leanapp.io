@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
+import { CohortSelect } from "@/components/CohortSelect";
 import { PropertyFilters } from "@/components/PropertyFilters";
 import { MAX_USER_COLUMNS, MAX_USER_FILTERS, searchPeople } from "@/modules/analytics/profiles";
 import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { filtersFromSearch } from "@/modules/properties/filters";
+import { cohortFilter } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Users" };
-
 
 export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/analytics/users">) {
   const { org, app } = await props.params;
@@ -21,8 +22,9 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
   const userProps = options(catalog.user);
   const { filters, parts } = filtersFromSearch(sp, "f", MAX_USER_FILTERS);
   const cols = (Array.isArray(sp.col) ? sp.col : sp.col ? [sp.col] : []).slice(0, MAX_USER_COLUMNS);
-  const res = await searchPeople(ctx, env.id, q, { limit: 50, filters, columns: cols });
-  const filtering = filters.length > 0;
+  const audience = await cohortFilter(ctx, env.id, sp.cohort);
+  const res = await searchPeople(ctx, env.id, q, { limit: 50, filters, columns: cols, audienceId: audience.cohortId, timezone: a.timezone });
+  const filtering = filters.length > 0 || Boolean(audience.cohortId);
   const show = (v: unknown) => (v === undefined || v === null ? "–" : typeof v === "object" ? JSON.stringify(v) : String(v));
   const path = `/o/${org}/apps/${app}/analytics/users`;
   const profile = (k: "user" | "anon", id: string) => `${path}/profile?${new URLSearchParams({ env: env.type, [k]: id })}`;
@@ -36,6 +38,7 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
         <label className="block max-w-xl"><span className="label">User ID or anonymous ID</span>
           <input name="q" className="input font-mono" defaultValue={q} maxLength={256} placeholder="Starts with…" autoComplete="off" />
         </label>
+        <div className="max-w-xs"><CohortSelect cohorts={audience.cohorts} value={audience.cohortId} /></div>
         <PropertyFilters options={userProps} initial={parts} max={MAX_USER_FILTERS} label="User properties" />
         {userProps.length > 0 && (
           <details className="text-sm" open={cols.length > 0}>
@@ -49,6 +52,8 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
         )}
         <button className="btn" type="submit">Search</button>
       </form>
+
+      {audience.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the list isn&apos;t limited to it.</p>}
 
       <section className="card overflow-x-auto p-0">
         <h2 className="h2 px-5 pt-4">{q || filtering ? "Users" : "Recently seen users"}</h2>
@@ -108,7 +113,7 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
         </section>
       )}
       <p className="text-xs text-ink-3">
-        Search matches the start of an ID, exact matches first. Property filters apply to identified users and use the same properties as Audiences and Analytics (Settings → Dev Ops → Attributes). Up to 50 users are listed. Times are in the app&apos;s timezone ({a.timezone}).
+        Search matches the start of an ID, exact matches first. Audience and property filters apply to identified users. Property filters use the same properties as Audiences and Analytics (Settings → Dev Ops → Attributes). Up to 50 users are listed. Times are in the app&apos;s timezone ({a.timezone}).
       </p>
     </div>
   );

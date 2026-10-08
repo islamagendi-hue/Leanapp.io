@@ -51,7 +51,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
     <div className="space-y-6">
       <AnalyticsHeader title="Events" description="How often each event happens and how many people do it, per day in the app's timezone." env={env.type} />
 
-      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the report shows everyone.</p>}
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}
       {events.length === 0 ? (
         <div className="card">
           <p>No events {cf.cohortName ? `for the cohort ${cf.cohortName}` : "in this environment"} in {active.range.label.toLowerCase().startsWith("last") ? `the ${active.range.label.toLowerCase()}` : active.range.label}.</p>
