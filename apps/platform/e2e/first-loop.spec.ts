@@ -567,6 +567,18 @@ test("overview: key numbers for the selected environment, and Connect your app w
   await expect(page.getByText(/compared with the 30 days before/)).toBeVisible();
 });
 
+test("landing page: positioning, the product flow with honest labels, and noindex", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Affordable product analytics and growth infrastructure for mobile apps.");
+  await expect(page.getByRole("list", { name: "Product flow" }).getByRole("link")).toHaveText(["Connect", "Collect", "Understand", "Funnels", "Retention", "Audiences", "Act"]);
+  const connect = page.getByRole("article", { name: "Connect your app" });
+  await expect(connect.getByRole("listitem").filter({ hasText: "Android, iOS and Flutter SDKs" }).getByText("Beta", { exact: true })).toBeVisible();
+  const act = page.getByRole("article", { name: "Act on it" });
+  await expect(act.getByRole("listitem").filter({ hasText: "Acquisition" })).toContainText("Not a full mobile measurement partner");
+  await expect(page.getByRole("heading", { name: "Coming next" })).toBeVisible();
+  await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+});
+
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
