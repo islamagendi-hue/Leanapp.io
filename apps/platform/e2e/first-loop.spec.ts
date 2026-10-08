@@ -541,6 +541,19 @@ test("acquisition (beta): overview, sources, attribution, and a tracking link wi
   await expect(today.getByRole("link", { name: "Deep link setup" })).toHaveAttribute("href", /settings\/dev-ops\/deep-links/);
 });
 
+test("SDK & API keys: real quickstarts for every SDK, and an honest release status", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/settings/dev-ops/sdk?env=development`);
+  const status = page.getByRole("region", { name: "SDK release status" });
+  for (const sdk of ["JavaScript / React Native", "Android (Kotlin)", "iOS (Swift)", "Flutter (Dart)"]) await expect(status.getByRole("cell", { name: sdk })).toBeVisible();
+  await expect(status.getByText("Not published: add from the repository")).toHaveCount(4);
+  await page.getByRole("tab", { name: "Android (Kotlin)" }).click();
+  await expect(page.getByText(/AnalyticsOptions\(endpoint = /)).toBeVisible();
+  await expect(page.getByText("Not published to Maven Central yet", { exact: false })).toBeVisible();
+  await expect(page.getByText("Target API")).toHaveCount(0);
+  await expect(page.getByText("npm install @leanapp")).toHaveCount(0);
+});
+
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}?env=development`);

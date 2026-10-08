@@ -12,6 +12,11 @@ needs registry accounts the owner has not created yet.
 | iOS | Swift Package | release builds for device and simulator | a version tag on the repository (SwiftPM installs from Git tags) |
 | Flutter | `leanapp_analytics`, `publish_to: none` | analysis and tests | pub.dev publisher (verified `leanapp.io`); remove `publish_to` |
 
+When an SDK is published, set `published: true` for it in
+`apps/platform/src/modules/implementation/sdks.ts` and change its quickstart from
+the repository path to the registry install; the dashboard then drops the
+"Not published" label. Until then the dashboard says to add it from the repository.
+
 ## Each release
 
 1. All SDK jobs green in CI on the commit.

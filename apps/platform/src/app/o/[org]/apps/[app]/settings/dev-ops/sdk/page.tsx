@@ -3,6 +3,7 @@ import { ActionForm } from "@/components/ActionForm";
 import { CodeTabs } from "@/components/CodeTabs";
 import { API_KEY_SCOPES, listKeys, type ApiKeyScope } from "@/modules/credentials/service";
 import { SDK_AVAILABILITY, testEventCurl } from "@/modules/implementation/codegen";
+import { SDK_RELEASES, sdkNote, sdkQuickstarts } from "@/modules/implementation/sdks";
 import { can } from "@/modules/rbac/authorize";
 import { publicBaseUrl } from "@/server/env";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -35,25 +36,9 @@ export default async function SdkPage(props: PageProps<"/o/[org]/apps/[app]/sett
   const api = publicBaseUrl();
   const pk = active?.key ?? "<your public SDK key>";
 
+  const quick = sdkQuickstarts({ key: pk, endpoint: api, currency: a.default_currency });
   const install = [
-    {
-      key: "react_native",
-      label: SDK_AVAILABILITY.react_native.label,
-      code: `npm install @leanapp/analytics
-
-import { Analytics } from "@leanapp/analytics";
-
-Analytics.initialize({
-  apiKey: "${pk}",
-  endpoint: "${api}",
-  // React Native: pass an AsyncStorage-backed adapter for offline persistence
-  // storage: asyncStorageAdapter(AsyncStorage),
-});
-
-Analytics.screen("Home");
-Analytics.track("product_viewed", { product_id: "123", price: 299, currency: "${a.default_currency}" });
-Analytics.identify("user_123", { plan: "premium" });`,
-    },
+    ...quick.map((q) => ({ key: q.key, label: SDK_AVAILABILITY[q.key].label, note: sdkNote(q.key), code: q.code })),
     {
       key: "backend",
       label: SDK_AVAILABILITY.backend.label,
@@ -70,9 +55,6 @@ curl -X POST ${api}/v1/events \\
       label: "Send a test event now",
       code: testEventCurl(api, pk),
     },
-    { key: "kotlin", label: SDK_AVAILABILITY.kotlin.label, note: SDK_AVAILABILITY.kotlin.note, code: `// Target API (SDK not published yet)\nAnalytics.initialize(context, apiKey = "${pk}")\nAnalytics.track("product_viewed", mapOf("product_id" to "123"))` },
-    { key: "swift", label: SDK_AVAILABILITY.swift.label, note: SDK_AVAILABILITY.swift.note, code: `// Target API (SDK not published yet)\nAnalytics.initialize(apiKey: "${pk}")\nAnalytics.track("product_viewed", properties: ["product_id": "123"])` },
-    { key: "flutter", label: SDK_AVAILABILITY.flutter.label, note: SDK_AVAILABILITY.flutter.note, code: `// Target API (SDK not published yet)\nawait Analytics.initialize(apiKey: '${pk}');\nAnalytics.track('product_viewed', {'product_id': '123'});` },
   ];
 
   return (
@@ -87,7 +69,25 @@ curl -X POST ${api}/v1/events \\
       <section className="card space-y-3">
         <h2 className="h2">1. Install and initialize</h2>
         <CodeTabs tabs={install} preferred="react_native" />
-        <p className="text-sm text-ink-3">Then open the <a className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>event debugger</a> and watch your first event arrive.</p>
+        <p className="text-sm text-ink-3">The SDKs are built and tested but not on npm, Maven Central, pub.dev or a tagged Swift release yet, so add them from the LeanApp repository as each snippet shows. Then open the <a className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>event debugger</a> and watch your first event arrive.</p>
+      </section>
+
+      <section className="card overflow-x-auto p-0" aria-label="SDK release status">
+        <h2 className="h2 px-5 pt-5">SDK release status</h2>
+        <table className="table mt-3">
+          <thead><tr><th>SDK</th><th>Package</th><th>Status</th><th>Verified</th><th>Not built yet</th></tr></thead>
+          <tbody>
+            {SDK_RELEASES.map((r) => (
+              <tr key={r.key}>
+                <td className="font-medium">{r.label}</td>
+                <td className="font-mono text-xs">{r.pkg}</td>
+                <td>{r.published ? <span className="pill border-accent/40 bg-accent-soft text-xs text-accent-ink">Published</span> : <span className="pill border-warn/40 bg-warn-soft text-xs text-warn">Not published: add from the repository</span>}</td>
+                <td className="text-sm text-ink-2">{r.verified}</td>
+                <td className="text-sm text-ink-2">{r.gaps.join("; ")}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </section>
 
       <section className="card space-y-3">

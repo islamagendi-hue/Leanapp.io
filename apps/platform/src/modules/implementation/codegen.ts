@@ -1,21 +1,21 @@
 /**
  * Per-event implementation snippets for every platform.
  *
- * Status of the target SDKs is explicit: the TypeScript SDK (web, Node and
- * React Native core) and the REST API exist today; the Kotlin, Swift and Dart
- * SDKs are specified (docs/sdk.md) but not published yet, so those snippets
- * are marked as the target API.
+ * All four SDKs (TypeScript / React Native, Kotlin, Swift, Dart) and the REST
+ * API are built and tested; none is on a package registry yet, so each SDK tab
+ * says to add it from the repository (see sdks.ts).
  */
 import type { PropertySpec } from "./catalog/properties";
+import { sdkNote } from "./sdks";
 
 export type CodeTarget = "kotlin" | "swift" | "react_native" | "flutter" | "backend";
 
 export const SDK_AVAILABILITY: Record<CodeTarget, { label: string; available: boolean; note: string }> = {
-  react_native: { label: "React Native / TypeScript", available: true, note: "@leanapp/analytics (TypeScript core). React Native storage adapter: see docs/sdk.md." },
+  react_native: { label: "React Native / TypeScript", available: true, note: sdkNote("react_native") },
   backend: { label: "Backend (REST)", available: true, note: "POST /v1/events with a secret key from your server." },
-  kotlin: { label: "Android (Kotlin)", available: false, note: "Android SDK is in development. Until it ships, send these events through the REST API." },
-  swift: { label: "iOS (Swift)", available: false, note: "iOS SDK is in development. Until it ships, send these events through the REST API." },
-  flutter: { label: "Flutter (Dart)", available: false, note: "Flutter SDK is in development. Until it ships, send these events through the REST API." },
+  kotlin: { label: "Android (Kotlin)", available: true, note: sdkNote("kotlin") },
+  swift: { label: "iOS (Swift)", available: true, note: sdkNote("swift") },
+  flutter: { label: "Flutter (Dart)", available: true, note: sdkNote("flutter") },
 };
 
 interface SnippetEvent {

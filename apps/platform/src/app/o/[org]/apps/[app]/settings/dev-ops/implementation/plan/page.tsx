@@ -179,7 +179,7 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/set
                   )}
                   <CodeTabs
                     preferred={e.source === "backend" ? "backend" : "react_native"}
-                    tabs={(Object.keys(snippets) as (keyof typeof snippets)[]).map((k) => ({ key: k, label: SDK_AVAILABILITY[k].label, code: snippets[k], note: SDK_AVAILABILITY[k].available ? undefined : SDK_AVAILABILITY[k].note }))}
+                    tabs={(Object.keys(snippets) as (keyof typeof snippets)[]).map((k) => ({ key: k, label: SDK_AVAILABILITY[k].label, code: snippets[k], note: k === "backend" ? undefined : SDK_AVAILABILITY[k].note }))}
                   />
                   {canEdit && (
                     <div className="space-y-3 border-t border-line pt-3">
