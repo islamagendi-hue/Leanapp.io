@@ -44,6 +44,7 @@ export type AuditAction =
   | "property.described"
   | "dashboard.created"
   | "dashboard.updated"
+  | "message.test_sent"
   | "dashboard.deleted"
   | "app.feature_changed"
   | "privacy.export"

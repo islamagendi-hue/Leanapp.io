@@ -454,6 +454,25 @@ test("campaigns: audience, channel, message, schedule; the audience must be acti
   await expect(page.getByRole("row").filter({ hasText: "Riyadh weekend" }).getByText("In-app")).toBeVisible();
 });
 
+test("channels & delivery: health, honest numbers, and a test send", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/engage/channels?env=development`);
+  await expect(page.getByRole("heading", { name: "Channels & delivery", level: 1 })).toBeVisible();
+  const push = page.getByRole("region", { name: "Push" });
+  await expect(push.getByText("Not connected")).toBeVisible();
+  await expect(push.getByText(/Not available. FCM and APNs don't report delivery/)).toBeVisible();
+  const inApp = page.getByRole("region", { name: "In-app" });
+  await expect(inApp.getByText("Beta", { exact: true })).toBeVisible();
+  await inApp.getByText("Send a test").click();
+  await inApp.getByRole("textbox", { name: /User ID/ }).fill("u-77");
+  await inApp.getByRole("button", { name: "Send In-app test" }).click();
+  await expect(inApp.getByText(/Queued. Your app shows it/)).toBeVisible();
+  await push.getByText("Send a test").click();
+  await push.getByRole("textbox", { name: /User ID/ }).fill("u-77");
+  await push.getByRole("button", { name: "Send Push test" }).click();
+  await expect(push.getByText(/no active push token/)).toBeVisible();
+});
+
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}?env=development`);

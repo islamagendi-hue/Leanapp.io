@@ -4,6 +4,8 @@ import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   activateAutomation, archiveAutomation, createAutomation, getAutomation, listAutomations, pauseAutomation, updateAutomation, type AutomationRow, type RunRow,
 } from "@/modules/automation/service";
+import { deliveryOfAutomation } from "@/modules/messaging/delivery";
+import type { DeliveryChannel, DeliveryCounts } from "@/modules/messaging/metrics";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { buildCampaign, campaignStatus, CampaignError, type CampaignForm, type CampaignStatus } from "./definition";
 
@@ -67,11 +69,11 @@ export async function listCampaigns(ctx: TenantContext, environmentId: string): 
   return list.map((a) => withStats(a, stats.get(a.id)));
 }
 
-export async function getCampaign(ctx: TenantContext, id: string): Promise<{ campaign: Campaign; runs: RunRow[] }> {
+export async function getCampaign(ctx: TenantContext, id: string): Promise<{ campaign: Campaign; runs: RunRow[]; delivery: Record<DeliveryChannel, DeliveryCounts> }> {
   const { automation, runs } = await getAutomation(ctx, id, { limit: 50 });
   if (automation.kind !== "campaign") throw new NotFoundError("Campaign");
-  const stats = await statsOf(ctx, [id]);
-  return { campaign: withStats(automation, stats.get(id)), runs };
+  const [stats, delivery] = await Promise.all([statsOf(ctx, [id]), tenantTx(ctx, "automations.read", (db) => deliveryOfAutomation(db, id))]);
+  return { campaign: withStats(automation, stats.get(id)), runs, delivery };
 }
 
 const nameSchema = z.string().trim().min(2, "Name the campaign.").max(80);

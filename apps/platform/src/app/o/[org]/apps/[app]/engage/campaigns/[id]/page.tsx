@@ -11,6 +11,7 @@ import { CHANNEL_LABELS, campaignOf, formOf, sendsLater } from "@/modules/campai
 import { getCampaign } from "@/modules/campaigns/service";
 import { listEmailTemplates } from "@/modules/messaging/email";
 import { listIntegrations } from "@/modules/messaging/integrations";
+import { UNAVAILABLE } from "@/modules/messaging/metrics";
 import { getOrganization } from "@/modules/organizations/service";
 import { can } from "@/modules/rbac/authorize";
 import { listTemplates } from "@/modules/whatsapp/service";
@@ -24,7 +25,7 @@ export default async function CampaignPage(props: PageProps<"/o/[org]/apps/[app]
   const { org, app, id } = await props.params;
   const { ctx, environments } = await loadApp(org, app);
   requirePermission(ctx, "automations.read");
-  const { campaign: c, runs } = await getCampaign(ctx, id).catch((e) => {
+  const { campaign: c, runs, delivery } = await getCampaign(ctx, id).catch((e) => {
     if (e instanceof NotFoundError) notFound();
     throw e;
   });
@@ -85,9 +86,25 @@ export default async function CampaignPage(props: PageProps<"/o/[org]/apps/[app]
           </div>
         ))}
       </section>
+      {s.channel && (
+        <section className="grid gap-4 sm:grid-cols-3" aria-label="Delivery">
+          {(["delivered", "opened", "clicked"] as const).map((m) => {
+            const n = delivery[s.channel!][m];
+            const why = UNAVAILABLE[s.channel!][m];
+            return (
+              <div key={m} className="card">
+                <p className="text-sm text-ink-3">{m[0].toUpperCase() + m.slice(1)}</p>
+                {n === null ? <p className="text-sm text-ink-3" title={why ?? undefined}>Not available<span className="block text-xs">{why}</span></p>
+                  : <p className="text-2xl font-semibold tabular-nums">{n.toLocaleString("en-US")}</p>}
+              </div>
+            );
+          })}
+        </section>
+      )}
       <p className="text-xs text-ink-3">
-        Sent means handed to the provider (push, email, WhatsApp) or queued for the app (in-app). Delivery, opens and clicks are not shown here yet.
+        Sent means handed to the provider (push, email, WhatsApp) or queued for the app (in-app).
         Skipped covers the frequency cap, missing consent, and people with no device, email or phone number.
+        See <Link className="underline" href={`/o/${org}/apps/${app}/engage/channels?env=${env.type}`}>Channels &amp; delivery</Link> for what each channel can report.
       </p>
 
       <section className="card space-y-2">

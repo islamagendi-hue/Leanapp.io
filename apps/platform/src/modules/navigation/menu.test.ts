@@ -58,7 +58,7 @@ describe("navigation menu", () => {
 
   it("marks unbuilt pages as soon, without a link", () => {
     const soon = projectMenu("owner", base).flatMap((g) => g.items).filter((i) => i.soon);
-    expect(soon.map((i) => i.label)).toEqual(["Channels & delivery", "Sources & campaigns", "Attribution"]);
+    expect(soon.map((i) => i.label)).toEqual(["Sources & campaigns", "Attribution"]);
     expect(soon.every((i) => !i.href)).toBe(true);
   });
 

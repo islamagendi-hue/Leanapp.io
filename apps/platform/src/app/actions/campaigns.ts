@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import type { CampaignForm } from "@/modules/campaigns/definition";
 import { cancelCampaign, createCampaign, pauseCampaign, sendCampaign, updateCampaign } from "@/modules/campaigns/service";
+import { sendTestMessage } from "@/modules/messaging/delivery";
 import { getOrganization } from "@/modules/organizations/service";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requireTenant } from "@/server/session";
@@ -55,6 +56,24 @@ export async function campaignLifecycleAction(org: string, app: string, id: stri
     else message = `Cancelled. ${(await cancelCampaign(ctx, id)).cancelled} messages still waiting were dropped.`;
     revalidatePath(`${base(org, app)}/${id}`);
     return { ok: true, message };
+  } catch (err) {
+    return toActionError(err);
+  }
+}
+
+/** A test message to one person through the environment's provider (Engage → Channels & delivery). */
+export async function testSendAction(org: string, environmentId: string, channel: string, _: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const ctx = await requireTenant(org);
+    const params = form.get("whatsappParams");
+    const r = await sendTestMessage(ctx, environmentId, {
+      channel,
+      userId: form.get("userId"),
+      whatsappTemplate: form.get("whatsappTemplate") ?? undefined,
+      whatsappParams: typeof params === "string" ? params.split("\n").map((l) => l.trim()).filter(Boolean) : [],
+      phoneProperty: form.get("phoneProperty") ?? undefined,
+    });
+    return r.ok ? { ok: true, message: r.message } : { error: r.message };
   } catch (err) {
     return toActionError(err);
   }

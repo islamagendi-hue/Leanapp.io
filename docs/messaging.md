@@ -82,6 +82,35 @@ Frequency caps and quiet hours apply to both channels, as for push.
 
 **Usage:** each send is metered as `email_messages`.
 
+## Channels & delivery
+
+Engage → Channels & delivery (PR 11) shows each channel's health and what happened to the messages campaigns and flows sent in the environment. Credentials stay in Settings → Dev Ops → Channels.
+
+- **Health:** one of
+  - not connected;
+  - connected, not verified: no real send has succeeded yet;
+  - verified: a send to the provider's live API succeeded;
+  - error: the last error from the provider.
+
+  In-app is marked Beta: it needs no provider, but the SDKs have no in-app message UI yet.
+- **Counts:** over the last 7 or 30 days: sent, delivered, opened, clicked and failed. They come from `notifications` and `in_app_messages`. Test sends are excluded. A metric the channel can't report shows "Not available" with the reason, never 0 or an estimate (`modules/messaging/metrics.ts`):
+
+| Channel | Delivered | Opened | Clicked |
+|---|---|---|---|
+| Push | not available (FCM and APNs don't report delivery) | not available (no push-open tracking in the SDKs yet) | not available |
+| Email | not available (Resend events aren't connected yet) | not available | not available |
+| WhatsApp | delivery receipts | read receipts (people can turn these off) | not available |
+| In-app | not available (the app reports showing, not fetching) | shown, reported by the app | clicked, reported by the app |
+
+- **Campaign pages** show the same delivered, opened and clicked numbers for the campaign's channel.
+- **Test send:** `sendTestMessage` sends one message to one person (by user ID) through the same path campaigns use (`modules/messaging/deliver.ts`, shared with the engine):
+  - push goes to their devices;
+  - email goes to their `email` property;
+  - WhatsApp goes to their phone property, with an approved template that has no header variable;
+  - in-app is queued for them.
+
+  Consent and suppression are respected. The result says exactly what happened, for example "Sent to 1 of 1 device" or "Not sent: this person has no active push token". A live success marks the channel verified. Test sends need `automations.manage`, are limited to 20 an hour per environment, and are audited as `message.test_sent`.
+
 ## Local testing
 
 On local deployments only, `WHATSAPP_API_BASE_URL` and `RESEND_API_BASE_URL` point the clients at a mock (see `test/channels.int.test.ts`). Deployments always call `graph.facebook.com` and `api.resend.com`.

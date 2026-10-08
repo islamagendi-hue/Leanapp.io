@@ -57,6 +57,9 @@ describe("campaigns", () => {
     expect(c.stats).toEqual({ recipients: 2, inProgress: 0, sent: 2, failed: 0, skipped: 0 });
     const titles = await withSystem((db) => db.query<{ title: string }>("select title from platform.in_app_messages where automation_id = $1 order by title", [sentId]));
     expect(titles.map((r) => r.title)).toEqual(["Hi vip-1", "Hi vip-2"]);
+    // PR 11: shown and clicked come from the app; "delivered" isn't reported for in-app.
+    await withSystem((db) => db.query("update platform.in_app_messages set displayed_at = now(), clicked_at = now(), status = 'clicked' where automation_id = $1 and user_key = 'vip-1'", [sentId]));
+    expect((await getCampaign(t.ctx, sentId)).delivery.in_app).toEqual({ sent: 2, failed: 0, delivered: null, opened: 1, clicked: 1 });
 
     // Sent means sent: no second send, no edits, and resuming never re-sends.
     await expect(sendCampaign(t.ctx, sentId)).rejects.toBeInstanceOf(ConflictError);
