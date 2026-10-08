@@ -41,6 +41,7 @@ export type AuditAction =
   | "event_mapping.accepted"
   | "event_mapping.rejected"
   | "event_mapping.reverted"
+  | "property.described"
   | "app.feature_changed"
   | "privacy.export"
   | "privacy.deletion_requested"

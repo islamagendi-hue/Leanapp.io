@@ -10,6 +10,7 @@ import { cohortMembers, getCohort, type Cohort } from "@/modules/analytics/cohor
 import { topEvents } from "@/modules/analytics/service";
 import { PROPERTY_OP_LABELS } from "@/modules/analytics/sql";
 import { can } from "@/modules/rbac/authorize";
+import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Cohort" };
@@ -31,6 +32,8 @@ export default async function CohortPage(props: PageProps<"/o/[org]/apps/[app]/a
   const members = await cohortMembers(ctx, { environmentId: env.id, timezone: a.timezone }, c.id, { limit: canProfiles ? 50 : 0 });
   const canWrite = can(ctx.role, "analytics.write");
   const events = canWrite ? (await topEvents(ctx, { environmentId: env.id, days: 90 })).map((e) => e.name) : [];
+  const catalog = canWrite ? await catalogForPickers(ctx, { appId: a.id, environmentId: env.id }, "analytics.read") : null;
+  const properties = catalog ? { user: options(catalog.user).map((o) => o.name), event: options(catalog.event).map((o) => o.name) } : undefined;
   const base = `/o/${org}/apps/${app}/analytics`;
   const withCohort = (page: string) => `${base}/${page}?env=${env.type}&cohort=${c.id}`;
   const when = (d: Date | null) => (d ? new Date(d).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: a.timezone }) : "–");
@@ -77,7 +80,7 @@ export default async function CohortPage(props: PageProps<"/o/[org]/apps/[app]/a
             <h2 className="h2">Edit</h2>
             <CohortForm
               action={updateCohortAction.bind(null, org, app, env.id, c.id)}
-              events={events} submitLabel="Save cohort" name={c.name} description={c.description} definition={c.definition}
+              events={events} properties={properties} submitLabel="Save cohort" name={c.name} description={c.description} definition={c.definition}
             />
           </section>
           <section className="card flex flex-wrap items-center justify-between gap-3">

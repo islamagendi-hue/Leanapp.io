@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { automationLifecycleAction, saveAutomationAction } from "@/app/actions/engage";
 import { ActionForm } from "@/components/ActionForm";
 import { AutomationEditor } from "@/components/engage/AutomationEditor";
-import { fmtDate, knownEvents, StatusPill } from "@/components/engage/shared";
+import { fmtDate, knownEvents, knownProperties, StatusPill } from "@/components/engage/shared";
 import { NotFoundError } from "@/lib/errors";
 import { listAudiences } from "@/modules/audiences/service";
 import { describeStep, describeTrigger } from "@/modules/automation/definition";
@@ -23,7 +23,7 @@ const RUN_STATUSES = ["pending", "waiting", "running", "completed", "failed", "c
 export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[app]/engage/automations/[id]">) {
   const { org, app, id } = await props.params;
   const sp = await props.searchParams;
-  const { ctx, environments } = await loadApp(org, app);
+  const { ctx, app: project, environments } = await loadApp(org, app);
   requirePermission(ctx, "automations.read");
   const runStatus = typeof sp.runs === "string" && RUN_STATUSES.includes(sp.runs) ? sp.runs : undefined;
   const { automation: a, versions, runs } = await getAutomation(ctx, id, { runStatus }).catch((e) => {
@@ -33,12 +33,13 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
   const env = environments.find((e) => e.id === a.environment_id);
   if (!env) notFound();
   const manage = can(ctx.role, "automations.manage");
-  const [audiences, webhooks, organization, integrations, events, whatsappTemplates, emailTemplates] = await Promise.all([
+  const [audiences, webhooks, organization, integrations, events, properties, whatsappTemplates, emailTemplates] = await Promise.all([
     can(ctx.role, "audiences.read") ? listAudiences(ctx, env.id, { includeArchived: true }) : Promise.resolve([]),
     listWebhookTargets(ctx, env.id),
     getOrganization(ctx),
     can(ctx.role, "integrations.read") ? listIntegrations(ctx, env.id) : Promise.resolve(null),
     manage ? knownEvents(ctx, env.id) : Promise.resolve([]),
+    manage ? knownProperties(ctx, project.id, env.id) : Promise.resolve(undefined),
     manage ? listTemplates(ctx, env.id) : Promise.resolve([]),
     manage ? listEmailTemplates(ctx, env.id) : Promise.resolve([]),
   ]);
@@ -132,7 +133,7 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
           <h2 className="h2">Edit</h2>
           <p className="text-sm text-ink-3">Saving creates version {a.version + 1}. Runs in progress finish on the version they started with{a.status === "active" ? "; a changed trigger starts from now" : ""}.</p>
           <AutomationEditor save={saveAutomationAction.bind(null, org, app, env.id, a.id)} initial={def as never} name={a.name}
-            events={events} audiences={audiences.filter((x) => x.status !== "archived")} webhooks={webhooks} timezone={organization.timezone}
+            events={events} properties={properties} audiences={audiences.filter((x) => x.status !== "archived")} webhooks={webhooks} timezone={organization.timezone}
             whatsappTemplates={whatsappTemplates} emailTemplates={emailTemplates} />
         </section>
       )}

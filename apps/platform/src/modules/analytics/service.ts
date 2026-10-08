@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import type { Permission } from "@/modules/rbac/permissions";
+import { propertyFilterSchema, propertyPredicate, type PropertyFilter } from "@/modules/audiences/definition";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { measurable } from "./retention-rule";
 import {
@@ -103,9 +104,16 @@ export async function eventsSource(
 }
 
 /** Events and distinct people in a range: of one event, or of every counted event (active people). */
-async function totalsIn(db: Db, scope: { environmentId: string; timezone?: string }, cohort: string | undefined, range: Pick<ReportRange, "start" | "end">, event: string | null) {
+async function totalsIn(
+  db: Db,
+  scope: { environmentId: string; timezone?: string },
+  cohort: string | undefined,
+  range: Pick<ReportRange, "start" | "end">,
+  event: string | null,
+  filters: PropertyFilter[] = [],
+) {
   const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start], range.end);
-  const where = event === null ? "true" : `name = ${src.p.add(event)}`;
+  const where = [event === null ? "true" : `name = ${src.p.add(event)}`, ...filters.map((f) => propertyPredicate("properties", f, src.p))].join(" and ");
   const row = await db.one<{ count: string; people: string }>(`with ${src.sql} select count(*) as count, count(distinct person) as people from ev where ${where}`, src.p.values);
   return { count: Number(row?.count ?? 0), people: Number(row?.people ?? 0) };
 }
@@ -152,14 +160,21 @@ export interface Trend {
   /** Totals of the comparison period, when one was asked for. */
   previous: { count: number; people: number } | null;
   breakdown: string | null;
+  /** Event property filters applied (all must match). */
+  where: PropertyFilter[];
   range: RangeInfo;
 }
+
+/** Event property filters on a report (the same filters as audience conditions). */
+export const MAX_EVENT_FILTERS = 3;
+const eventFilters = z.array(propertyFilterSchema).max(MAX_EVENT_FILTERS).optional().catch(undefined);
 
 export const trendSchema = z.object({
   event: eventName,
   ...rangeFields,
   interval: intervalField,
   breakdown: z.union([z.enum(BREAKDOWNS), z.string().regex(/^property:[A-Za-z0-9_.$-]{1,64}$/)]).optional().catch(undefined),
+  where: eventFilters,
   cohortId,
 });
 
@@ -180,17 +195,19 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
   const r = trendSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose an event.");
   const { event, breakdown, cohortId: cohort, compare } = r.data;
+  const where = r.data.where ?? [];
   const range = resolveRange(r.data, scope.timezone);
   const interval = defaultInterval(range, r.data.interval);
   return query(ctx, async (db) => {
     const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start], range.end);
     const p = src.p;
     const nameParam = p.add(event);
+    const match = [`name = ${nameParam}`, ...where.map((f) => propertyPredicate("properties", f, p))].join(" and ");
     const group = groupExpr(breakdown, p);
     let keep: string[] | null = null;
     if (breakdown) {
       const top = await db.query<{ g: string }>(
-        `with ${src.sql} select ${group} as g from ev where name = ${nameParam} group by 1 order by count(*) desc, 1 limit ${MAX_GROUPS + 1}`,
+        `with ${src.sql} select ${group} as g from ev where ${match} group by 1 order by count(*) desc, 1 limit ${MAX_GROUPS + 1}`,
         p.values,
       );
       if (top.length > MAX_GROUPS) keep = top.slice(0, MAX_GROUPS).map((x) => x.g);
@@ -201,12 +218,12 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
     const rows = await db.query<{ g: string; d: string; count: string; people: string }>(
       `with ${src.sql}
        select ${keepParam ? `case when g = any(${keepParam}::text[]) then g else 'Other' end` : "g"} as g, d, count(*) as count, count(distinct person) as people
-         from (select ${group} as g, ${bucketSql("ts", tz, interval)} as d, person from ev where name = ${nameParam}) x
+         from (select ${group} as g, ${bucketSql("ts", tz, interval)} as d, person from ev where ${match}) x
         group by 1, 2`,
       p.values,
     );
-    const total = await totalsIn(db, scope, cohort, range, event);
-    const previous = compare ? await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), event) : null;
+    const total = await totalsIn(db, scope, cohort, range, event, where);
+    const previous = compare ? await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), event, where) : null;
     const keys = bucketKeys(range, interval);
     const series = new Map<string, TrendSeries>();
     for (const row of rows) {
@@ -226,6 +243,7 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
       total,
       previous,
       breakdown: breakdown ?? null,
+      where,
       range: rangeInfo(range, scope.timezone, compare),
     };
   });
@@ -240,6 +258,7 @@ export const kpiSchema = z
     metric: z.enum(KPI_METRICS),
     event: eventName.optional(),
     ...rangeFields,
+    where: eventFilters,
     cohortId,
   })
   .refine((k) => k.metric === "active_people" || k.event, "Choose an event.");
@@ -264,11 +283,12 @@ export async function kpi(ctx: TenantContext, scope: { environmentId: string; ti
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid metric.");
   const { metric, cohortId: cohort, compare } = r.data;
   const event = metric === "active_people" ? null : r.data.event!;
+  const where = r.data.where ?? [];
   const range = resolveRange(r.data, scope.timezone);
   return query(ctx, async (db) => {
     const pick = (t: { count: number; people: number }) => (metric === "events" ? t.count : t.people);
-    const value = pick(await totalsIn(db, scope, cohort, range, event));
-    const previous = compare ? pick(await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), event)) : null;
+    const value = pick(await totalsIn(db, scope, cohort, range, event, where));
+    const previous = compare ? pick(await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), event, where)) : null;
     return { metric, event, value, previous, change: change(value, previous), range: rangeInfo(range, scope.timezone, compare) };
   });
 }

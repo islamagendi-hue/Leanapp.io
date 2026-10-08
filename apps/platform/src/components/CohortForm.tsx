@@ -3,9 +3,11 @@ import { formDefaults } from "@/modules/analytics/cohort-form";
 import { COHORT_LAST_DAYS, PROPERTY_OP_LABELS, PROPERTY_OPS, type CohortDefinition } from "@/modules/analytics/sql";
 
 /** Create / edit a cohort. Works without JavaScript: leave a condition's name empty to skip it. */
-export function CohortForm({ action, events, submitLabel, name = "", description = "", definition }: {
+export function CohortForm({ action, events, properties, submitLabel, name = "", description = "", definition }: {
   action: (state: FormState, form: FormData) => Promise<FormState>;
   events: string[];
+  /** Property names from the property catalog, suggested in the property fields. */
+  properties?: { user: string[]; event: string[] };
   submitLabel: string;
   name?: string;
   description?: string | null;
@@ -13,6 +15,9 @@ export function CohortForm({ action, events, submitLabel, name = "", description
 }) {
   const d = formDefaults(definition);
   return (
+    <>
+    <datalist id="cohort-user-properties">{(properties?.user ?? []).map((n) => <option key={n} value={n} />)}</datalist>
+    <datalist id="cohort-event-properties">{(properties?.event ?? []).map((n) => <option key={n} value={n} />)}</datalist>
     <ActionForm action={action} submitLabel={submitLabel} className="space-y-5">
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="block"><span className="label">Name</span><input name="name" className="input" defaultValue={name} maxLength={100} required /></label>
@@ -40,22 +45,23 @@ export function CohortForm({ action, events, submitLabel, name = "", description
           <span className="pb-2 text-sm text-ink-2">and</span>
           <input type="date" name="to" className="input w-40" defaultValue={d.to} aria-label="To" />
         </div>
-        <PropertyRow prefix="ep" label="Only events where property" values={d.ep} />
+        <PropertyRow prefix="ep" label="Only events where property" values={d.ep} list="cohort-event-properties" />
       </fieldset>
 
       <fieldset className="space-y-3 rounded-lg border border-line p-4">
         <legend className="px-1 text-sm font-medium">And whose user property</legend>
-        <PropertyRow prefix="up" label="User property" values={d.up} />
+        <PropertyRow prefix="up" label="User property" values={d.up} list="cohort-user-properties" />
         <p className="help">From identify() traits. With both conditions, a person must match both.</p>
       </fieldset>
     </ActionForm>
+    </>
   );
 }
 
-function PropertyRow({ prefix, label, values }: { prefix: string; label: string; values: { name: string; op: string; value: string } }) {
+function PropertyRow({ prefix, label, values, list }: { prefix: string; label: string; values: { name: string; op: string; value: string }; list: string }) {
   return (
     <div className="flex flex-wrap items-end gap-3">
-      <label><span className="label">{label}</span><input name={`${prefix}Name`} className="input w-44 font-mono" defaultValue={values.name} maxLength={64} placeholder="optional" /></label>
+      <label><span className="label">{label}</span><input name={`${prefix}Name`} className="input w-44 font-mono" list={list} defaultValue={values.name} maxLength={64} placeholder="optional" /></label>
       <label><span className="label">Condition</span>
         <select name={`${prefix}Op`} className="input w-36" defaultValue={values.op}>{PROPERTY_OPS.map((o) => <option key={o} value={o}>{PROPERTY_OP_LABELS[o]}</option>)}</select>
       </label>

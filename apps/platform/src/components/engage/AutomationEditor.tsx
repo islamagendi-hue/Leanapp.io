@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ActionForm, type FormState } from "@/components/ActionForm";
-import { ConditionBuilder, ParsedInput, parseValue, type Json } from "./ConditionBuilder";
+import { ConditionBuilder, ParsedInput, parseValue, type Json, type PropertyLists } from "./ConditionBuilder";
 
 type Step = Json & { type: string };
 type Definition = {
@@ -53,12 +53,13 @@ export interface EmailTemplateOption { id: string; name: string; subject: string
 type Channels = { whatsappTemplates: WhatsAppTemplateOption[]; emailTemplates: EmailTemplateOption[] };
 
 export function AutomationEditor({
-  save, initial, name, events, audiences, webhooks, timezone, whatsappTemplates = [], emailTemplates = [],
+  save, initial, name, events, properties, audiences, webhooks, timezone, whatsappTemplates = [], emailTemplates = [],
 }: Partial<Channels> & {
   save: (state: FormState, form: FormData) => Promise<FormState>;
   initial: Definition;
   name: string;
   events: string[];
+  properties?: PropertyLists;
   audiences: { id: string; name: string; status: string }[];
   webhooks: { id: string; url: string; description: string | null }[];
   timezone: string;
@@ -136,7 +137,7 @@ export function AutomationEditor({
                   {d.steps.length > 1 && <button type="button" className="text-alert hover:underline" onClick={() => set({ steps: d.steps.filter((_, j) => j !== i) })}>Remove</button>}
                 </span>
               </div>
-              <StepFields step={s} index={i} total={d.steps.length} onChange={(n) => setStep(i, n)} events={events} webhooks={webhooks} whatsappTemplates={whatsappTemplates} emailTemplates={emailTemplates} />
+              <StepFields step={s} index={i} total={d.steps.length} onChange={(n) => setStep(i, n)} events={events} properties={properties} webhooks={webhooks} whatsappTemplates={whatsappTemplates} emailTemplates={emailTemplates} />
             </li>
           ))}
         </ol>
@@ -188,8 +189,8 @@ export function AutomationEditor({
   );
 }
 
-function StepFields({ step: s, index, total, onChange, events, webhooks, whatsappTemplates, emailTemplates }: Channels & {
-  step: Step; index: number; total: number; onChange: (s: Step) => void; events: string[];
+function StepFields({ step: s, index, total, onChange, events, properties, webhooks, whatsappTemplates, emailTemplates }: Channels & {
+  step: Step; index: number; total: number; onChange: (s: Step) => void; events: string[]; properties?: PropertyLists;
   webhooks: { id: string; url: string; description: string | null }[];
 }) {
   const text = (k: string, label: string, max: number, area = false) => (
@@ -214,7 +215,7 @@ function StepFields({ step: s, index, total, onChange, events, webhooks, whatsap
       return (
         <div className="space-y-2 text-sm">
           <p>Continue if the person matches:</p>
-          <ConditionBuilder value={s.condition as Step} onChange={(c) => onChange({ ...s, condition: c })} events={events} allowSinceTrigger />
+          <ConditionBuilder value={s.condition as Step} onChange={(c) => onChange({ ...s, condition: c })} events={events} properties={properties} allowSinceTrigger />
           <label className="flex flex-wrap items-center gap-2">Otherwise
             <select className="input w-auto" value={elseValue} onChange={(e) => onChange({ ...s, else: e.target.value === "exit" ? "exit" : { goto: Number(e.target.value) } })}>
               <option value="exit">end the run</option>

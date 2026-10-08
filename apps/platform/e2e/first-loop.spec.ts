@@ -310,6 +310,42 @@ test("a viewer sees reports and people, and can change nothing", async ({ page, 
   await ctx.close();
 });
 
+test("property catalog: Attributes lists what the app sends, and Users filter by it", async ({ page, request }) => {
+  await signIn(page);
+  const res = await request.post("/v1/events/batch", {
+    headers: { Authorization: `Bearer ${sdkKey}` },
+    data: {
+      batch: [
+        { type: "identify", event_id: crypto.randomUUID(), anonymous_id: "dev-7", user_id: "u-77", user_properties: { city: "Riyadh" } },
+        { type: "track", event_name: "order_completed", event_id: crypto.randomUUID(), anonymous_id: "dev-7", user_id: "u-77", properties: { order_id: "o7", value: 50, currency: "SAR" } },
+      ],
+    },
+  });
+  expect(res.status()).toBe(200);
+  const city = page.getByRole("row").filter({ has: page.getByRole("cell", { name: "city", exact: true }) });
+  // Events are processed right after they're accepted; reload until they are.
+  await expect(async () => {
+    await page.goto(`${appBase}/settings/dev-ops/attributes?env=development`);
+    await expect(city).toContainText("Riyadh", { timeout: 1000 });
+  }).toPass({ timeout: 15_000 });
+  await expect(page.getByRole("heading", { name: "Attributes", level: 1 })).toBeVisible();
+  await city.getByText("Describe").click();
+  await city.getByRole("textbox", { name: "Description of city" }).fill("Home city from the profile.");
+  await city.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Description saved.")).toBeVisible();
+  await page.getByRole("link", { name: /Event properties/ }).click();
+  await expect(page.getByRole("cell", { name: "order_id", exact: true })).toBeVisible();
+
+  await page.goto(`${appBase}/analytics/users?env=development`);
+  await page.getByRole("combobox", { name: "Property 1" }).selectOption("city");
+  await page.getByLabel("Value 1").fill("Riyadh");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByRole("link", { name: "u-77" })).toBeVisible();
+  await page.getByLabel("Value 1").fill("Jeddah");
+  await page.getByRole("button", { name: "Search" }).click();
+  await expect(page.getByText("No user matches these filters.")).toBeVisible();
+});
+
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {
   const errors: string[] = [];
   page.on("console", (m) => m.type() === "error" && errors.push(m.text()));

@@ -1,4 +1,5 @@
 import { topEvents } from "@/modules/analytics/service";
+import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { can } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
 
@@ -28,6 +29,17 @@ export function StatusPill({ status }: { status: string }) {
 export async function knownEvents(ctx: TenantContext, environmentId: string): Promise<string[]> {
   if (!can(ctx.role, "analytics.read")) return [];
   return (await topEvents(ctx, { environmentId, days: 90 })).map((e) => e.name);
+}
+
+/**
+ * User and event property names with observed values from the property
+ * catalog, for condition suggestions (empty when the member can't read audiences).
+ */
+export async function knownProperties(ctx: TenantContext, appId: string, environmentId: string) {
+  if (!can(ctx.role, "audiences.read")) return { user: [], event: [] };
+  const c = await catalogForPickers(ctx, { appId, environmentId }, "audiences.read");
+  const pick = (list: ReturnType<typeof options>) => list.map((o) => ({ name: o.name, values: o.values }));
+  return { user: pick(options(c.user)), event: pick(options(c.event)) };
 }
 
 /** Small server-rendered line of a series (audience size history). */

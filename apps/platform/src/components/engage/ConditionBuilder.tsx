@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { createContext, useContext, useId, useState } from "react";
 
 /**
  * Editor for an audience condition tree. Works on the same JSON the server
@@ -10,6 +10,20 @@ import { useId, useState } from "react";
  */
 export type Json = Record<string, unknown>;
 type Node = Json & { type: string };
+
+/** Property names and observed values from the project's property catalog (suggestions only). */
+export interface PropertyLists {
+  user: { name: string; values: string[] }[];
+  event: { name: string; values: string[] }[];
+}
+const Catalog = createContext<{ id: string; lists: PropertyLists }>({ id: "", lists: { user: [], event: [] } });
+
+/** Datalist ids for a property name and for its values (undefined when the catalog doesn't know it). */
+function useLists(scope: "user" | "event", name: string) {
+  const { id, lists } = useContext(Catalog);
+  const i = lists[scope].findIndex((o) => o.name === name);
+  return { names: `${id}-${scope}`, values: i >= 0 ? `${id}-${scope}-${i}` : undefined };
+}
 
 const PROPERTY_OPS: [string, string][] = [
   ["eq", "is"], ["neq", "is not"], ["gt", ">"], ["gte", "≥"], ["lt", "<"], ["lte", "≤"],
@@ -55,13 +69,22 @@ export function ParsedInput({ value, parse, onChange, ...rest }: { value: unknow
 
 const commaList = (raw: string) => raw.split(",").map((s) => s.trim()).filter(Boolean);
 
-export function ConditionBuilder({ value, onChange, events, allowSinceTrigger = false }: { value: Node; onChange: (n: Node) => void; events: string[]; allowSinceTrigger?: boolean }) {
+export function ConditionBuilder({ value, onChange, events, properties, allowSinceTrigger = false }: {
+  value: Node; onChange: (n: Node) => void; events: string[]; properties?: PropertyLists; allowSinceTrigger?: boolean;
+}) {
   const listId = useId();
+  const lists = properties ?? { user: [], event: [] };
   return (
-    <div>
+    <Catalog.Provider value={{ id: listId, lists }}>
       <datalist id={listId}>{events.map((e) => <option key={e} value={e} />)}</datalist>
+      {(["user", "event"] as const).map((scope) => (
+        <div key={scope} hidden>
+          <datalist id={`${listId}-${scope}`}>{lists[scope].map((o) => <option key={o.name} value={o.name} />)}</datalist>
+          {lists[scope].map((o, i) => <datalist key={o.name} id={`${listId}-${scope}-${i}`}>{o.values.map((v) => <option key={v} value={v} />)}</datalist>)}
+        </div>
+      ))}
       <NodeEditor node={value} onChange={onChange} listId={listId} allowSinceTrigger={allowSinceTrigger} depth={0} />
-    </div>
+    </Catalog.Provider>
   );
 }
 
@@ -130,17 +153,18 @@ function NodeEditor({ node, onChange, onRemove, listId, allowSinceTrigger, depth
   );
 }
 
-function FilterRow({ f, onChange, onRemove, prefix }: { f: Json; onChange: (f: Json) => void; onRemove?: () => void; prefix?: string }) {
+function FilterRow({ f, scope, onChange, onRemove, prefix }: { f: Json; scope: "user" | "event"; onChange: (f: Json) => void; onRemove?: () => void; prefix?: string }) {
   const op = String(f.op ?? "eq");
+  const lists = useLists(scope, String(f.property ?? ""));
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       {prefix && <span className="text-ink-3">{prefix}</span>}
-      <input className="input w-40" placeholder="property" value={String(f.property ?? "")} onChange={(e) => onChange({ ...f, property: e.target.value })} aria-label="Property" />
+      <input className="input w-40" list={lists.names} placeholder="property" value={String(f.property ?? "")} onChange={(e) => onChange({ ...f, property: e.target.value })} aria-label="Property" />
       <select className="input w-auto" value={op} onChange={(e) => onChange({ ...f, op: e.target.value, value: parseValue(e.target.value, valueText(f.value)) })} aria-label="Operator">
         {PROPERTY_OPS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
       </select>
       {op !== "exists" && op !== "not_exists" && (
-        <ParsedInput key={op} className="input w-44" placeholder={op === "in" ? "a, b, c" : "value"} value={f.value} parse={(raw) => parseValue(op, raw)} onChange={(v) => onChange({ ...f, value: v })} aria-label="Value" />
+        <ParsedInput key={op} className="input w-44" list={lists.values} placeholder={op === "in" ? "a, b, c" : "value"} value={f.value} parse={(raw) => parseValue(op, raw)} onChange={(v) => onChange({ ...f, value: v })} aria-label="Value" />
       )}
       {onRemove && <button type="button" className="text-xs text-alert hover:underline" onClick={onRemove}>remove</button>}
     </div>
@@ -185,7 +209,7 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
             </label>
           )}
           {where.map((f, i) => (
-            <FilterRow key={i} f={f} prefix={i === 0 ? "where" : "and"} onChange={(nf) => onChange({ ...leaf, where: where.map((x, j) => (j === i ? nf : x)) })} onRemove={() => onChange({ ...leaf, where: where.filter((_, j) => j !== i) })} />
+            <FilterRow key={i} f={f} scope="event" prefix={i === 0 ? "where" : "and"} onChange={(nf) => onChange({ ...leaf, where: where.map((x, j) => (j === i ? nf : x)) })} onRemove={() => onChange({ ...leaf, where: where.filter((_, j) => j !== i) })} />
           ))}
           {where.length < 5 && (
             <button type="button" className="text-xs text-accent-ink hover:underline" onClick={() => onChange({ ...leaf, where: [...where, { property: "", op: "eq", value: "" }] })}>+ event property filter</button>
@@ -194,7 +218,7 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
       );
     }
     case "user_property":
-      return <FilterRow f={leaf} onChange={(f) => onChange({ ...(f as Node), type: "user_property" })} />;
+      return <FilterRow f={leaf} scope="user" onChange={(f) => onChange({ ...(f as Node), type: "user_property" })} />;
     case "first_seen":
     case "last_seen":
       return (
@@ -225,20 +249,25 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
       );
     }
     default:
-      return (
-        <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span>sum of</span>
-          <input className="input w-28" value={String(leaf.property ?? "revenue")} onChange={(e) => onChange({ ...leaf, property: e.target.value })} aria-label="Revenue property" />
-          <select className="input w-auto" value={String(leaf.op)} onChange={(e) => onChange({ ...leaf, op: e.target.value })} aria-label="Comparison">
-            {[["gte", "≥"], ["gt", ">"], ["lte", "≤"], ["lt", "<"], ["eq", "="]].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-          </select>
-          <input className="input w-28" type="number" min={0} value={String(leaf.amount ?? 0)} onChange={num("amount")} aria-label="Amount" />
-          <span>in the last</span>
-          <input className="input w-20" type="number" min={1} max={365} value={String(leaf.withinDays ?? 90)} onChange={num("withinDays")} aria-label="Days" />
-          <span>days, from</span>
-          <ParsedInput className="input w-56" placeholder="any event (or: purchase, renewal)" value={leaf.events ?? []} parse={commaList}
-            onChange={(v) => onChange({ ...leaf, events: v })} aria-label="Events" />
-        </div>
-      );
+      return <RevenueLeaf leaf={leaf} onChange={onChange} num={num} />;
   }
+}
+
+function RevenueLeaf({ leaf, onChange, num }: { leaf: Node; onChange: (n: Node) => void; num: (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => void }) {
+  const lists = useLists("event", String(leaf.property ?? "revenue"));
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-sm">
+      <span>sum of</span>
+      <input className="input w-28" list={lists.names} value={String(leaf.property ?? "revenue")} onChange={(e) => onChange({ ...leaf, property: e.target.value })} aria-label="Revenue property" />
+      <select className="input w-auto" value={String(leaf.op)} onChange={(e) => onChange({ ...leaf, op: e.target.value })} aria-label="Comparison">
+        {[["gte", "≥"], ["gt", ">"], ["lte", "≤"], ["lt", "<"], ["eq", "="]].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+      </select>
+      <input className="input w-28" type="number" min={0} value={String(leaf.amount ?? 0)} onChange={num("amount")} aria-label="Amount" />
+      <span>in the last</span>
+      <input className="input w-20" type="number" min={1} max={365} value={String(leaf.withinDays ?? 90)} onChange={num("withinDays")} aria-label="Days" />
+      <span>days, from</span>
+      <ParsedInput className="input w-56" placeholder="any event (or: purchase, renewal)" value={leaf.events ?? []} parse={commaList}
+        onChange={(v) => onChange({ ...leaf, events: v })} aria-label="Events" />
+    </div>
+  );
 }

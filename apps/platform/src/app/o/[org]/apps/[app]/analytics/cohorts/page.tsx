@@ -8,6 +8,7 @@ import { topEvents } from "@/modules/analytics/service";
 import { PROPERTY_OP_LABELS } from "@/modules/analytics/sql";
 import { log } from "@/lib/log";
 import { can } from "@/modules/rbac/authorize";
+import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Cohorts" };
@@ -33,6 +34,8 @@ export default async function CohortsPage(props: PageProps<"/o/[org]/apps/[app]/
   );
   const canWrite = can(ctx.role, "analytics.write");
   const events = canWrite ? (await topEvents(ctx, { environmentId: env.id, days: 90 })).map((e) => e.name) : [];
+  const catalog = canWrite ? await catalogForPickers(ctx, { appId: a.id, environmentId: env.id }, "analytics.read") : null;
+  const properties = catalog ? { user: options(catalog.user).map((o) => o.name), event: options(catalog.event).map((o) => o.name) } : undefined;
   const path = `/o/${org}/apps/${app}/analytics/cohorts`;
 
   return (
@@ -61,7 +64,7 @@ export default async function CohortsPage(props: PageProps<"/o/[org]/apps/[app]/
       {canWrite && (
         <section className="card space-y-3">
           <h2 className="h2">New cohort</h2>
-          <CohortForm action={createCohortAction.bind(null, org, app, env.id, env.type)} events={events} submitLabel="Create cohort" />
+          <CohortForm action={createCohortAction.bind(null, org, app, env.id, env.type)} events={events} properties={properties} submitLabel="Create cohort" />
         </section>
       )}
       <p className="text-xs text-ink-3">

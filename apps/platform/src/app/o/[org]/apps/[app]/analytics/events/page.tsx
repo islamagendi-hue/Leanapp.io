@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
 import { CohortSelect } from "@/components/CohortSelect";
+import { PropertyFilters } from "@/components/PropertyFilters";
 import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { TrendChart } from "@/components/TrendChart";
-import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
-import { BREAKDOWNS, eventTrend, kpi, topEvents } from "@/modules/analytics/service";
+import { eventFiltersFromParams, rangeFromParams, toSearch } from "@/modules/analytics/report-params";
+import { BREAKDOWNS, eventTrend, kpi, MAX_EVENT_FILTERS, topEvents } from "@/modules/analytics/service";
+import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { cohortFilter } from "@/server/analytics-page";
 import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -29,7 +31,14 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   const by = param(sp.by);
   const breakdown = by === "property" && property ? `property:${property}` : by;
   const scope = { environmentId: env.id, timezone: a.timezone };
-  const trend = selected ? await eventTrend(ctx, scope, { event: selected, ...range, interval: param(sp.interval), breakdown, cohortId: cf.cohortId }) : null;
+  const { filters, parts } = eventFiltersFromParams(toSearch(sp));
+  const trend = selected
+    ? await eventTrend(ctx, scope, { event: selected, ...range, interval: param(sp.interval), breakdown, where: filters.length ? filters : undefined, cohortId: cf.cohortId })
+    : null;
+  // Event properties from the shared catalog: the ones seen on (or planned for) this event, else all of them.
+  const eventProps = options((await catalogForPickers(ctx, { appId: a.id, environmentId: env.id }, "analytics.read", { only: "event" })).event);
+  const onEvent = eventProps.filter((o) => selected && o.events?.includes(selected));
+  const propOptions = onEvent.length ? onEvent : eventProps;
   const active = await kpi(ctx, scope, { metric: "active_people", ...range, cohortId: cf.cohortId });
   const path = `/o/${org}/apps/${app}/analytics/events`;
   const keep = new URLSearchParams(
@@ -66,9 +75,16 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
                 <option value="property">Event property…</option>
               </select>
             </label>
-            <label><span className="label">Property</span><input name="property" className="input w-40" defaultValue={property ?? ""} placeholder="e.g. plan" maxLength={64} /></label>
+            <label><span className="label">Property</span>
+              <select name="property" className="input w-44" defaultValue={property ?? ""}>
+                <option value="">Choose…</option>
+                {property && !propOptions.some((o) => o.name === property) && <option value={property}>{property}</option>}
+                {propOptions.map((o) => <option key={o.name} value={o.name} title={o.description || undefined}>{o.name}</option>)}
+              </select>
+            </label>
             <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
             <ReportRangeFields range={active.range} interval={trend?.interval} />
+            <PropertyFilters key={selected} options={propOptions} initial={parts} max={MAX_EVENT_FILTERS} label="Only events where" />
             <button className="btn" type="submit">Show</button>
           </form>
 
@@ -76,7 +92,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
             <section className="card space-y-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="h2 font-mono">{trend.event}</h2>
-                <span className="text-xs text-ink-3">{trend.range.label}</span>
+                <span className="text-xs text-ink-3">{trend.range.label}{trend.where.length ? ` · ${trend.where.length} filter${trend.where.length > 1 ? "s" : ""}` : ""}</span>
               </div>
               <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
                 <Kpi label="Events" value={trend.total.count} previous={trend.previous?.count} range={trend.range} />

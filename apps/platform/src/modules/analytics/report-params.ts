@@ -4,6 +4,9 @@
  * link with these params. Pure.
  */
 
+import { filtersFromSearch, partsFromFilter } from "@/modules/properties/filters";
+import type { PropertyFilter } from "@/modules/audiences/definition";
+
 export const REPORT_KINDS = ["trend", "funnel", "retention", "revenue"] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
@@ -48,13 +51,30 @@ export function rangeFromParams(sp: Search): { days?: string; from?: string; to?
   };
 }
 
+/** Event property filters from the `fp`/`fo`/`fv` rows of the report form (at most 3). */
+export function eventFiltersFromParams(sp: Search) {
+  return filtersFromSearch({ fp: sp.getAll("fp"), fo: sp.getAll("fo"), fv: sp.getAll("fv") }, "f", 3);
+}
+
+const nonEmpty = <T,>(list: T[]) => (list.length ? list : undefined);
+
+function eventFiltersTo(q: Search, where: unknown) {
+  if (!Array.isArray(where)) return;
+  for (const f of where as PropertyFilter[]) {
+    const x = partsFromFilter(f);
+    q.append("fp", x.property);
+    q.append("fo", x.op);
+    q.append("fv", x.value);
+  }
+}
+
 /** The report service input for a kind, from page search params. */
 export function inputFromParams(kind: ReportKind, sp: Search): Record<string, unknown> {
   const common = { ...rangeFromParams(sp), cohortId: sp.get("cohort") || undefined };
   const interval = sp.get("interval") || undefined;
   switch (kind) {
     case "trend":
-      return { ...common, event: sp.get("event") ?? "", breakdown: breakdownFrom(sp), interval };
+      return { ...common, event: sp.get("event") ?? "", breakdown: breakdownFrom(sp), interval, where: nonEmpty(eventFiltersFromParams(sp).filters) };
     case "funnel":
       return {
         ...common,
@@ -79,6 +99,7 @@ export function paramsFromConfig(kind: ReportKind, config: Record<string, unknow
     case "trend":
       str("event", config.event);
       breakdownTo(q, config.breakdown);
+      eventFiltersTo(q, config.where);
       str("interval", config.interval);
       break;
     case "funnel":

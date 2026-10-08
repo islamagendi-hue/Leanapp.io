@@ -2,17 +2,18 @@
 
 import { useState, useTransition } from "react";
 import { ActionForm, type FormState } from "@/components/ActionForm";
-import { ConditionBuilder, type Json } from "./ConditionBuilder";
+import { ConditionBuilder, type Json, type PropertyLists } from "./ConditionBuilder";
 
 type Node = Json & { type: string };
 
 export function AudienceEditor({
-  save, preview, initial, events,
+  save, preview, initial, events, properties,
 }: {
   save: (state: FormState, form: FormData) => Promise<FormState>;
   preview: (definitionJson: string) => Promise<{ size?: number; sample?: string[]; description?: string; error?: string }>;
   initial: { name: string; description: string; refreshMinutes: number; definition: Node };
   events: string[];
+  properties?: PropertyLists;
 }) {
   const [definition, setDefinition] = useState<Node>(initial.definition.type === "and" || initial.definition.type === "or" ? initial.definition : { type: "and", children: [initial.definition] });
   const [result, setResult] = useState<Awaited<ReturnType<typeof preview>> | null>(null);
@@ -31,7 +32,7 @@ export function AudienceEditor({
         </label>
       </div>
       <input type="hidden" name="definition" value={json} />
-      <ConditionBuilder value={definition} onChange={setDefinition} events={events} />
+      <ConditionBuilder value={definition} onChange={setDefinition} events={events} properties={properties} />
       <div className="flex flex-wrap items-center gap-3 rounded-lg bg-paper-2 px-3 py-2 text-sm">
         <button type="button" className="btn-secondary min-h-9" disabled={pending} onClick={() => start(async () => setResult(await preview(json)))}>
           {pending ? "Counting…" : "Preview size"}

@@ -11,6 +11,7 @@ import {
   type EditResult,
 } from "@/modules/implementation/editor";
 import { toActionError, type ActionState } from "@/server/action-result";
+import { describeProperty } from "@/modules/properties/catalog";
 import { requireTenant } from "@/server/session";
 
 const base = (org: string, app: string) => `/o/${org}/apps/${app}`;
@@ -158,4 +159,15 @@ export async function planEditAction(orgSlug: string, appSlug: string, appId: st
   // A new draft was copied from the approved / published version: show it.
   if (result.draftCreated) redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan?version=${result.versionId}`);
   return { ok: true, message: result.warnings.length ? `Saved to draft v${result.version}. ${result.warnings.join(" ")}` : `Saved to draft v${result.version}.` };
+}
+
+// ── Property catalog ────────────────────────────────────────────────────────
+export async function describePropertyAction(orgSlug: string, appSlug: string, appId: string, _: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    await describeProperty(await requireTenant(orgSlug), appId, { scope: form.get("scope"), name: form.get("name"), description: form.get("description") ?? "" });
+    revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/attributes`);
+    return { ok: true, message: "Description saved." };
+  } catch (err) {
+    return toActionError(err);
+  }
 }

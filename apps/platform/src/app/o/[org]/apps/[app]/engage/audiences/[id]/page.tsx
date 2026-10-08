@@ -2,7 +2,7 @@ import Link from "next/link";
 import { audienceLifecycleAction, previewAudienceAction, saveAudienceAction } from "@/app/actions/engage";
 import { ActionForm } from "@/components/ActionForm";
 import { AudienceEditor } from "@/components/engage/AudienceEditor";
-import { fmtDate, knownEvents, Sparkline, StatusPill } from "@/components/engage/shared";
+import { fmtDate, knownEvents, knownProperties, Sparkline, StatusPill } from "@/components/engage/shared";
 import { NotFoundError } from "@/lib/errors";
 import { getAudience } from "@/modules/audiences/service";
 import { can } from "@/modules/rbac/authorize";
@@ -13,7 +13,7 @@ export const metadata = { title: "Audience" };
 
 export default async function AudiencePage(props: PageProps<"/o/[org]/apps/[app]/engage/audiences/[id]">) {
   const { org, app, id } = await props.params;
-  const { ctx, environments } = await loadApp(org, app);
+  const { ctx, app: project, environments } = await loadApp(org, app);
   requirePermission(ctx, "audiences.read");
   const detail = await getAudience(ctx, id).catch((e) => {
     if (e instanceof NotFoundError) notFound();
@@ -66,6 +66,7 @@ export default async function AudiencePage(props: PageProps<"/o/[org]/apps/[app]
             save={saveAudienceAction.bind(null, org, app, a.environment_id, a.id)}
             preview={previewAudienceAction.bind(null, org, a.environment_id)}
             events={await knownEvents(ctx, a.environment_id)}
+            properties={await knownProperties(ctx, project.id, a.environment_id)}
             initial={{ name: a.name, description: a.description ?? "", refreshMinutes: a.refresh_minutes, definition: a.definition as never }}
           />
         </section>

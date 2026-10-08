@@ -125,7 +125,7 @@ export function settingsMenu(role: Role, org: string, base?: string): NavGroup[]
                 { label: "Get started", href: `${devops}/get-started`, perm: "implementation.read" },
                 { label: "Implementation", href: `${devops}/implementation/plan`, match: `${devops}/implementation`, perm: "implementation.read" },
                 { label: "Events", href: `${devops}/events`, perm: "implementation.read" },
-                { label: "Attributes", soon: true, perm: "implementation.read" },
+                { label: "Attributes", href: `${devops}/attributes`, perm: "implementation.read" },
                 { label: "SDK & API keys", href: `${devops}/sdk`, perm: "credentials.read" },
                 { label: "Debugger", href: `${devops}/debugger`, perm: "events.read" },
                 { label: "Webhooks", href: `${devops}/webhooks`, perm: "webhooks.manage" },
