@@ -8,7 +8,7 @@ import { z } from "zod";
 import { AMOUNT_PROPERTIES, ruleFor } from "@/modules/analytics/revenue-rules";
 import { propertyFilterSchema, propertyName, type PropertyFilter } from "@/modules/analytics/sql";
 
-/** Retention checkpoints: a person is retained on day N when they come back on or after day N. */
+/** Retention checkpoints: a person is retained on day N when they come back on calendar day N (analytics/retention-rule.ts). */
 export const RETENTION_DAYS = [1, 7, 30] as const;
 
 const eventName = z.string().trim().min(1, "Choose an event.").max(200);

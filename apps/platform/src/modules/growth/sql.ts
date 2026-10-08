@@ -4,11 +4,11 @@
  * and by the set-based rebuild, so both always agree on what an activation,
  * core action, purchase or return is.
  */
-import { numeric, Params, PERSON, propertyPredicate } from "@/modules/analytics/sql";
+import { dayNumberSql, measurableSql } from "@/modules/analytics/retention-rule";
+import { COUNTED_EVENTS, numeric, Params, PERSON, propertyPredicate } from "@/modules/analytics/sql";
 import { RETENTION_DAYS, type EventRule, type GrowthDefinition } from "./definition";
 
-/** Event types that count as activity (identify, alias and push_token are protocol calls). */
-export const ACTIVE_TYPES = ["track", "screen"] as const;
+export { COUNTED_EVENTS, COUNTED_TYPES as ACTIVE_TYPES } from "@/modules/analytics/sql";
 
 function ruleSql(rule: EventRule | null, p: Params, name: string, props: string): string {
   if (!rule) return "false";
@@ -39,31 +39,29 @@ export function flagColumns(def: GrowthDefinition, p: Params, defaultCurrency: s
           ${currency} as currency`;
 }
 
-/** Filter for events that count toward growth state. */
-export const COUNTED_EVENTS = `e.type in ('track', 'screen') and e.processed_at is not null and e.processing_error is null`;
-
 /**
  * Recomputes growth_state rows for a set of people from all their events.
  * Binds: $1 environment, $2 persons (text[]), $3 user ids, $4 anonymous ids
  * (the candidate events: every event of those users or installs), $5 plan
  * version id (nullable). People with no counted events are not returned.
  */
-export function rebuildSelectSql(def: GrowthDefinition, defaultCurrency: string): { sql: string; params: Params } {
-  return rowsSql(def, defaultCurrency, 5, "(e.user_id = any($3::text[]) or e.anonymous_id = any($4::text[]))", "person = any($2::text[])", "$5::uuid");
+export function rebuildSelectSql(def: GrowthDefinition, defaultCurrency: string, timezone: string): { sql: string; params: Params } {
+  return rowsSql(def, defaultCurrency, timezone, 5, "(e.user_id = any($3::text[]) or e.anonymous_id = any($4::text[]))", "person = any($2::text[])", "$5::uuid");
 }
 
 /**
  * The same rows for everyone active in a window, as if the window were all of
  * history (the preview on the growth setup page). Binds: $1 environment, $2 window start.
  */
-export function windowSelectSql(def: GrowthDefinition, defaultCurrency: string): { sql: string; params: Params } {
-  return rowsSql(def, defaultCurrency, 2, `e."timestamp" >= $2`, "true", "null::uuid");
+export function windowSelectSql(def: GrowthDefinition, defaultCurrency: string, timezone: string): { sql: string; params: Params } {
+  return rowsSql(def, defaultCurrency, timezone, 2, `e."timestamp" >= $2`, "true", "null::uuid");
 }
 
-function rowsSql(def: GrowthDefinition, defaultCurrency: string, reserved: number, candidates: string, people: string, version: string) {
+function rowsSql(def: GrowthDefinition, defaultCurrency: string, timezone: string, reserved: number, candidates: string, people: string, version: string) {
   const p = new Params(new Array(reserved).fill(undefined));
+  const tz = p.add(timezone);
   const retention = RETENTION_DAYS.map(
-    (d) => `min(ts) filter (where is_return and ts >= first_seen + interval '${d} days') as retained_d${d}_at`,
+    (d) => `min(ts) filter (where is_return and ${dayNumberSql("ts", "first_seen", tz)} = ${d}) as retained_d${d}_at`,
   ).join(",\n           ");
   const sql = `
     with ev as (
@@ -103,18 +101,18 @@ function rowsSql(def: GrowthDefinition, defaultCurrency: string, reserved: numbe
 
 /**
  * Aggregates growth rows (a growth_state selection or a rows CTE named `rows`)
- * into the summary numbers. Retention rates only count people first seen at
- * least N days ago (the others can't have come back on day N yet).
+ * into the summary numbers. Retention on day N only counts people whose day N
+ * is over (see analytics/retention-rule.ts); `tz` is the timezone placeholder.
  */
-export const SUMMARY_SELECT = `
+export const summarySelect = (tz: string) => `
   select count(*)::int as people,
          count(activated_at)::int as activated,
          count(first_core_action_at)::int as core_people,
          coalesce(sum(core_action_count), 0)::float8 as core_actions,
          count(first_revenue_at)::int as paying,
          coalesce(sum(purchases), 0)::float8 as purchases,
-         ${RETENTION_DAYS.map((d) => `count(*) filter (where first_seen_at <= now() - interval '${d} days')::int as d${d}_eligible,
-         count(retained_d${d}_at) filter (where first_seen_at <= now() - interval '${d} days')::int as d${d}_retained`).join(", ")}
+         ${RETENTION_DAYS.map((d) => `count(*) filter (where ${measurableSql("first_seen_at", d, tz)})::int as d${d}_eligible,
+         count(retained_d${d}_at) filter (where ${measurableSql("first_seen_at", d, tz)})::int as d${d}_retained`).join(", ")}
     from rows`;
 
 export const REVENUE_SELECT = `
@@ -131,10 +129,11 @@ export const REVENUE_SELECT = `
  * was updated; the caller rebuilds the others from all their events.
  * Binds: $1 environment, $2 event row ids (bigint[]), $3 plan version id.
  */
-export function applyBatchSql(def: GrowthDefinition, defaultCurrency: string): { sql: string; params: Params } {
+export function applyBatchSql(def: GrowthDefinition, defaultCurrency: string, timezone: string): { sql: string; params: Params } {
   const p = new Params([undefined, undefined, undefined]);
+  const tz = p.add(timezone);
   const retentionAgg = RETENTION_DAYS.map(
-    (d) => `min(ts) filter (where is_return and ts >= first_seen_at + interval '${d} days') as r${d}`,
+    (d) => `min(ts) filter (where is_return and ${dayNumberSql("ts", "first_seen_at", tz)} = ${d}) as r${d}`,
   ).join(",\n             ");
   const retentionSet = RETENTION_DAYS.map((d) => `retained_d${d}_at = least(g.retained_d${d}_at, a.r${d})`).join(",\n             ");
   const sql = `

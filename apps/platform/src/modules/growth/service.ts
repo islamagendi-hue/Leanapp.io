@@ -6,7 +6,7 @@ import { loadPlanEvents } from "@/modules/implementation/plan-store";
 import { latestJobs, enqueueReprocess, type ReprocessJob } from "@/modules/reprocess/jobs";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { effectiveDefinition, growthDefinitionSchema, type GrowthDefinition } from "./definition";
-import { REVENUE_SELECT, SUMMARY_SELECT, windowSelectSql } from "./sql";
+import { REVENUE_SELECT, summarySelect, windowSelectSql } from "./sql";
 
 /**
  * Growth model for the dashboard and the management API: definitions (read
@@ -88,7 +88,11 @@ export function growthOverview(ctx: TenantContext, appId: string, environmentId:
 
 async function summaryFor(db: Db, environmentId: string) {
   const rows = "rows as (select * from platform.growth_state where environment_id = $1)";
-  const row = await db.one<SummaryRow>(`with ${rows} ${SUMMARY_SELECT}`, [environmentId]);
+  const tz = await db.one<{ timezone: string }>(
+    "select a.timezone from platform.apps a join platform.environments e on e.app_id = a.id where e.id = $1",
+    [environmentId],
+  );
+  const row = await db.one<SummaryRow>(`with ${rows} ${summarySelect("$2")}`, [environmentId, tz?.timezone ?? "UTC"]);
   const revenue = await db.query<{ currency: string; total: number }>(`with ${rows} ${REVENUE_SELECT}`, [environmentId]);
   const updated = await db.one<{ at: Date | null }>("select max(updated_at) as at from platform.growth_state where environment_id = $1", [environmentId]);
   return { summary: shape(row, revenue), updatedAt: updated?.at ?? null };
@@ -102,15 +106,16 @@ export function previewDefinition(ctx: TenantContext, appId: string, environment
   const parsed = growthDefinitionSchema.safeParse(input);
   if (!parsed.success) throw new ValidationError(parsed.error.issues.map((i) => i.message).join(" "));
   return tenantTx(ctx, "growth.read", async (db) => {
-    const app = await db.one<{ default_currency: string }>(
-      "select a.default_currency from platform.apps a join platform.environments e on e.app_id = a.id where a.id = $1 and e.id = $2",
+    const app = await db.one<{ default_currency: string; timezone: string }>(
+      "select a.default_currency, a.timezone from platform.apps a join platform.environments e on e.app_id = a.id where a.id = $1 and e.id = $2",
       [appId, environmentId],
     );
     if (!app) throw new NotFoundError("Environment");
-    const { sql, params } = windowSelectSql(parsed.data, app.default_currency);
+    const { sql, params } = windowSelectSql(parsed.data, app.default_currency, app.timezone);
     const since = new Date(Date.now() - (opts.days ?? 30) * 86_400_000);
     const values = [environmentId, since, ...params.values.slice(2)];
-    const row = await db.one<SummaryRow>(`with rows as (${sql}) ${SUMMARY_SELECT}`, values);
+    // The window SQL binds the timezone first after its reserved values ($3).
+    const row = await db.one<SummaryRow>(`with rows as (${sql}) ${summarySelect("$3")}`, values);
     const revenue = await db.query<{ currency: string; total: number }>(`with rows as (${sql}) ${REVENUE_SELECT}`, values);
     return shape(row, revenue);
   });

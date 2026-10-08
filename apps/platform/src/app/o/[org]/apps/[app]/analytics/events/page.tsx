@@ -1,9 +1,11 @@
 import Link from "next/link";
-import { AnalyticsHeader, param, RANGE_LABELS } from "@/components/AnalyticsHeader";
+import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
 import { CohortSelect } from "@/components/CohortSelect";
+import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { TrendChart } from "@/components/TrendChart";
-import { BREAKDOWNS, eventTrend, RANGES, topEvents } from "@/modules/analytics/service";
+import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
+import { BREAKDOWNS, eventTrend, kpi, topEvents } from "@/modules/analytics/service";
 import { cohortFilter } from "@/server/analytics-page";
 import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -19,16 +21,22 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
   const env = await pickEnvironment(environments, sp.env);
-  const days = Number(param(sp.days)) || 30;
+  const range = rangeFromParams(toSearch(sp));
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
-  const events = await topEvents(ctx, { environmentId: env.id, days, timezone: a.timezone, cohortId: cf.cohortId });
+  const events = await topEvents(ctx, { environmentId: env.id, ...range, timezone: a.timezone, cohortId: cf.cohortId });
   const selected = param(sp.event) ?? events[0]?.name;
   const property = param(sp.property)?.trim();
   const by = param(sp.by);
   const breakdown = by === "property" && property ? `property:${property}` : by;
-  const trend = selected ? await eventTrend(ctx, { environmentId: env.id, timezone: a.timezone }, { event: selected, days, breakdown, cohortId: cf.cohortId }) : null;
+  const scope = { environmentId: env.id, timezone: a.timezone };
+  const trend = selected ? await eventTrend(ctx, scope, { event: selected, ...range, interval: param(sp.interval), breakdown, cohortId: cf.cohortId }) : null;
+  const active = await kpi(ctx, scope, { metric: "active_people", ...range, cohortId: cf.cohortId });
   const path = `/o/${org}/apps/${app}/analytics/events`;
-  const link = (name: string) => `${path}?${new URLSearchParams({ env: env.type, days: String(days), event: name, ...(cf.cohortId ? { cohort: cf.cohortId } : {}) })}`;
+  const keep = new URLSearchParams(
+    Object.entries({ env: env.type, days: param(sp.days), from: param(sp.from), to: param(sp.to), compare: param(sp.compare), interval: param(sp.interval), cohort: cf.cohortId })
+      .filter((e): e is [string, string] => !!e[1]),
+  );
+  const link = (name: string) => `${path}?${new URLSearchParams([...keep, ["event", name]])}`;
 
   return (
     <div className="space-y-6">
@@ -37,8 +45,8 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the report shows everyone.</p>}
       {events.length === 0 ? (
         <div className="card">
-          <p>No events {cf.cohortName ? `for the cohort ${cf.cohortName}` : "in this environment"} in the {RANGE_LABELS[days]?.toLowerCase() ?? "selected range"}.</p>
-          {cf.cohortName && <p className="mt-1 text-sm"><Link className="underline" href={`${path}?env=${env.type}&days=${days}`}>Show everyone instead</Link></p>}
+          <p>No events {cf.cohortName ? `for the cohort ${cf.cohortName}` : "in this environment"} in {active.range.label.toLowerCase().startsWith("last") ? `the ${active.range.label.toLowerCase()}` : active.range.label}.</p>
+          {cf.cohortName && <p className="mt-1 text-sm"><Link className="underline" href={`${path}?${new URLSearchParams([...keep].filter(([k]) => k !== "cohort"))}`}>Show everyone instead</Link></p>}
           <p className="mt-1 text-sm text-ink-3">
             Events appear here as soon as your app sends them.
             {can(ctx.role, "events.read") && <> Check the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>event debugger</Link>.</>}
@@ -51,9 +59,6 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
             <label className="min-w-48 flex-1"><span className="label">Event</span>
               <select name="event" className="input" defaultValue={selected}>{events.map((e) => <option key={e.name}>{e.name}</option>)}</select>
             </label>
-            <label><span className="label">Range</span>
-              <select name="days" className="input" defaultValue={String(days)}>{RANGES.map((r) => <option key={r} value={r}>{RANGE_LABELS[r]}</option>)}</select>
-            </label>
             <label><span className="label">Split by</span>
               <select name="by" className="input" defaultValue={by ?? ""}>
                 <option value="">Nothing</option>
@@ -63,17 +68,23 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
             </label>
             <label><span className="label">Property</span><input name="property" className="input w-40" defaultValue={property ?? ""} placeholder="e.g. plan" maxLength={64} /></label>
             <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
+            <ReportRangeFields range={active.range} interval={trend?.interval} />
             <button className="btn" type="submit">Show</button>
           </form>
 
           {trend && (
             <section className="card space-y-4">
-              <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="h2 font-mono">{trend.event}</h2>
-                <span className="text-sm text-ink-2"><strong>{num(trend.total.count)}</strong> events</span>
-                <span className="text-sm text-ink-2"><strong>{num(trend.total.people)}</strong> people</span>
+                <span className="text-xs text-ink-3">{trend.range.label}</span>
               </div>
-              <TrendChart days={trend.days} series={trend.series} label={`${trend.event} per day`} />
+              <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                <Kpi label="Events" value={trend.total.count} previous={trend.previous?.count} range={trend.range} />
+                <Kpi label="People who did it" value={trend.total.people} previous={trend.previous?.people} range={trend.range} />
+                <Kpi label="Active people" value={active.value} previous={active.previous} range={active.range} hint="Did any event" />
+              </dl>
+              <TrendChart days={trend.days} series={trend.series} label={`${trend.event} per ${trend.interval}`} />
+              {trend.interval !== "day" && <p className="text-xs text-ink-3">Each point is a {trend.interval} starting on the date shown{trend.interval === "week" ? " (Monday)" : ""}; the first and last can be partial.</p>}
               {trend.series.some((s) => s.key === "Other") && <p className="text-xs text-ink-3">The 5 most frequent values are shown; the rest are grouped as Other.</p>}
             </section>
           )}
@@ -96,6 +107,17 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
           <p className="text-xs text-ink-3">Mapped events count under their canonical name. Anonymous activity counts toward the user once the install is linked to exactly one user.</p>
         </>
       )}
+    </div>
+  );
+}
+
+function Kpi({ label, value, previous, range, hint }: { label: string; value: number; previous: number | null | undefined; range: Parameters<typeof Delta>[0]["range"]; hint?: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-ink-3">{label}</dt>
+      <dd className="text-xl font-bold tabular-nums">{num(value)}</dd>
+      <dd><Delta value={value} previous={previous} range={range} /></dd>
+      {hint && <dd className="text-xs text-ink-3">{hint}</dd>}
     </div>
   );
 }

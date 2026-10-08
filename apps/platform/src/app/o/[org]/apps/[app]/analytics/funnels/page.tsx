@@ -1,7 +1,10 @@
-import { AnalyticsHeader, param, RANGE_LABELS } from "@/components/AnalyticsHeader";
+import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
 import { CohortSelect } from "@/components/CohortSelect";
+import { RateDelta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
-import { funnel, RANGES, topEvents } from "@/modules/analytics/service";
+import { resolveRange } from "@/modules/analytics/range";
+import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
+import { funnel, topEvents } from "@/modules/analytics/service";
 import { cohortFilter } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
@@ -23,14 +26,14 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
   const env = await pickEnvironment(environments, sp.env);
-  const days = Number(param(sp.days)) || 30;
+  const range = rangeFromParams(toSearch(sp));
   const windowDays = Number(param(sp.window)) || 7;
   const split = param(sp.split) === "platform";
   const chosen = (Array.isArray(sp.step) ? sp.step : sp.step ? [sp.step] : []).map((s) => s.trim()).filter(Boolean).slice(0, 6);
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
-  const events = await topEvents(ctx, { environmentId: env.id, days });
+  const events = await topEvents(ctx, { environmentId: env.id, ...range, timezone: a.timezone });
   const result = chosen.length >= 2
-    ? await funnel(ctx, { environmentId: env.id, timezone: a.timezone }, { steps: chosen, windowDays, days, breakdown: split ? "platform" : undefined, cohortId: cf.cohortId })
+    ? await funnel(ctx, { environmentId: env.id, timezone: a.timezone }, { steps: chosen, windowDays, ...range, breakdown: split ? "platform" : undefined, cohortId: cf.cohortId })
     : null;
   const slots = Math.min(6, Math.max(2, chosen.length + 1));
   const names = [...new Set([...events.map((e) => e.name), ...chosen])];
@@ -57,10 +60,8 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
           <label><span className="label">Converted within</span>
             <select name="window" className="input" defaultValue={String(windowDays)}>{WINDOWS.map((w) => <option key={w} value={w}>{w === 1 ? "1 day" : `${w} days`}</option>)}</select>
           </label>
-          <label><span className="label">People who started in</span>
-            <select name="days" className="input" defaultValue={String(days)}>{RANGES.map((r) => <option key={r} value={r}>{RANGE_LABELS[r]}</option>)}</select>
-          </label>
           <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
+          <ReportRangeFields label="People who started in" range={result?.range ?? { ...resolveRange(range, a.timezone), previous: null }} />
           <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" name="split" value="platform" defaultChecked={split} /> Split by platform</label>
           <button className="btn" type="submit">Show funnel</button>
         </div>
@@ -72,7 +73,13 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
       ) : (
         <section className="card space-y-5">
           <p className="text-sm text-ink-2">
-            <strong>{pct(result.steps.at(-1)!.fromStart)}</strong> of {result.steps[0].people.toLocaleString("en-US")} people completed all {result.steps.length} steps within {windowDays === 1 ? "1 day" : `${windowDays} days`}.
+            <strong>{pct(result.steps.at(-1)!.fromStart)}</strong> of {result.steps[0].people.toLocaleString("en-US")} people who started in {result.range.preset ? `the ${result.range.label.toLowerCase()}` : result.range.label} completed all {result.steps.length} steps within {windowDays === 1 ? "1 day" : `${windowDays} days`}.{" "}
+            {result.previous && (
+              <>
+                <RateDelta value={result.steps.at(-1)!.fromStart} previous={result.previous.entered ? result.previous.converted / result.previous.entered : null} range={result.range} />{" "}
+                <span className="text-xs text-ink-3">vs {result.range.previous!.label} ({result.previous.entered ? pct(result.previous.converted / result.previous.entered) : "no one started"})</span>
+              </>
+            )}
           </p>
           <ol className="space-y-4">
             {result.steps.map((s, i) => (

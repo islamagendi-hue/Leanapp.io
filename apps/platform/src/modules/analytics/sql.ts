@@ -20,6 +20,16 @@ export const PERSON = {
       ) l on e.user_id is null and e.anonymous_id is not null`,
 };
 
+/**
+ * The one counting rule for every report, Activation and usage: an event
+ * counts once it has been processed without error (so it carries its
+ * canonical name), and only product events count: `track` events and screen
+ * views (`screen`, named screen_viewed). identify, alias, push_token and
+ * consent are protocol calls, not activity. For rows aliased `e`.
+ */
+export const COUNTED_TYPES = ["track", "screen"] as const;
+export const COUNTED_EVENTS = `e.type in ('track', 'screen') and e.processed_at is not null and e.processing_error is null`;
+
 /** Collects bind values; `add` returns the placeholder for the value. */
 export class Params {
   readonly values: unknown[];
@@ -143,7 +153,7 @@ export function cohortSql(def: CohortDefinition, p: Params, opts: { timezone: st
     parts.push(`select ${PERSON.expr} as person
         from platform.events e
         ${PERSON.join}
-       where e.environment_id = $1 and e.type = 'track'
+       where e.environment_id = $1 and ${COUNTED_EVENTS}
          and coalesce(e.canonical_name, e.event_name) = ${p.add(ev.name)}
          and coalesce(e.user_id, e.anonymous_id) is not null
          and e."timestamp" >= ${from} and e."timestamp" < ${to}
@@ -163,12 +173,13 @@ export function cohortSql(def: CohortDefinition, p: Params, opts: { timezone: st
 }
 
 /**
- * The events of the range with one row per event and its person, as CTEs
- * (`cohort` when a cohort filters the report, then `ev`). `$1` environment,
- * `$2` range start. `ev` has `name`, `person`, `ts`, `id`, `platform`,
+ * The counted events of the range with one row per event and its person, as
+ * CTEs (`cohort` when a cohort filters the report, then `ev`). `$1`
+ * environment, `$2` range start; `end` is the placeholder of the exclusive end
+ * (none: up to now). `ev` has `name`, `person`, `ts`, `id`, `platform`,
  * `app_version`, `properties`, `context`; `id` orders events with equal timestamps.
  */
-export function evCte(cohort?: string): string {
+export function evCte(cohort?: string, end?: string): string {
   return `${cohort ? `cohort as (${cohort}),` : ""}
   ev as (
     select coalesce(e.canonical_name, e.event_name) as name,
@@ -176,7 +187,7 @@ export function evCte(cohort?: string): string {
            e."timestamp" as ts, e.id, e.platform, e.app_version, e.properties, e.context
       from platform.events e
       ${PERSON.join}
-     where e.environment_id = $1 and e."timestamp" >= $2 and e.type = 'track'
+     where e.environment_id = $1 and e."timestamp" >= $2${end ? ` and e."timestamp" < ${end}` : ""} and ${COUNTED_EVENTS}
        and coalesce(e.user_id, e.anonymous_id) is not null
        ${cohort ? `and ${PERSON.expr} in (select person from cohort)` : ""}
   )`;

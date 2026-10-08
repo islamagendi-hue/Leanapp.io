@@ -1,11 +1,12 @@
 import "server-only";
 import { z } from "zod";
-import { isUniqueViolation } from "@/lib/db";
+import { isUniqueViolation, type Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { slugify } from "@/lib/slug";
 import { audit, type AuditAction } from "@/modules/audit/service";
 import { assertCanAddApp } from "@/modules/billing/enforcement";
 import { insertSdkKey } from "@/modules/credentials/service";
+import { enqueueReprocess } from "@/modules/reprocess/jobs";
 import type { EnvironmentType } from "@/modules/credentials/keys";
 import { validTimezone } from "@/modules/organizations/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
@@ -144,8 +145,8 @@ export function listArchivedApps(ctx: TenantContext): Promise<App[]> {
   );
 }
 
-/** Writes the changed columns of one app and audits them as `action`; a no-op when nothing changed. */
-async function changeApp(ctx: TenantContext, appId: string, after: Record<string, string | null>, action: AuditAction): Promise<void> {
+/** Writes the changed columns of one app and audits them as `action`; returns what changed (nothing: a no-op). */
+async function changeApp(ctx: TenantContext, appId: string, after: Record<string, string | null>, action: AuditAction, onChange?: (db: Db, changed: string[]) => Promise<void>): Promise<void> {
   const cols = Object.keys(after);
   await tenantTx(ctx, "apps.update", async (db) => {
     const before = await db.one<Record<string, string | null>>(`select ${cols.join(", ")} from platform.apps where id = $1 for update`, [appId]);
@@ -160,6 +161,7 @@ async function changeApp(ctx: TenantContext, appId: string, after: Record<string
       organizationId: ctx.organizationId, actorUserId: ctx.userId, action, targetType: "app", targetId: appId,
       metadata: { changed: Object.fromEntries(changed.map((k) => [k, { from: before[k], to: after[k] }])) },
     });
+    await onChange?.(db, changed);
   });
 }
 
@@ -170,11 +172,16 @@ export async function updateApp(ctx: TenantContext, appId: string, input: unknow
   await changeApp(ctx, appId, { name: r.data.name, description: r.data.description || null, category: r.data.category || null }, "app.updated");
 }
 
-/** The timezone reports bucket days in and the currency revenue is shown in. */
+/** The timezone reports bucket days in and the currency revenue is shown in. Changing them rebuilds Activation. */
 export async function updateAppLocale(ctx: TenantContext, appId: string, input: unknown): Promise<void> {
   const r = appLocaleSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
-  await changeApp(ctx, appId, { timezone: r.data.timezone, default_currency: r.data.defaultCurrency }, "app.locale_updated");
+  await changeApp(ctx, appId, { timezone: r.data.timezone, default_currency: r.data.defaultCurrency }, "app.locale_updated", async (db, changed) => {
+    // Activation's retention days are calendar days in the app's timezone (and revenue
+    // falls back to its currency), so growth state is rebuilt when either changes.
+    const app = await db.one<{ features: Record<string, unknown> }>("select features from platform.apps where id = $1", [appId]);
+    if (app?.features?.growth_model === true) await enqueueReprocess(db, appId, "growth_rebuild", `${changed.join(" and ").replace("default_currency", "currency")} changed`, ctx.userId);
+  });
 }
 
 /**

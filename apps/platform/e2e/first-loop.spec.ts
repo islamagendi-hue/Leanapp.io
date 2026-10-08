@@ -105,7 +105,7 @@ test("events sent with the SDK key show up in the debugger and the score", async
   await page.goto(`${appBase}/analytics/events?env=development&event=order_completed`);
   await expect(page.getByRole("img", { name: "order_completed per day" })).toBeVisible();
   await page.goto(`${appBase}/analytics/funnels?env=development&step=app_installed&step=order_completed`);
-  await expect(page.getByText(/of 1 people completed all 2 steps/)).toBeVisible();
+  await expect(page.getByText(/of 1 people who started in the last 30 days completed all 2 steps/)).toBeVisible();
 });
 
 test("mapping history: map an event, see the history, restore a revision", async ({ page }) => {
