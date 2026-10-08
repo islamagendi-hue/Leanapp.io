@@ -89,7 +89,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
               </tbody>
             </table>
           </section>
-          <p className="text-xs text-ink-3">People are grouped by the day of their first start event in the range ({a.timezone}). Day N counts people who did the return event on that calendar day; Activation uses the same rule for its D1, D7 and D30. Empty cells are days that aren&apos;t over yet.{r.range.previous && <> Changes are against cohorts from {r.range.previous.label}.</>}{cf.cohortName && <> Only people in the cohort {cf.cohortName}.</>}</p>
+          <p className="text-xs text-ink-3">People are grouped by the day of their first start event in the range ({a.timezone}). Day N counts people who did the return event on that calendar day; Activation uses the same rule for its D1, D7 and D30. Empty cells are days that aren&apos;t over yet.{r.range.previous && <> Changes are against cohorts from {r.range.previous.label}.</>}{cf.cohortName && <> Only people in the audience {cf.cohortName}.</>}</p>
           {cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="retention" query={{ ...sp, start: startEvent, return: returnEvent }} />}
         </>
       )}

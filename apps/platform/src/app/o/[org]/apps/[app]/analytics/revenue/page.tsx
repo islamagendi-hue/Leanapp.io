@@ -60,7 +60,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
 
       {r.currencies.length === 0 ? (
         <div className="card space-y-1">
-          <p>No revenue {cf.cohortName ? `from the cohort ${cf.cohortName}` : "in this environment"} in {r.range.preset ? `the ${r.range.label.toLowerCase()}` : r.range.label}.</p>
+          <p>No revenue {cf.cohortName ? `from the audience ${cf.cohortName}` : "in this environment"} in {r.range.preset ? `the ${r.range.label.toLowerCase()}` : r.range.label}.</p>
           <p className="text-sm text-ink-3">
             Revenue comes from events like <span className="font-mono">purchase_completed</span> with a <span className="font-mono">revenue</span> and a <span className="font-mono">currency</span> property, sent from your backend once payment is confirmed.
             {can(ctx.role, "implementation.read") && <>See the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/implementation/plan`}>tracking plan</Link>.</>}

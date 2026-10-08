@@ -54,7 +54,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}
       {events.length === 0 ? (
         <div className="card">
-          <p>No events {cf.cohortName ? `for the cohort ${cf.cohortName}` : "in this environment"} in {active.range.label.toLowerCase().startsWith("last") ? `the ${active.range.label.toLowerCase()}` : active.range.label}.</p>
+          <p>No events {cf.cohortName ? `for the audience ${cf.cohortName}` : "in this environment"} in {active.range.label.toLowerCase().startsWith("last") ? `the ${active.range.label.toLowerCase()}` : active.range.label}.</p>
           {cf.cohortName && <p className="mt-1 text-sm"><Link className="underline" href={`${path}?${new URLSearchParams([...keep].filter(([k]) => k !== "cohort"))}`}>Show everyone instead</Link></p>}
           <p className="mt-1 text-sm text-ink-3">
             Events appear here as soon as your app sends them.

@@ -113,7 +113,7 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
               </table>
             </div>
           )}
-          {cf.cohortName && <p className="text-xs text-ink-3">Only people in the cohort {cf.cohortName}.</p>}
+          {cf.cohortName && <p className="text-xs text-ink-3">Only people in the audience {cf.cohortName}.</p>}
           <p className="text-xs text-ink-3">A person enters at their first step-1 event in the range; each later step must happen after the previous one and within the window from entering.</p>
         </section>
       )}
