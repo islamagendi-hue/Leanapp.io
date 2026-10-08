@@ -64,7 +64,7 @@ export default async function AccountPage(props: PageProps<"/account">) {
         </ActionForm>
       </section>
 
-      <section className="card">
+      <section id="sessions" className="card scroll-mt-24">
         <h2 className="h2">Where you&apos;re signed in</h2>
         <ul className="mt-3 divide-y divide-line text-sm">
           {sessions.map((s) => (

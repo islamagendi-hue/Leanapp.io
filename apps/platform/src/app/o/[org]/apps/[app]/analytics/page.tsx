@@ -10,7 +10,7 @@ import { PROPERTY_OP_LABELS } from "@/modules/analytics/sql";
 import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "Analytics" };
+export const metadata = { title: "Saved reports" };
 
 function summary(kind: string, config: Record<string, unknown>, cohorts: Map<string, string>): string {
   const parts: string[] = [];
@@ -28,7 +28,7 @@ export default async function AnalyticsOverview(props: PageProps<"/o/[org]/apps/
   const sp = await props.searchParams;
   const { ctx, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   const [reports, cohorts] = await Promise.all([listSavedReports(ctx, env.id), listCohorts(ctx, env.id)]);
   const cohortNames = new Map(cohorts.map((c) => [c.id, c.name]));
   const canWrite = can(ctx.role, "analytics.write");
@@ -49,7 +49,7 @@ export default async function AnalyticsOverview(props: PageProps<"/o/[org]/apps/
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title="Analytics" description="Saved reports and cohorts for this environment, and every report." path={base} env={env.type} query={sp} />
+      <AnalyticsHeader title="Saved reports" description="Saved reports and cohorts for this environment, and every report." env={env.type} />
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {reportLinks.map((l) => (

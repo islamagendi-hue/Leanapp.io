@@ -32,12 +32,12 @@ export async function saveSectionAction(orgSlug: string, appSlug: string, appId:
     const r = await saveAnswers(ctx, appId, section, raw);
     if (!r.ok) return { error: "Please answer the highlighted questions.", fieldErrors: r.errors };
     done = r.next === null;
-    revalidatePath(`${base(orgSlug, appSlug)}/implementation/questions`);
+    revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/questions`);
   } catch (err) {
     return toActionError(err);
   }
-  if (done) redirect(`${base(orgSlug, appSlug)}/implementation/questions?done=1`);
-  redirect(`${base(orgSlug, appSlug)}/implementation/questions`);
+  if (done) redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/questions?done=1`);
+  redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/questions`);
 }
 
 export async function generatePlanAction(orgSlug: string, appSlug: string, appId: string, _: ActionState): Promise<ActionState> {
@@ -46,13 +46,13 @@ export async function generatePlanAction(orgSlug: string, appSlug: string, appId
   } catch (err) {
     return toActionError(err);
   }
-  redirect(`${base(orgSlug, appSlug)}/implementation/plan`);
+  redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan`);
 }
 
 export async function approveAction(orgSlug: string, appSlug: string, appId: string, versionId: string, _: ActionState): Promise<ActionState> {
   try {
     await approveVersion(await requireTenant(orgSlug), appId, versionId);
-    revalidatePath(`${base(orgSlug, appSlug)}/implementation/plan`);
+    revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan`);
     return { ok: true, message: "Approved. Publish it to start validating incoming events against it." };
   } catch (err) {
     return toActionError(err);
@@ -65,13 +65,13 @@ export async function publishAction(orgSlug: string, appSlug: string, appId: str
   } catch (err) {
     return toActionError(err);
   }
-  redirect(`${base(orgSlug, appSlug)}/developers/sdk`);
+  redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/sdk?env=development`);
 }
 
 export async function decideMappingAction(orgSlug: string, appSlug: string, appId: string, mappingId: string, accept: boolean, _: ActionState): Promise<ActionState> {
   try {
     await decideMapping(await requireTenant(orgSlug), appId, mappingId, accept);
-    revalidatePath(`${base(orgSlug, appSlug)}/implementation/validation`);
+    revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/events`);
     return { ok: true };
   } catch (err) {
     return toActionError(err);
@@ -81,7 +81,7 @@ export async function decideMappingAction(orgSlug: string, appSlug: string, appI
 export async function createMappingAction(orgSlug: string, appSlug: string, appId: string, _: ActionState, form: FormData): Promise<ActionState> {
   try {
     await createMapping(await requireTenant(orgSlug), appId, String(form.get("from") ?? "").trim(), String(form.get("to") ?? "").trim());
-    revalidatePath(`${base(orgSlug, appSlug)}/implementation/validation`);
+    revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/events`);
     return { ok: true, message: "Mapping saved and recent events re-validated." };
   } catch (err) {
     return toActionError(err);
@@ -154,8 +154,8 @@ export async function planEditAction(orgSlug: string, appSlug: string, appId: st
   } catch (err) {
     return toActionError(err);
   }
-  revalidatePath(`${base(orgSlug, appSlug)}/implementation/plan`);
+  revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan`);
   // A new draft was copied from the approved / published version: show it.
-  if (result.draftCreated) redirect(`${base(orgSlug, appSlug)}/implementation/plan?version=${result.versionId}`);
+  if (result.draftCreated) redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan?version=${result.versionId}`);
   return { ok: true, message: result.warnings.length ? `Saved to draft v${result.version}. ${result.warnings.join(" ")}` : `Saved to draft v${result.version}.` };
 }

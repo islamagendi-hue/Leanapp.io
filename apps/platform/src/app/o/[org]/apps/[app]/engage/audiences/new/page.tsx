@@ -11,7 +11,7 @@ export default async function NewAudiencePage(props: PageProps<"/o/[org]/apps/[a
   const sp = await props.searchParams;
   const { ctx, environments } = await loadApp(org, app);
   requirePermission(ctx, "audiences.manage");
-  const env = pickEnvironment(environments, sp.env);
+  const env = await pickEnvironment(environments, sp.env);
   const events = await knownEvents(ctx, env.id);
   return (
     <div className="space-y-6">

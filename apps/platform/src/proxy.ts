@@ -1,11 +1,14 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { ENV_COOKIE, ENV_COOKIE_MAX_AGE, isEnvironmentName } from "@/lib/environment";
 
 /**
  * Runs before every request:
  * - gives each request an id (`x-request-id`, kept from the caller when it is
  *   well-formed) that logs and API errors carry, and echoes it in the response;
  * - sets a nonce-based Content-Security-Policy on pages. Next.js applies the
- *   nonce to its own scripts; API responses are JSON and don't need one.
+ *   nonce to its own scripts; API responses are JSON and don't need one;
+ * - remembers the environment a project page was opened with (`?env=`), so the
+ *   next page without one shows the same environment (see pickEnvironment).
  */
 const REQUEST_ID = /^[A-Za-z0-9._:-]{8,128}$/;
 
@@ -43,10 +46,10 @@ export function proxy(request: NextRequest) {
   }
   // Link redirects set their own headers (the in-app browser page carries its own nonce CSP); well-known files are JSON.
   const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.startsWith("/l/") && !path.startsWith("/.well-known/") && !path.endsWith("/export");
+  const https = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   let csp: string | null = null;
   if (isPage) {
     const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
-    const https = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
     csp = contentSecurityPolicy(nonce, { dev: process.env.NODE_ENV === "development", https });
     headers.set("x-nonce", nonce);
     headers.set("Content-Security-Policy", csp);
@@ -55,6 +58,10 @@ export function proxy(request: NextRequest) {
   const response = NextResponse.next({ request: { headers } });
   response.headers.set("x-request-id", requestId);
   if (csp) response.headers.set("Content-Security-Policy", csp);
+  const env = request.nextUrl.searchParams.get("env");
+  if (path.startsWith("/o/") && isEnvironmentName(env) && request.cookies.get(ENV_COOKIE)?.value !== env) {
+    response.cookies.set(ENV_COOKIE, env, { path: "/", sameSite: "lax", secure: https, maxAge: ENV_COOKIE_MAX_AGE });
+  }
   return response;
 }
 

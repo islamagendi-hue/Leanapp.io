@@ -17,7 +17,7 @@ export default async function CohortsPage(props: PageProps<"/o/[org]/apps/[app]/
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   const cohorts = await listCohorts(ctx, env.id);
   // Sizes are computed now, each in its own bounded query; one that times out doesn't break the page.
   const sizes = await Promise.all(
@@ -37,7 +37,7 @@ export default async function CohortsPage(props: PageProps<"/o/[org]/apps/[app]/
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title="Cohorts" description="Saved groups of people, by what they did and who they are. Use them to filter events, funnels, retention and revenue." path={path} env={env.type} query={sp} />
+      <AnalyticsHeader title="Cohorts" description="Saved groups of people, by what they did and who they are. Use them to filter events, funnels, retention and revenue." env={env.type} />
 
       <section className="card overflow-x-auto p-0">
         {cohorts.length === 0 ? (

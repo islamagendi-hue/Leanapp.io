@@ -71,7 +71,7 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
 
       {missing.length > 0 && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
-          Not connected in {env.type}: {missing.join(", ")}. Those steps will be logged as failed until you connect them in <Link className="underline" href={`/o/${org}/apps/${app}/engage/integrations?env=${env.type}`}>Integrations</Link>.
+          Not connected in {env.type}: {missing.join(", ")}. Those steps will be logged as failed until you connect them in <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/channels?env=${env.type}`}>Integrations</Link>.
         </p>
       )}
 

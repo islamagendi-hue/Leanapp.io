@@ -103,6 +103,14 @@ export function listApps(ctx: TenantContext): Promise<App[]> {
   );
 }
 
+/** Whether the environment has received any event yet (the Overview's "Connect your app" state). */
+export function environmentHasEvents(ctx: TenantContext, environmentId: string): Promise<boolean> {
+  return tenantTx(ctx, "apps.read", async (db) => {
+    const row = await db.one<{ found: boolean }>("select exists (select 1 from platform.events where environment_id = $1) as found", [environmentId]);
+    return !!row?.found;
+  });
+}
+
 export function getAppBySlug(ctx: TenantContext, slug: string): Promise<{ app: App; environments: Environment[] }> {
   return tenantTx(ctx, "apps.read", async (db) => {
     const app = await db.one<App>(`select ${APP_COLUMNS} from platform.apps a where a.slug = $1`, [slug]);

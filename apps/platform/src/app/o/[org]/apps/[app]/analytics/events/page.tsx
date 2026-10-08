@@ -17,7 +17,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   const days = Number(param(sp.days)) || 30;
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const events = await topEvents(ctx, { environmentId: env.id, days, timezone: a.timezone, cohortId: cf.cohortId });
@@ -31,14 +31,14 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title="Events" description="How often each event happens and how many people do it, per day in the app's timezone." path={path} env={env.type} query={sp} />
+      <AnalyticsHeader title="Events" description="How often each event happens and how many people do it, per day in the app's timezone." env={env.type} />
 
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the report shows everyone.</p>}
       {events.length === 0 ? (
         <div className="card">
           <p>No events {cf.cohortName ? `for the cohort ${cf.cohortName}` : "in this environment"} in the {RANGE_LABELS[days]?.toLowerCase() ?? "selected range"}.</p>
           {cf.cohortName && <p className="mt-1 text-sm"><Link className="underline" href={`${path}?env=${env.type}&days=${days}`}>Show everyone instead</Link></p>}
-          <p className="mt-1 text-sm text-ink-3">Events appear here as soon as your app sends them. Check the <Link className="underline" href={`/o/${org}/apps/${app}/developers/debugger?env=${env.type}`}>event debugger</Link>.</p>
+          <p className="mt-1 text-sm text-ink-3">Events appear here as soon as your app sends them. Check the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>event debugger</Link>.</p>
         </div>
       ) : (
         <>

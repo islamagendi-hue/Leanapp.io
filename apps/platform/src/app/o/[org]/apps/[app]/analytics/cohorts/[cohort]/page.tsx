@@ -19,7 +19,7 @@ export default async function CohortPage(props: PageProps<"/o/[org]/apps/[app]/a
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   let c: Cohort;
   try {
     c = await getCohort(ctx, env.id, id);
@@ -32,14 +32,13 @@ export default async function CohortPage(props: PageProps<"/o/[org]/apps/[app]/a
   const canWrite = can(ctx.role, "analytics.write");
   const events = canWrite ? (await topEvents(ctx, { environmentId: env.id, days: 90 })).map((e) => e.name) : [];
   const base = `/o/${org}/apps/${app}/analytics`;
-  const path = `${base}/cohorts/${c.id}`;
   const withCohort = (page: string) => `${base}/${page}?env=${env.type}&cohort=${c.id}`;
   const when = (d: Date | null) => (d ? new Date(d).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: a.timezone }) : "–");
   const profile = (person: string) => `${base}/users/profile?${new URLSearchParams({ env: env.type, ...(person.startsWith("anon:") ? { anon: person.slice(5) } : { user: person }) })}`;
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title={c.name} description={describeCohort(c.definition, PROPERTY_OP_LABELS)} path={path} env={env.type} query={{}} />
+      <AnalyticsHeader title={c.name} description={describeCohort(c.definition, PROPERTY_OP_LABELS)} env={env.type} />
       <p className="text-sm"><Link className="underline" href={`${base}/cohorts?env=${env.type}`}>← All cohorts</Link></p>
 
       <section className="card flex flex-wrap items-center justify-between gap-4">

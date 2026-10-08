@@ -20,21 +20,19 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   const days = Number(param(sp.days)) || 30;
   const by = param(sp.by);
   const property = param(sp.property)?.trim();
   const breakdown = by === "property" && property ? `property:${property}` : by || undefined;
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const r = await revenueReport(ctx, { environmentId: env.id, timezone: a.timezone }, { days, breakdown, cohortId: cf.cohortId });
-  const path = `/o/${org}/apps/${app}/analytics/revenue`;
 
   return (
     <div className="space-y-6">
       <AnalyticsHeader
         title="Revenue"
-        description="Revenue from your revenue events, per currency, with refunds subtracted. Days are in the app's timezone."
-        path={path} env={env.type} query={sp}
+        description="Revenue from your revenue events, per currency, with refunds subtracted. Days are in the app's timezone." env={env.type}
       />
 
       <form method="get" className="card flex flex-wrap items-end gap-3">
@@ -65,7 +63,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
           <p>No revenue {cf.cohortName ? `from the cohort ${cf.cohortName}` : "in this environment"} in the {RANGE_LABELS[r.range]?.toLowerCase()}.</p>
           <p className="text-sm text-ink-3">
             Revenue comes from events like <span className="font-mono">purchase_completed</span> with a <span className="font-mono">revenue</span> and a <span className="font-mono">currency</span> property, sent from your backend once payment is confirmed.
-            See the <Link className="underline" href={`/o/${org}/apps/${app}/implementation/plan`}>tracking plan</Link>.
+            See the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/implementation/plan`}>tracking plan</Link>.
           </p>
         </div>
       ) : (

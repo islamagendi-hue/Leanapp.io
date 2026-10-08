@@ -20,7 +20,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   const days = Number(param(sp.days)) || 30;
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const events = await topEvents(ctx, { environmentId: env.id, days });
@@ -29,12 +29,11 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
   const r = startEvent && returnEvent
     ? await retention(ctx, { environmentId: env.id, timezone: a.timezone }, { startEvent, returnEvent, days, cohortId: cf.cohortId })
     : null;
-  const path = `/o/${org}/apps/${app}/analytics/retention`;
   const names = events.map((e) => e.name);
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title="Retention" description="Of the people who did a start event on a given day, how many came back and did the return event N days later." path={path} env={env.type} query={sp} />
+      <AnalyticsHeader title="Retention" description="Of the people who did a start event on a given day, how many came back and did the return event N days later." env={env.type} />
 
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That cohort no longer exists in this environment, so the report shows everyone.</p>}
       {!r ? (

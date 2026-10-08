@@ -11,15 +11,15 @@ export default async function OrgHome(props: PageProps<"/o/[org]">) {
     <main className="mx-auto max-w-5xl px-4 py-8">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="h1">Apps</h1>
-          <p className="mt-1 text-ink-2">Each app has isolated Development, Staging and Production environments.</p>
+          <h1 className="h1">Projects</h1>
+          <p className="mt-1 text-ink-2">Each project has isolated Development, Staging and Production environments.</p>
         </div>
-        {can(ctx.role, "apps.create") && <Link href={`/o/${org}/apps/new`} className="btn">New app</Link>}
+        {can(ctx.role, "apps.create") && <Link href={`/o/${org}/apps/new`} className="btn">New project</Link>}
       </div>
       {apps.length === 0 ? (
         <div className="card mt-8 text-center">
-          <p className="text-ink-2">No apps yet.</p>
-          {can(ctx.role, "apps.create") && <Link href={`/o/${org}/apps/new`} className="btn mt-4">Create your first app</Link>}
+          <p className="text-ink-2">No projects yet.</p>
+          {can(ctx.role, "apps.create") && <Link href={`/o/${org}/apps/new`} className="btn mt-4">Create your first project</Link>}
         </div>
       ) : (
         <ul className="mt-8 grid gap-4 sm:grid-cols-2">

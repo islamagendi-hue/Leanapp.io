@@ -61,13 +61,13 @@ test("sign up, create an organization and an app", async ({ page }) => {
   await page.fill('[name="name"]', "Food Express");
   for (const cb of await page.locator('input[name="platforms"]').all()) await cb.check();
   await page.getByRole("button", { name: "Create app and continue" }).click();
-  await page.waitForURL(/implementation\/questions/);
-  appBase = page.url().replace(/\/implementation\/questions.*$/, "");
+  await page.waitForURL(/dev-ops\/implementation\/questions/);
+  appBase = page.url().replace(/\/settings\/dev-ops\/implementation\/questions.*$/, "");
 });
 
 test("questionnaire → tracking plan → approve → publish", async ({ page }) => {
   await signIn(page);
-  await page.goto(`${appBase}/implementation/questions`);
+  await page.goto(`${appBase}/settings/dev-ops/implementation/questions`);
   await answerQuestionnaire(page);
   await page.getByRole("button", { name: "Generate my tracking plan" }).click();
   await page.waitForURL(/implementation\/plan/);
@@ -75,13 +75,13 @@ test("questionnaire → tracking plan → approve → publish", async ({ page })
   await page.getByRole("button", { name: "Approve plan" }).click();
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Publish plan" }).click();
-  await page.waitForURL(/developers\/sdk/);
+  await page.waitForURL(/dev-ops\/sdk/);
   sdkKey = (await page.content()).match(/la_pk_dev_[A-Za-z0-9_-]+/)![0];
 });
 
 test("events sent with the SDK key show up in the debugger and the score", async ({ page, request }) => {
   await signIn(page);
-  await page.goto(`${appBase}/developers/debugger`);
+  await page.goto(`${appBase}/settings/dev-ops/debugger?env=development`);
   await expect(page.getByText("Waiting for first event")).toBeVisible();
   const ctx = { platform: "ios", app_version: "2.3.0", sdk: { name: "leanapp-js", version: "0.1.0" }, attribution: { utm_source: "tiktok" } };
   const res = await request.post("/v1/events/batch", {
@@ -98,7 +98,7 @@ test("events sent with the SDK key show up in the debugger and the score", async
   expect((await res.json()).accepted).toBe(3);
   await expect(page.getByRole("cell", { name: "order_completed" }).first()).toBeVisible({ timeout: 15_000 });
 
-  await page.goto(`${appBase}/implementation/validation`);
+  await page.goto(`${appBase}/settings/dev-ops/events`);
   await expect(page.getByText(/^\d+%$/).first()).toBeVisible();
 
   await page.goto(`${appBase}/analytics/events?env=development&event=order_completed`);
@@ -109,7 +109,7 @@ test("events sent with the SDK key show up in the debugger and the score", async
 
 test("mapping history: map an event, see the history, restore a revision", async ({ page }) => {
   await signIn(page);
-  await page.goto(`${appBase}/implementation/validation`);
+  await page.goto(`${appBase}/settings/dev-ops/events?env=development`);
   await page.getByRole("button", { name: "Turn on mapping history" }).click();
   await expect(page.getByText("Mapping history on.")).toBeVisible();
   const addMapping = async (to: string) => {
@@ -133,11 +133,11 @@ test("mapping history: map an event, see the history, restore a revision", async
 
 test("growth: turn on, define, preview, publish, see the summary", async ({ page, request }) => {
   await signIn(page);
-  await page.goto(`${appBase}/growth`);
+  await page.goto(`${appBase}/growth?env=development`);
   await page.getByRole("button", { name: "Turn on the growth model" }).click();
   await expect(page.getByRole("button", { name: "Turn off the growth model" })).toBeVisible();
 
-  await page.goto(`${appBase}/growth/setup`);
+  await page.goto(`${appBase}/growth/setup?env=development`);
   await page.selectOption('select[name="act_event"]', "order_completed");
   await page.selectOption('select[name="core_event"]', "order_completed");
   await page.selectOption('select[name="rev_event"]', "order_completed");
@@ -148,11 +148,11 @@ test("growth: turn on, define, preview, publish, see the summary", async ({ page
   await page.getByRole("button", { name: /Save to draft/ }).click();
   await expect(page.getByText(/Saved in draft v\d+/)).toBeVisible();
 
-  await page.goto(`${appBase}/implementation/plan`);
+  await page.goto(`${appBase}/settings/dev-ops/implementation/plan`);
   await page.getByRole("button", { name: "Approve plan" }).click();
   page.once("dialog", (d) => d.accept());
   await page.getByRole("button", { name: "Publish plan" }).click();
-  await page.waitForURL(/developers\/sdk/);
+  await page.waitForURL(/dev-ops\/sdk/);
 
   // The scheduled worker builds growth state (here called directly, as pg_cron would).
   const cron = await request.get("/api/internal/process-events", { headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? "e2e-cron-secret-0123456789"}` } });
@@ -160,7 +160,7 @@ test("growth: turn on, define, preview, publish, see the summary", async ({ page
   await page.goto(`${appBase}/growth?env=development`);
   await expect(page.getByText("80 SAR")).toBeVisible();
   await expect(page.locator(".card", { hasText: "Paying" })).toContainText("100%");
-  await page.goto(appBase);
+  await page.goto(`${appBase}/settings/dev-ops/get-started`);
   await expect(page.getByText("See your growth summary")).toBeVisible();
 });
 
@@ -182,7 +182,7 @@ test("account, settings and privacy pages", async ({ page }) => {
   await expect(page.getByText("Payments are not connected yet.", { exact: false }).first()).toBeVisible();
   await expect(page.getByRole("button", { name: "Upgrade to Starter" })).toBeDisabled();
 
-  await page.goto(`${appBase}/privacy`);
+  await page.goto(`${appBase}/settings/privacy?env=development`);
   await page.fill('[name="userId"]', "u-42");
   await page.fill('[name="confirm"]', "delete");
   await page.getByRole("button", { name: "Delete data" }).click();
@@ -191,6 +191,37 @@ test("account, settings and privacy pages", async ({ page }) => {
     await page.reload();
     await expect(page.locator("tbody tr").first()).toContainText("completed");
   }).toPass({ timeout: 15_000 });
+});
+
+test("product shell: Overview home, Dev Ops in Settings, old addresses and the remembered environment", async ({ page }) => {
+  await signIn(page);
+  // A project opens on Overview; with no production events it points to Get started.
+  await page.goto(appBase);
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Connect your app" })).toBeVisible();
+  const menu = page.getByRole("navigation", { name: "Food Express" });
+  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Flows", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
+  for (const name of ["SDK & API keys", "Debugger", "Tracking plan"]) await expect(menu.getByRole("link", { name })).toHaveCount(0);
+  await page.getByRole("link", { name: "Get started" }).click();
+  await page.waitForURL(/settings\/dev-ops\/get-started/);
+  await expect(page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "SDK & API keys" })).toBeVisible();
+
+  // Old addresses forward to their new places, query string included.
+  await page.goto(`${appBase}/developers/sdk?env=development`);
+  await expect(page).toHaveURL(/\/settings\/dev-ops\/sdk\?env=development$/);
+  await page.goto(`${appBase}/implementation/validation`);
+  await expect(page).toHaveURL(/\/settings\/dev-ops\/events$/);
+  await page.goto(`${appBase}/attribution/links`);
+  await expect(page).toHaveURL(/\/acquisition\/links$/);
+
+  // The environment chosen in the top bar is remembered on the next page.
+  await page.goto(`${appBase}/analytics/events`);
+  const env = page.getByRole("radiogroup", { name: "Environment" });
+  await env.getByRole("radio", { name: "staging" }).click();
+  await page.waitForURL(/env=staging/);
+  await page.goto(`${appBase}/analytics/funnels`);
+  await expect(env.getByRole("radio", { name: "staging" })).toHaveAttribute("aria-checked", "true");
+  await expect(page.getByText("Showing staging data.", { exact: false })).toBeVisible();
 });
 
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {

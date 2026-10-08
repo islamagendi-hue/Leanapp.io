@@ -151,7 +151,7 @@ export default async function BillingPage(props: PageProps<"/o/[org]/settings/bi
         {!b.canManage && <p className="text-xs text-ink-3">Only owners can change the plan or payment details.</p>}
       </section>
 
-      <section className="card space-y-5">
+      <section id="usage" className="card scroll-mt-24 space-y-5">
         <h2 className="h2">Usage in {month}</h2>
         <ul className="space-y-5">
           {u.lines.map((l) => <UsageBar key={l.key} l={l} />)}

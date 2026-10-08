@@ -17,7 +17,7 @@ export async function requestDeletionAction(orgSlug: string, appSlug: string, en
       anonymousId: form.get("anonymousId") ?? undefined,
     });
     after(() => runDeletionJobs({ jobIds: [jobId] }).catch((e) => log.error("privacy.deletion_failed", { error: e })));
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/privacy`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/privacy`);
     return { ok: true, message: "Deletion queued. It usually finishes within seconds; refresh to see the result below." };
   } catch (err) {
     return toActionError(err);
@@ -35,7 +35,7 @@ export async function addSuppressionAction(orgSlug: string, appSlug: string, env
       channels: formChannels(form),
       reason: form.get("reason") ?? undefined,
     });
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/privacy/suppressions`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/privacy/suppressions`);
     return { ok: true, message: `${r.userKey} is suppressed for ${r.channels.join(", ")}.` };
   } catch (err) {
     return toActionError(err);
@@ -47,7 +47,7 @@ export async function removeSuppressionAction(orgSlug: string, appSlug: string, 
     const ctx = await requireTenant(orgSlug);
     const ids = userKey.startsWith("anon:") ? { anonymousId: userKey.slice(5) } : { userId: userKey };
     const r = await removeSuppression({ kind: "user", ctx }, environmentId, { ...ids, channels: [channel] });
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/privacy/suppressions`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/privacy/suppressions`);
     if (r.remaining.length) return { ok: true, message: "Removed. Still suppressed because the user denied consent." };
     return { ok: true, message: "Removed." };
   } catch (err) {

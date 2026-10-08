@@ -12,7 +12,7 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
   const { ctx, app: a, environments } = await loadApp(org, app);
   const when = (d: Date) => new Date(d).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: a.timezone });
   requirePermission(ctx, "users.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   const q = param(sp.q)?.trim() ?? "";
   const res = await searchPeople(ctx, env.id, q, { limit: 50 });
   const path = `/o/${org}/apps/${app}/analytics/users`;
@@ -20,7 +20,7 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title="Users" description="Find one of your app's users by their user ID or an install's anonymous ID, and see everything they did." path={path} env={env.type} query={sp} />
+      <AnalyticsHeader title="Users" description="Find one of your app's users by their user ID or an install's anonymous ID, and see everything they did." env={env.type} />
 
       <form method="get" className="card flex flex-wrap items-end gap-3">
         <input type="hidden" name="env" value={env.type} />

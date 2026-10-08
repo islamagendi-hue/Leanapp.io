@@ -22,10 +22,10 @@ export async function createAppAction(orgSlug: string, _: ActionState, form: For
   } catch (err) {
     return toActionError(err);
   }
-  redirect(`/o/${orgSlug}/apps/${slug}/implementation/questions`);
+  redirect(`/o/${orgSlug}/apps/${slug}/settings/dev-ops/implementation/questions`);
 }
 
-const keysPath = (org: string, app: string) => `/o/${org}/apps/${app}/developers/sdk`;
+const keysPath = (org: string, app: string) => `/o/${org}/apps/${app}/settings/dev-ops/sdk`;
 
 export async function createSdkKeyAction(orgSlug: string, appSlug: string, environmentId: string, _: ActionState): Promise<ActionState> {
   try {

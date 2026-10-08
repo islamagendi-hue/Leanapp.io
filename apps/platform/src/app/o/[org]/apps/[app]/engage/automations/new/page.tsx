@@ -17,7 +17,7 @@ export default async function NewAutomationPage(props: PageProps<"/o/[org]/apps/
   const sp = await props.searchParams;
   const { ctx, environments } = await loadApp(org, app);
   requirePermission(ctx, "automations.manage");
-  const env = pickEnvironment(environments, sp.env);
+  const env = await pickEnvironment(environments, sp.env);
   const [events, audiences, webhooks, organization, whatsappTemplates, emailTemplates] = await Promise.all([
     knownEvents(ctx, env.id),
     can(ctx.role, "audiences.read") ? listAudiences(ctx, env.id) : Promise.resolve([]),

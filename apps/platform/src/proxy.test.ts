@@ -39,4 +39,16 @@ describe("proxy", () => {
     expect(page.headers.get("location")).toBe("https://app.leanapp.io/login?next=%2Fo");
     expect(proxy(new NextRequest("https://app.leanapp.io/")).status).toBe(200);
   });
+
+  it("remembers the environment a project page was opened with", () => {
+    const res = proxy(new NextRequest("https://app.leanapp.io/o/acme/apps/shop/analytics/events?env=staging"));
+    const cookie = res.cookies.get("la_env");
+    expect(cookie?.value).toBe("staging");
+    expect(cookie?.path).toBe("/");
+    expect(cookie?.secure).toBe(true);
+    // Already remembered, not a project page, or not a real environment: nothing is set.
+    expect(proxy(new NextRequest("https://app.leanapp.io/o/acme/apps/shop?env=staging", { headers: { cookie: "la_env=staging" } })).cookies.get("la_env")).toBeUndefined();
+    expect(proxy(new NextRequest("https://api.leanapp.io/v1/events?env=staging")).cookies.get("la_env")).toBeUndefined();
+    expect(proxy(new NextRequest("https://app.leanapp.io/o/acme/apps/shop?env=qa")).cookies.get("la_env")).toBeUndefined();
+  });
 });

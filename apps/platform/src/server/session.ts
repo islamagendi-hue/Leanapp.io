@@ -2,6 +2,7 @@ import "server-only";
 import { cookies, headers } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { cache } from "react";
+import { ENV_COOKIE } from "@/lib/environment";
 import { NotFoundError } from "@/lib/errors";
 import { getAppBySlug } from "@/modules/apps/service";
 import { getUserBySessionToken, type AuthUser } from "@/modules/auth/service";
@@ -72,7 +73,11 @@ export const loadApp = cache(async (orgSlug: string, appSlug: string) => {
   }
 });
 
-export function pickEnvironment<E extends { type: string }>(environments: E[], requested: string | string[] | undefined): E {
-  const want = typeof requested === "string" ? requested : "development";
-  return environments.find((e) => e.type === want) ?? environments[0];
+/**
+ * The environment a project page shows: `?env=` when the URL names one, else the one the member last
+ * chose in the top bar (ENV_COOKIE, written by the selector and by proxy.ts), else production.
+ */
+export async function pickEnvironment<E extends { type: string }>(environments: E[], requested: string | string[] | undefined): Promise<E> {
+  const want = typeof requested === "string" ? requested : (await cookies()).get(ENV_COOKIE)?.value;
+  return environments.find((e) => e.type === want) ?? environments.find((e) => e.type === "production") ?? environments[0];
 }

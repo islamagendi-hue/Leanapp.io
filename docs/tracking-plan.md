@@ -54,7 +54,7 @@ Any two versions can be compared (Tracking plan → Compare versions, `?from=&to
 
 ## Export
 
-Each version downloads as JSON or CSV (Tracking plan → Export, `GET /o/{org}/apps/{app}/implementation/plan/export?version=&format=json|csv`).
+Each version downloads as JSON or CSV (Settings → Dev Ops → Implementation → Export, `GET /o/{org}/apps/{app}/settings/dev-ops/implementation/plan/export?version=&format=json|csv`).
 
 - **JSON** `leanapp.tracking_plan/v1`: app, version, status, generator, business model, activation and north-star events, timestamps, events (with properties and relevance flags), user properties, attribution rules. The management API returns the same document for the published version (`GET /v1/tracking-plan`).
 - **CSV**: header `kind,event_name,display_name,category,source,priority,event_required,custom,property_name,property_type,property_required,allowed_values,example,description,trigger`; one `event` row per event, one `event_property` row per property (allowed values joined with `|`), one `user_property` row per user property. Cells that a spreadsheet would run as formulas are prefixed with `'`.

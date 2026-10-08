@@ -12,7 +12,8 @@ export async function updateSkanSettingsAction(orgSlug: string, appSlug: string,
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
     await updateSkanSettings(ctx, app.id, { appStoreId: text(form, "appStoreId"), networkIds: text(form, "networkIds") });
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution`, "layout");
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition`, "layout");
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution`, "layout");
     return { ok: true, message: "Saved." };
   } catch (err) {
     return toActionError(err);
@@ -23,7 +24,7 @@ export async function saveSchemaAction(orgSlug: string, appSlug: string, _: Acti
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
     const saved = await saveConversionSchema(ctx, app.id, text(form, "schema") ?? "");
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution/skan`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution/skan`);
     return { ok: true, message: `Schema saved (revision ${saved.revision}). Apps pick it up on their next launch.` };
   } catch (err) {
     return toActionError(err);
@@ -34,7 +35,7 @@ export async function deleteSchemaAction(orgSlug: string, appSlug: string, _: Ac
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
     await deleteConversionSchema(ctx, app.id);
-    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/attribution/skan`);
+    revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution/skan`);
     return { ok: true, message: "Schema removed. The SDK stops updating conversion values." };
   } catch (err) {
     return toActionError(err);

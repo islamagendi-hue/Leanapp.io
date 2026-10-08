@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { EnvSwitcher } from "@/components/EnvSwitcher";
 import { StatusPill } from "@/components/engage/shared";
 import { describeTrigger } from "@/modules/automation/definition";
 import { listAutomations } from "@/modules/automation/service";
@@ -14,7 +13,7 @@ export default async function AutomationsPage(props: PageProps<"/o/[org]/apps/[a
   const sp = await props.searchParams;
   const { ctx, environments } = await loadApp(org, app);
   requirePermission(ctx, "automations.read");
-  const env = pickEnvironment(environments, sp.env);
+  const env = await pickEnvironment(environments, sp.env);
   const automations = await listAutomations(ctx, env.id);
   const audiences = can(ctx.role, "audiences.read") ? await listAudiences(ctx, env.id, { includeArchived: true }) : [];
   const audienceName = (id: string) => audiences.find((a) => a.id === id)?.name ?? "an audience";
@@ -28,7 +27,6 @@ export default async function AutomationsPage(props: PageProps<"/o/[org]/apps/[a
           <p className="mt-1 max-w-2xl text-ink-2">Journeys that start on an event, an audience change or a schedule, and send push, in-app, email or webhooks with waits and conditions in between.</p>
         </div>
         <div className="flex items-center gap-3">
-          <EnvSwitcher path={base} current={env.type} />
           {can(ctx.role, "automations.manage") && <Link className="btn" href={`${base}/new?env=${env.type}`}>New automation</Link>}
         </div>
       </div>

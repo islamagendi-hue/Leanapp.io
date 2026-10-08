@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { setGrowthModelAction } from "@/app/actions/growth";
 import { ActionForm } from "@/components/ActionForm";
-import { EnvSwitcher } from "@/components/EnvSwitcher";
 import { DefinitionList } from "@/components/GrowthDefinitionList";
 import { growthOverview } from "@/modules/growth/service";
 import { can } from "@/modules/rbac/authorize";
@@ -16,7 +15,7 @@ export default async function GrowthPage(props: PageProps<"/o/[org]/apps/[app]/g
   const { org, app } = await props.params;
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
-  const env = pickEnvironment(environments, sp.env);
+  const env = await pickEnvironment(environments, sp.env);
   const o = await growthOverview(ctx, a.id, env.id);
   const base = `/o/${org}/apps/${app}`;
   const canToggle = can(ctx.role, "apps.update");
@@ -31,7 +30,6 @@ export default async function GrowthPage(props: PageProps<"/o/[org]/apps/[app]/g
           <h1 className="h1">Growth</h1>
           <p className="mt-1 text-ink-2">Who activates, keeps coming back and pays, per person, from your own events.</p>
         </div>
-        {o.enabled && <EnvSwitcher path={`${base}/growth`} current={env.type} />}
       </div>
 
       {!o.enabled && (

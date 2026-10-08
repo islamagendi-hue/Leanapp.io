@@ -22,7 +22,7 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
-  const env = pickEnvironment(environments, sp.env ?? "production");
+  const env = await pickEnvironment(environments, sp.env);
   const days = Number(param(sp.days)) || 30;
   const windowDays = Number(param(sp.window)) || 7;
   const split = param(sp.split) === "platform";
@@ -34,11 +34,10 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
     : null;
   const slots = Math.min(6, Math.max(2, chosen.length + 1));
   const names = [...new Set([...events.map((e) => e.name), ...chosen])];
-  const path = `/o/${org}/apps/${app}/analytics/funnels`;
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title="Funnels" description="How many people go through a sequence of events, in order, within a time window." path={path} env={env.type} query={sp} />
+      <AnalyticsHeader title="Funnels" description="How many people go through a sequence of events, in order, within a time window." env={env.type} />
 
       <form method="get" className="card space-y-4">
         <input type="hidden" name="env" value={env.type} />

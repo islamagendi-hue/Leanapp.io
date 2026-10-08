@@ -2,118 +2,83 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { activeHref, type NavGroup } from "@/modules/navigation/menu";
 
-type Item = { label: string; href?: string; soon?: boolean };
-type Group = { label: string; items: Item[] };
-
-/** Product navigation. Sections not built yet are listed and labelled, never faked. */
-export function AppNav({ base, appName, privacy = false, attribution = false, users = false, deepLinks = false, growth = false, engage = {} }: {
-  base: string; appName: string; privacy?: boolean; attribution?: boolean; users?: boolean; deepLinks?: boolean; growth?: boolean;
-  /** Engagement sections the member may open. */
-  engage?: { audiences?: boolean; automations?: boolean; integrations?: boolean; webhooks?: boolean };
-}) {
+/**
+ * A project's side menu. Inside Settings it swaps to the settings menu (Workspace, Project,
+ * Dev Ops, Security) with a way back to the product. Both menus are built on the server for the
+ * member's role (modules/navigation/menu.ts); this only highlights the current page.
+ */
+export function AppNav({ base, appName, menu, settings }: { base: string; appName: string; menu: NavGroup[]; settings: NavGroup[] }) {
   const path = usePathname();
-  const groups: Group[] = [
-    { label: "Overview", items: [{ label: "Setup", href: base }] },
-    {
-      label: "Implementation",
-      items: [
-        { label: "Questions", href: `${base}/implementation/questions` },
-        { label: "Tracking plan", href: `${base}/implementation/plan` },
-        { label: "Validation & mapping", href: `${base}/implementation/validation` },
-      ],
-    },
-    {
-      label: "Developers",
-      items: [
-        { label: "SDK & API keys", href: `${base}/developers/sdk` },
-        { label: "Event debugger", href: `${base}/developers/debugger` },
-        ...(engage.webhooks ? [{ label: "Webhooks", href: `${base}/developers/webhooks` }] : []),
-      ],
-    },
-    {
-      label: "Analytics",
-      items: [
-        { label: "Overview", href: `${base}/analytics` },
-        { label: "Events", href: `${base}/analytics/events` },
-        { label: "Funnels", href: `${base}/analytics/funnels` },
-        { label: "Retention", href: `${base}/analytics/retention` },
-        { label: "Revenue", href: `${base}/analytics/revenue` },
-        { label: "Cohorts", href: `${base}/analytics/cohorts` },
-        ...(users ? [{ label: "Users", href: `${base}/analytics/users` }] : []),
-      ],
-    },
-    ...(growth ? [{
-      label: "Growth",
-      items: [
-        { label: "Summary", href: `${base}/growth` },
-        { label: "Definitions", href: `${base}/growth/setup` },
-      ],
-    }] : []),
-    ...(attribution ? [{
-      label: "Attribution",
-      items: [
-        { label: "Overview", href: `${base}/attribution` },
-        { label: "Tracking links", href: `${base}/attribution/links` },
-        { label: "Postbacks", href: `${base}/attribution/postbacks` },
-        { label: "SKAdNetwork", href: `${base}/attribution/skan` },
-        { label: "Settings", href: `${base}/attribution/settings` },
-      ],
-    }] : []),
-    ...(deepLinks ? [{
-      label: "Deep links",
-      items: [
-        { label: "Setup", href: `${base}/deep-links` },
-        ...(attribution ? [{ label: "Link builder", href: `${base}/deep-links/links` }] : []),
-      ],
-    }] : []),
-    {
-      label: "Engagement",
-      items: [
-        ...(engage.audiences ? [{ label: "Audiences", href: `${base}/engage/audiences` }] : []),
-        ...(engage.automations ? [{ label: "Automations", href: `${base}/engage/automations` }] : []),
-        ...(engage.automations ? [{ label: "Email templates", href: `${base}/engage/email-templates` }] : []),
-        ...(engage.integrations ? [{ label: "Integrations", href: `${base}/engage/integrations` }] : []),
-      ],
-    },
-    ...(privacy
-      ? [{
-          label: "Privacy",
-          items: [
-            { label: "Privacy requests", href: `${base}/privacy` },
-            { label: "Consent", href: `${base}/privacy/consent` },
-            { label: "Suppression list", href: `${base}/privacy/suppressions` },
-          ],
-        }]
-      : []),
-  ];
-  return (
-    <nav aria-label="App" className="text-sm">
-      <p className="mb-4 truncate px-2 text-base font-bold">{appName}</p>
-      {groups.filter((g) => g.items.length).map((g) => (
-        <div key={g.label} className="mb-4">
-          <p className="mb-1 px-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">{g.label}</p>
-          <ul>
-            {g.items.map((i) =>
-              i.href ? (
+  const inSettings = path === `${base}/settings` || path.startsWith(`${base}/settings/`);
+  return inSettings ? (
+    <SideNav title="Settings" back={{ href: base, label: appName }} menu={settings} path={path} />
+  ) : (
+    <SideNav title={appName} menu={menu} path={path} />
+  );
+}
+
+export function SideNav({ title, back, menu, path: given }: { title: string; back?: { href: string; label: string }; menu: NavGroup[]; path?: string }) {
+  const current = usePathname();
+  const path = given ?? current;
+  const active = activeHref(menu, path);
+  const link = (href: string, label: string, sub = false) => (
+    <Link
+      href={href}
+      aria-current={href === active ? "page" : undefined}
+      className={`block rounded-md px-2 py-1.5 ${sub ? "ms-3 text-[13px]" : ""} ${href === active ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
+    >
+      {label}
+    </Link>
+  );
+  const nav = (
+    <nav aria-label={title} className="text-sm">
+      {back && (
+        <Link href={back.href} className="mb-2 block truncate px-2 text-xs text-ink-3 hover:text-ink">
+          ← {back.label}
+        </Link>
+      )}
+      <p className="mb-4 truncate px-2 text-base font-bold">{title}</p>
+      {menu.map((g) =>
+        g.items.length === 0 && g.href ? (
+          <div key={g.label} className="mb-1">{link(g.href, g.label)}</div>
+        ) : (
+          <div key={g.label} className="mb-4 mt-3">
+            <p className="mb-1 flex items-center gap-2 px-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">
+              {g.label}
+              {g.beta && <span className="pill border-line text-[10px] normal-case">Beta</span>}
+            </p>
+            <ul>
+              {g.items.map((i) => (
                 <li key={i.label}>
-                  <Link
-                    href={i.href}
-                    className={`block rounded-md px-2 py-1.5 ${path === i.href || (path.startsWith(`${i.href}/`) && i.href !== base && i.href !== `${base}/analytics` && i.href !== `${base}/growth` && i.href !== `${base}/deep-links` && i.href !== `${base}/attribution`) ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
-                  >
-                    {i.label}
-                  </Link>
+                  {i.href ? (
+                    link(i.href, i.label, i.sub)
+                  ) : (
+                    <span className="flex items-center justify-between px-2 py-1.5 text-ink-3" title="Not available yet">
+                      {i.label}
+                      <span className="pill border-line text-[10px]">Soon</span>
+                    </span>
+                  )}
                 </li>
-              ) : (
-                <li key={i.label} className="flex items-center justify-between px-2 py-1.5 text-ink-3" title="Not built yet: see the roadmap">
-                  {i.label}
-                  <span className="pill border-line text-[10px]">Soon</span>
-                </li>
-              ),
-            )}
-          </ul>
-        </div>
-      ))}
+              ))}
+            </ul>
+          </div>
+        ),
+      )}
     </nav>
+  );
+  // Phones get the menu folded away above the page; it folds again once an entry is chosen.
+  return (
+    <>
+      <details
+        className="rounded-lg border border-line bg-card lg:hidden"
+        onClick={(e) => (e.target as HTMLElement).closest("a") && e.currentTarget.removeAttribute("open")}
+      >
+        <summary className="cursor-pointer px-3 py-2 text-sm font-medium">Menu · {title}</summary>
+        <div className="border-t border-line p-2">{nav}</div>
+      </details>
+      <div className="hidden lg:block">{nav}</div>
+    </>
   );
 }
