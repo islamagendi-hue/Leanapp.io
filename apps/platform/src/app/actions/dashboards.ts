@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { addWidget, createDashboard, deleteDashboard, removeWidget, saveLayout, updateDashboard, updateWidget } from "@/modules/dashboards/service";
+import { getAppBySlug } from "@/modules/apps/service";
+import { ADD_WIDGET_TYPES, widgetInputFromForm } from "@/modules/dashboards/form";
+import {
+  addWidget, createDashboard, createFromTemplate, deleteDashboard, moveWidget, removeWidget, saveLayout, updateDashboard, updateWidget,
+} from "@/modules/dashboards/service";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requireTenant } from "@/server/session";
 
@@ -104,4 +108,49 @@ export async function saveLayoutAction(org: string, app: string, dashboardId: st
     if (err instanceof SyntaxError) return { error: "The layout isn't valid." };
     return toActionError(err);
   }
+}
+
+/** Adds a widget from the "Add widget" form fields of one type. */
+export async function addWidgetFromFormAction(org: string, app: string, dashboardId: string, type: string, _: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const ctx = await requireTenant(org);
+    const t = ADD_WIDGET_TYPES.find((x) => x === type);
+    if (!t) return { error: "Choose a widget type." };
+    await addWidget(ctx, dashboardId, {
+      type: t,
+      title: field(form, "title"),
+      config: widgetInputFromForm(t, (k) => field(form, k)),
+      w: field(form, "w") || undefined,
+      h: field(form, "h") || undefined,
+    });
+  } catch (err) {
+    return toActionError(err);
+  }
+  revalidatePath(`${base(org, app)}/${dashboardId}`);
+  redirect(`${base(org, app)}/${dashboardId}?edit=1`);
+}
+
+/**
+ * Moves (up, down) or resizes (wider, narrower, taller, shorter) one widget;
+ * the form's pressed button gives `move`. Failures (a removed widget, lost
+ * access) show the error page, since there's nothing to fix in the form.
+ */
+export async function moveWidgetAction(org: string, app: string, dashboardId: string, widgetId: string, form: FormData): Promise<void> {
+  const ctx = await requireTenant(org);
+  await moveWidget(ctx, dashboardId, widgetId, field(form, "move"));
+  revalidatePath(`${base(org, app)}/${dashboardId}`);
+}
+
+/** A new dashboard from a template, built from the selected environment. */
+export async function createFromTemplateAction(org: string, app: string, envType: string, template: string, _: ActionState, form: FormData): Promise<ActionState> {
+  let id: string;
+  try {
+    const ctx = await requireTenant(org);
+    const { app: a, environments } = await getAppBySlug(ctx, app);
+    const env = environments.find((e) => e.type === envType) ?? environments[0];
+    id = (await createFromTemplate(ctx, { appId: a.id, environmentId: env.id, timezone: a.timezone }, template, { visibility: field(form, "visibility") })).id;
+  } catch (err) {
+    return toActionError(err);
+  }
+  redirect(`${base(org, app)}/${id}?env=${envType}`);
 }

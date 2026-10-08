@@ -66,9 +66,10 @@ A dashboard (`modules/dashboards`, tables `dashboards` and `dashboard_widgets`, 
 - **Visibility:** shared with the workspace (everyone with `analytics.read`) or private (only the person who made it). Viewing needs `analytics.read`. Creating and editing needs `analytics.write`, and a private dashboard can only be edited by its creator. Changes are audited as `dashboard.*`.
 - **Widgets:** a widget points at a saved report (its config is used) or carries an inline config, validated by the same schemas as the reports.
   - Types: trend, funnel, retention, revenue, KPI, growth (Activation numbers) and audience size.
-- **Layout:** positions are on a 12-column grid (x, y, w, h). On phones the widgets stack.
+- **Layout:** widgets flow in their saved order (y, then x) through a 12-column grid, each spanning its width (w) and height (h). On phones they stack. In edit mode each widget has Move up/down, Wider/Narrower (3 columns a step, 3 to 12) and Taller/Shorter (1 to 8 rows); a move renumbers the order so it stays dense.
 - **Running:** each widget runs its report when the dashboard opens, through the result cache. A widget that can't run shows why, for example a deleted saved report or an audience that isn't in this environment. The rest of the dashboard still loads.
-- **Adding widgets:** for now, from Saved reports with "Add to dashboard". Editing widgets on the dashboard and templates arrive in PR 9.
+- **Adding widgets:** "Edit dashboard" offers a form per type (Number, Trend, Funnel, Retention, Revenue, Activation number, Audience size) with a title, range, optional audience and size. The fields become the widget's config (`dashboards/form.ts`) and are validated by the report schemas. Saved reports can still be added with "Add to dashboard".
+- **Templates** (`dashboards/templates.ts`): Growth (DAU, WAU, MAU, activation rate, sign-up to activation, D7, feature adoption), Product (active and new users, feature usage, retention, key funnel) and Monetization (revenue and ARPU, paying users, conversion to paying, revenue by audience). A template is built from the selected environment: its most used events, the published Activation steps and its audiences. The dashboards page previews each template, and a widget that needs something the project doesn't have is listed as left out with the reason instead of being filled with made-up events. The dashboard and its widgets are created in one transaction.
 
 ### Profiles and identity
 

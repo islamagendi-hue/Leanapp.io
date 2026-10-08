@@ -30,6 +30,13 @@ export const PERSON = {
 export const COUNTED_TYPES = ["track", "screen"] as const;
 export const COUNTED_EVENTS = `e.type in ('track', 'screen') and e.processed_at is not null and e.processing_error is null`;
 
+/**
+ * "Any event": every counted event. Real event names start with a letter
+ * (ingestion rule), so this can't collide with one. Trends, KPIs and
+ * retention accept it.
+ */
+export const ANY_EVENT = "$any";
+
 /** Collects bind values; `add` returns the placeholder for the value. */
 export class Params {
   readonly values: unknown[];

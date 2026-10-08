@@ -409,6 +409,30 @@ test("dashboards: create one, add a saved report, see it run", async ({ page }) 
   await expect(widget.getByText(/events ·/)).toBeVisible();
 });
 
+test("dashboards: start from a template, add a widget, arrange it", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/analytics/dashboards?env=development`);
+  const growth = page.locator('[data-template="growth"]');
+  await expect(growth.getByText("DAU: active users per day")).toBeVisible();
+  await growth.getByRole("button", { name: "Create Growth dashboard" }).click();
+  await expect(page.getByRole("heading", { name: "Growth", level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "MAU: active users, last 30 days" })).toBeVisible();
+
+  await page.getByRole("link", { name: "Edit dashboard" }).click();
+  await page.getByRole("link", { name: "Funnel", exact: true }).click();
+  await page.getByRole("textbox", { name: "Title (optional)" }).fill("Install to order");
+  await page.getByRole("combobox", { name: "Step 1" }).fill("app_installed");
+  await page.getByRole("combobox", { name: "Step 2" }).fill("order_completed");
+  await page.getByRole("button", { name: "Add funnel" }).click();
+  const added = page.locator("section[data-widget]").filter({ has: page.getByRole("heading", { name: "Install to order" }) });
+  await expect(added).toBeVisible();
+  await added.getByRole("button", { name: "Move up" }).click();
+  const titles = page.locator("section[data-widget] h2");
+  await expect(titles.nth(-2)).toHaveText("Install to order");
+  await page.getByRole("link", { name: "Done" }).click();
+  await expect(page.getByRole("button", { name: "Move up" })).toHaveCount(0);
+});
+
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}?env=development`);

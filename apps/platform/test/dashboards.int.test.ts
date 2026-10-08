@@ -10,8 +10,10 @@ import { saveReport } from "@/modules/analytics/saved-reports";
 import { createAudience } from "@/modules/audiences/service";
 import { authenticateIngestionKey } from "@/modules/credentials/service";
 import {
-  addWidget, createDashboard, deleteDashboard, getDashboard, growthValue, listDashboards, removeWidget, runWidget, saveLayout, updateDashboard, updateWidget,
+  addWidget, createDashboard, createFromTemplate, deleteDashboard, getDashboard, growthValue, listDashboards, moveWidget, removeWidget, runWidget, saveLayout,
+  templateFacts, updateDashboard, updateWidget,
 } from "@/modules/dashboards/service";
+import { widgetInputFromForm } from "@/modules/dashboards/form";
 import { ingest } from "@/modules/ingestion/service";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { signUp } from "@/modules/auth/service";
@@ -131,6 +133,62 @@ describe("dashboards", () => {
     expect(growthValue(s, "d1")).toEqual({ value: 0.25, rate: true });
     expect(growthValue(s, "d7")).toEqual({ value: null, rate: true });
     expect(growthValue(s, "paying")).toEqual({ value: 2, rate: false });
+  });
+});
+
+describe("templates and arranging (PR 9)", () => {
+  it("builds a template from the environment's events and skips what's missing", async () => {
+    const facts = await templateFacts(A.ctx, scope);
+    expect(facts).toMatchObject({ startEvent: "signup", activationEvent: null, revenueEvent: null });
+    const growth = await createFromTemplate(A.ctx, scope, "growth");
+    expect(growth.skipped.join(" ")).toMatch(/Sign-up to activation/);
+    const { dashboard, widgets } = await getDashboard(A.ctx, growth.id);
+    expect(dashboard).toMatchObject({ name: "Growth", visibility: "workspace" });
+    expect(widgets.map((w) => w.title)).toEqual([
+      "DAU: active users per day", "WAU: active users, last 7 days", "MAU: active users, last 30 days", "Activation rate", "D7 retention", "Feature adoption: purchase_completed",
+    ]);
+    expect(widgets.map((w) => w.y)).toEqual([0, 1, 2, 3, 4, 5]);
+    const results = await Promise.all(widgets.map((w) => runWidget(A.ctx, scope, w)));
+    expect(results.every((r) => r.ok)).toBe(true);
+    const mau = results[2];
+    expect(mau.ok && mau.data.type === "kpi" && mau.data.kpi.value).toBe(2);
+
+    const money = await createFromTemplate(A.ctx, scope, "monetization", { visibility: "private" });
+    const m = await getDashboard(A.ctx, money.id);
+    expect(m.dashboard.visibility).toBe("private");
+    expect(m.widgets.map((w) => w.type)).toEqual(["revenue", "growth", "revenue"]); // revenue, paying users, revenue for the audience made above
+    await expect(createFromTemplate(A.ctx, scope, "nope")).rejects.toBeInstanceOf(ValidationError);
+    const viewer = await member(A, "viewer", 40);
+    await expect(createFromTemplate(viewer, scope, "product")).rejects.toBeInstanceOf(ForbiddenError);
+  });
+
+  it("moves and resizes a widget in steps, keeping the order dense", async () => {
+    const dash = (await createDashboard(A.ctx, A.app.id, { name: "Arrange" })).id;
+    for (const metric of ["people", "activated", "paying"]) await addWidget(A.ctx, dash, { type: "growth", config: { metric }, w: 4 });
+    const [a, b, c] = (await getDashboard(A.ctx, dash)).widgets;
+    await moveWidget(A.ctx, dash, c.id, "up");
+    await moveWidget(A.ctx, dash, a.id, "wider");
+    await moveWidget(A.ctx, dash, a.id, "taller");
+    await moveWidget(A.ctx, dash, b.id, "narrower");
+    await moveWidget(A.ctx, dash, b.id, "narrower"); // stops at 3 columns
+    await moveWidget(A.ctx, dash, a.id, "up"); // already first: no change
+    const after = (await getDashboard(A.ctx, dash)).widgets;
+    expect(after.map((w) => [w.id, w.y, w.w, w.h])).toEqual([[a.id, 0, 7, 3], [c.id, 1, 4, 2], [b.id, 2, 3, 2]]);
+    await expect(moveWidget(A.ctx, dash, a.id, "sideways")).rejects.toBeInstanceOf(ValidationError);
+    await expect(moveWidget(B.ctx, dash, a.id, "up")).rejects.toBeInstanceOf(NotFoundError);
+  });
+
+  it("turns the add-widget form into a config the report schemas accept", async () => {
+    const dash = (await createDashboard(A.ctx, A.app.id, { name: "Form" })).id;
+    const form = (o: Record<string, string>) => (k: string) => o[k];
+    const funnel = widgetInputFromForm("funnel", form({ step1: "signup", step2: " purchase_completed ", step3: "", windowDays: "3", days: "7" }));
+    expect(funnel).toEqual({ steps: ["signup", "purchase_completed"], windowDays: "3", days: "7" });
+    await addWidget(A.ctx, dash, { type: "funnel", config: funnel });
+    await expect(addWidget(A.ctx, dash, { type: "funnel", config: widgetInputFromForm("funnel", form({ step1: "signup" })) })).rejects.toThrow(/two steps/);
+    await expect(addWidget(A.ctx, dash, { type: "kpi", config: widgetInputFromForm("kpi", form({ metric: "people" })) })).rejects.toThrow(/Choose an event/);
+    const [w] = (await getDashboard(A.ctx, dash)).widgets;
+    const r = await runWidget(A.ctx, scope, w);
+    expect(r.ok && r.data.type === "funnel" && r.data.funnel.steps.map((s) => s.people)).toEqual([2, 1]);
   });
 });
 

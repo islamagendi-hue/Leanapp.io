@@ -10,7 +10,7 @@ import {
   bucketKeys, bucketSql, change, datesBetween, defaultInterval, intervalField, localDate, previousRange, rangeDays, rangeFields, resolveRange,
   type Interval, type ReportRange,
 } from "./range";
-import { evCte, Params } from "./sql";
+import { ANY_EVENT, evCte, Params } from "./sql";
 
 /**
  * Analytics on Postgres (ADR-002): event trends, funnels and retention for
@@ -43,12 +43,7 @@ const MAX_GROUPS = 5;
 
 const eventName = z.string().trim().min(1).max(200);
 
-/**
- * "Any event": every counted event. Real event names start with a letter
- * (ingestion rule), so this can't collide with one. Trends, KPIs and
- * retention accept it.
- */
-export const ANY_EVENT = "$any";
+export { ANY_EVENT } from "./sql";
 
 export { PERSON } from "./sql";
 

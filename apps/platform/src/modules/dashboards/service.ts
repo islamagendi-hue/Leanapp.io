@@ -3,16 +3,18 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { AppError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { cachedReport } from "@/modules/analytics/cache";
+import { startEventOf } from "@/modules/analytics/overview";
 import { revenueReport, type RevenueReport } from "@/modules/analytics/revenue";
 import { reportConfig } from "@/modules/analytics/saved-reports";
 import {
-  analyticsTx, eventTrend, funnel, kpi, kpiSchema, retention, type Funnel, type Kpi, type Retention, type Trend,
+  analyticsTx, eventTrend, funnel, kpi, kpiSchema, retention, topEvents, type Funnel, type Kpi, type Retention, type Trend,
 } from "@/modules/analytics/service";
 import { audit } from "@/modules/audit/service";
 import { compileAudience, parseDefinition } from "@/modules/audiences/definition";
 import { growthOverview, type GrowthSummary } from "@/modules/growth/service";
 import { can } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
+import { planTemplate, TEMPLATE_INFO, TEMPLATES, type TemplateFacts } from "./templates";
 
 /**
  * Dashboards: named grids of widgets per project. A dashboard is viewed in the
@@ -156,19 +158,21 @@ function write<T>(ctx: TenantContext, fn: (db: Db) => Promise<T>): Promise<T> {
 
 export async function createDashboard(ctx: TenantContext, appId: string, input: unknown): Promise<{ id: string }> {
   const data = parse(dashboardInput, input);
-  return write(ctx, async (db) => {
-    const app = await db.one<{ id: string }>("select id from platform.apps where id = $1", [appId]);
-    if (!app) throw new NotFoundError("Project");
-    const n = await db.one<{ n: number }>("select count(*)::int as n from platform.dashboards where app_id = $1", [appId]);
-    if (n!.n >= MAX_DASHBOARDS) throw new ValidationError(`A project can have at most ${MAX_DASHBOARDS} dashboards.`);
-    const row = await db.one<{ id: string }>(
-      `insert into platform.dashboards (organization_id, app_id, name, description, visibility, created_by, updated_by)
-       values ($1, $2, $3, $4, $5, $6, $6) returning id`,
-      [ctx.organizationId, appId, data.name, data.description, data.visibility, ctx.userId],
-    );
-    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "dashboard.created", targetType: "dashboard", targetId: row!.id, metadata: { name: data.name, visibility: data.visibility } });
-    return { id: row!.id };
-  });
+  return write(ctx, async (db) => ({ id: await insertDashboard(db, ctx, appId, data) }));
+}
+
+async function insertDashboard(db: Db, ctx: TenantContext, appId: string, data: z.output<typeof dashboardInput>): Promise<string> {
+  const app = await db.one<{ id: string }>("select id from platform.apps where id = $1", [appId]);
+  if (!app) throw new NotFoundError("Project");
+  const n = await db.one<{ n: number }>("select count(*)::int as n from platform.dashboards where app_id = $1", [appId]);
+  if (n!.n >= MAX_DASHBOARDS) throw new ValidationError(`A project can have at most ${MAX_DASHBOARDS} dashboards.`);
+  const row = await db.one<{ id: string }>(
+    `insert into platform.dashboards (organization_id, app_id, name, description, visibility, created_by, updated_by)
+     values ($1, $2, $3, $4, $5, $6, $6) returning id`,
+    [ctx.organizationId, appId, data.name, data.description, data.visibility, ctx.userId],
+  );
+  await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "dashboard.created", targetType: "dashboard", targetId: row!.id, metadata: { name: data.name, visibility: data.visibility } });
+  return row!.id;
 }
 
 export async function updateDashboard(ctx: TenantContext, id: string, input: unknown): Promise<void> {
@@ -265,6 +269,86 @@ export async function saveLayout(ctx: TenantContext, dashboardId: string, layout
     }
     await touch(db, ctx, dashboardId, "layout_saved", { widgets: items.length });
   });
+}
+
+export const MOVES = ["up", "down", "wider", "narrower", "taller", "shorter"] as const;
+export type Move = (typeof MOVES)[number];
+
+/**
+ * Reorders or resizes one widget. Widgets flow in order (y, then x) through
+ * the 12-column grid, so moving swaps a widget with its neighbour; widths
+ * step by 3 columns (3 to 12) and heights by one row (1 to 8).
+ */
+export async function moveWidget(ctx: TenantContext, dashboardId: string, widgetId: string, move: unknown): Promise<void> {
+  const m = parse(z.enum(MOVES), move);
+  if (!uuid.safeParse(widgetId).success) throw new NotFoundError("Widget");
+  await write(ctx, async (db) => {
+    await editable(db, ctx, dashboardId);
+    const list = await db.query<{ id: string; w: number; h: number }>("select id, w, h from platform.dashboard_widgets where dashboard_id = $1 order by y, x, created_at", [dashboardId]);
+    const i = list.findIndex((w) => w.id === widgetId);
+    if (i < 0) throw new NotFoundError("Widget");
+    const w = list[i];
+    if (m === "up" && i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
+    if (m === "down" && i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]];
+    if (m === "wider") w.w = Math.min(GRID_COLUMNS, w.w + 3);
+    if (m === "narrower") w.w = Math.max(3, w.w - 3);
+    if (m === "taller") w.h = Math.min(8, w.h + 1);
+    if (m === "shorter") w.h = Math.max(1, w.h - 1);
+    for (const [order, item] of list.entries()) {
+      await db.query("update platform.dashboard_widgets set x = 0, y = $3, w = $4, h = $5 where id = $1 and dashboard_id = $2", [item.id, dashboardId, order, item.w, item.h]);
+    }
+    await touch(db, ctx, dashboardId, "widget_moved", { widgetId, move: m });
+  });
+}
+
+type Scope = { appId: string; environmentId: string; timezone: string };
+
+/**
+ * What templates can use in an environment: its most used events (last 30
+ * days), the published Activation steps (when the person can read them) and a
+ * couple of its audiences.
+ */
+export async function templateFacts(ctx: TenantContext, scope: Scope): Promise<TemplateFacts> {
+  const env = { environmentId: scope.environmentId, timezone: scope.timezone };
+  const events = (await topEvents(ctx, { ...env, days: 30 })).map((e) => e.name);
+  const def = can(ctx.role, "growth.read") ? ((await growthOverview(ctx, scope.appId, scope.environmentId)).definitions.published?.definition ?? null) : null;
+  const audiences = await analyticsTx(ctx, (db) =>
+    db.query<{ id: string; name: string }>("select id, name from platform.audiences where environment_id = $1 and status <> 'archived' order by created_at limit 2", [scope.environmentId]),
+  );
+  return {
+    startEvent: startEventOf(events),
+    activationEvent: def?.activation?.event ?? null,
+    coreEvent: def?.core_action?.event ?? null,
+    revenueEvent: def?.revenue?.event ?? null,
+    topEvents: events,
+    audiences,
+  };
+}
+
+/**
+ * A new dashboard from a template, built from what the project defines
+ * (Activation steps, the environment's events, its audiences). Widgets that
+ * need something missing are skipped; their reasons come back. The dashboard
+ * and its widgets are written in one transaction.
+ */
+export async function createFromTemplate(ctx: TenantContext, scope: Scope, template: unknown, opts: { visibility?: unknown } = {}): Promise<{ id: string; added: number; skipped: string[] }> {
+  const id = parse(z.enum(TEMPLATES), template);
+  if (!can(ctx.role, "analytics.write")) throw new ForbiddenError("You can't create dashboards.");
+  const plan = planTemplate(id, await templateFacts(ctx, scope));
+  const visibility = parse(dashboardInput.shape.visibility, opts.visibility ?? "workspace");
+  const configs = plan.widgets.map((w) => widgetConfig(w.type, w.config));
+  const dashboardId = await write(ctx, async (db) => {
+    const dashboardId = await insertDashboard(db, ctx, scope.appId, { name: TEMPLATE_INFO[id].name, description: TEMPLATE_INFO[id].description, visibility });
+    for (const [y, w] of plan.widgets.entries()) {
+      await db.query(
+        `insert into platform.dashboard_widgets (organization_id, dashboard_id, type, title, config, x, y, w, h) values ($1, $2, $3, $4, $5, 0, $6, $7, $8)`,
+        [ctx.organizationId, dashboardId, w.type, w.title, JSON.stringify(configs[y]), y, w.w, w.h],
+      );
+    }
+    await touch(db, ctx, dashboardId, "template_applied", { template: id, widgets: plan.widgets.length });
+    return dashboardId;
+  });
+  return { id: dashboardId, added: plan.widgets.length, skipped: plan.skipped };
 }
 
 async function touch(db: Db, ctx: TenantContext, dashboardId: string, change: string, metadata: Record<string, unknown>) {
