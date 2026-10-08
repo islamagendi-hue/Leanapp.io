@@ -473,6 +473,34 @@ test("channels & delivery: health, honest numbers, and a test send", async ({ pa
   await expect(push.getByText(/no active push token/)).toBeVisible();
 });
 
+test("flow builder: trigger, steps with an insert menu, goal and exit event", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/engage/automations?env=development`);
+  await expect(page.getByRole("heading", { name: "Flows", level: 1 })).toBeVisible();
+  await page.getByRole("link", { name: "New flow" }).click();
+  await page.getByRole("textbox", { name: "Name" }).fill("First order nudge");
+  await page.getByRole("combobox", { name: "Event", exact: true }).fill("app_installed");
+  await expect(page.getByText("End of flow")).toBeVisible();
+  await page.getByRole("combobox", { name: "Insert a step here" }).last().selectOption({ label: "In-app message" });
+  const inApp = page.locator('[data-step="in_app"]');
+  await inApp.getByRole("textbox").first().fill("Your first order ships free");
+  await inApp.locator("textarea").fill("Order today");
+  await page.getByRole("combobox", { name: "Insert a step here" }).last().selectOption({ label: "Exit" });
+  await expect(page.locator('[data-step="exit"]')).toBeVisible();
+  await page.getByRole("checkbox", { name: "Conversion goal" }).check();
+  await page.getByRole("combobox", { name: "Goal event" }).fill("order_completed");
+  await page.getByRole("checkbox", { name: "Exit event" }).check();
+  await page.getByRole("combobox", { name: "Exit event" }).fill("app_uninstalled");
+  await page.getByRole("button", { name: "Save" }).click();
+
+  await expect(page.getByRole("heading", { name: /First order nudge/, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Goal: order_completed within 7 days" })).toBeVisible();
+  const flow = page.getByRole("list", { name: "Flow" });
+  await expect(flow.getByText("In-app message: Your first order ships free")).toBeVisible();
+  await expect(flow.getByText("Exit", { exact: true })).toBeVisible();
+  await expect(page.getByText(/Exit event: app_uninstalled/)).toBeVisible();
+});
+
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}?env=development`);

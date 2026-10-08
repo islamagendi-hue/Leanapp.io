@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
+import { COUNTED_EVENTS, PERSON } from "@/modules/analytics/sql";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, referencedWhatsAppTemplates, type AutomationDefinition } from "./definition";
 import { nextScheduled } from "./time";
@@ -258,5 +259,57 @@ export async function getVersion(ctx: TenantContext, id: string, version: number
     const row = await db.one<{ definition: AutomationDefinition }>("select definition from platform.automation_versions where automation_id = $1 and version = $2", [id, version]);
     if (!row) throw new NotFoundError("Version");
     return row.definition;
+  });
+}
+
+export interface GoalReport {
+  goal: { event: string; withinDays: number; stopOnConversion: boolean };
+  /** Runs started (people who entered), all versions. */
+  entered: number;
+  /** Of those, people who did the goal event within the window after their trigger. */
+  converted: number;
+  /** Runs still inside their window that haven't converted yet (may still convert). */
+  open: number;
+  /** Runs ended early because the person converted. */
+  stopped: number;
+  /** Median time from trigger to conversion, in seconds. */
+  medianSeconds: number | null;
+}
+
+/**
+ * Conversion goal results of a flow, from the event stream: a run converts
+ * when its person does the goal event (counted events only) after the
+ * trigger and within the goal window. Null when the flow has no goal.
+ */
+export async function goalReport(ctx: TenantContext, id: string): Promise<GoalReport | null> {
+  if (!uuid.safeParse(id).success) throw new NotFoundError("Automation");
+  return tenantTx(ctx, "automations.read", async (db) => {
+    const a = await db.one<{ definition: AutomationDefinition }>("select definition from platform.automations where id = $1", [id]);
+    if (!a) throw new NotFoundError("Automation");
+    const goal = parseDef(a.definition).goal;
+    if (!goal) return null;
+    const row = await db.one<{ entered: number; converted: number; open: number; stopped: number; median: number | null }>(
+      `with runs as (
+         select r.id, r.user_key, r.environment_id, r.log,
+                least(coalesce(nullif(r.trigger_data->>'timestamp', '')::timestamptz, nullif(r.trigger_data->>'occurred_at', '')::timestamptz,
+                               nullif(r.trigger_data->>'scheduled_for', '')::timestamptz, r.started_at), r.started_at) as t0
+           from platform.automation_runs r where r.automation_id = $1),
+       conv as (
+         select runs.id, runs.t0, runs.log,
+                (select min(e."timestamp") from platform.events e ${PERSON.join}
+                  where e.environment_id = runs.environment_id and ${COUNTED_EVENTS}
+                    and coalesce(e.canonical_name, e.event_name) = $2
+                    and e."timestamp" >= runs.t0 and e."timestamp" < runs.t0 + make_interval(days => $3)
+                    and ${PERSON.expr} = runs.user_key) as converted_at
+           from runs)
+       select count(*)::int as entered,
+              count(converted_at)::int as converted,
+              count(*) filter (where converted_at is null and t0 + make_interval(days => $3) > now())::int as open,
+              count(*) filter (where exists (select 1 from jsonb_array_elements(log) x where x->>'detail' like 'Converted:%'))::int as stopped,
+              percentile_cont(0.5) within group (order by extract(epoch from converted_at - t0)) as median
+         from conv`,
+      [id, goal.event, goal.withinDays],
+    );
+    return { goal, entered: row!.entered, converted: row!.converted, open: row!.open, stopped: row!.stopped, medianSeconds: row!.median === null ? null : Math.round(Number(row!.median)) };
   });
 }

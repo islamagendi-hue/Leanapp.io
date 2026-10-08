@@ -281,6 +281,7 @@ async function executeRun(db: Db, run: RunClaim, creds: DeliveryCredentials, now
   let step = run.current_step;
   let status: "completed" | "waiting" | "pending" | "cancelled" = "completed";
   let nextRunAt: Date | null = null;
+  let exit: string | null = null;
 
   const deleting = await db.one(
     `select 1 from platform.privacy_requests where environment_id = $1 and kind = 'deletion' and status in ('received', 'processing') and (subject_user_id = $2 or subject_anonymous_id = $3)`,
@@ -289,6 +290,10 @@ async function executeRun(db: Db, run: RunClaim, creds: DeliveryCredentials, now
   if (deleting) {
     status = "cancelled";
     entries.push({ at: now().toISOString(), step, type: "run", outcome: "cancelled", detail: "A data deletion request is pending for this person." });
+  } else if ((exit = await exitReason(env, definition))) {
+    // Goal reached (with stop on conversion) or exit event: no further steps.
+    entries.push({ at: now().toISOString(), step, type: "run", outcome: "exit", detail: exit });
+    step = definition.steps.length;
   } else {
     for (let i = 0; i < MAX_STEPS_PER_CLAIM; i++) {
       if (step >= definition.steps.length) break;
@@ -403,6 +408,8 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
       env.profile = { ...env.profile, [s.property]: s.value };
       return { next: "continue", entry: { type: s.type, outcome: "done", detail: `${s.property} = ${value}` } };
     }
+    case "exit":
+      return { next: "exit", entry: { type: "exit", outcome: "exit", detail: "Exit step" } };
     case "send_event": {
       const ids = await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [run.environment_id]);
       const row = await db.one(
@@ -424,6 +431,15 @@ export function triggerTime(run: Pick<RunClaim, "trigger_data" | "started_at">):
   const at = d.timestamp ?? d.occurred_at ?? d.scheduled_for;
   const t = typeof at === "string" ? Date.parse(at) : NaN;
   return Number.isNaN(t) ? new Date(run.started_at) : new Date(Math.min(t, new Date(run.started_at).getTime()));
+}
+
+/** Why the run should end before its next step: the person converted (stop on conversion) or did the exit event since the trigger. */
+async function exitReason(env: RunEnv, d: AutomationDefinition): Promise<string | null> {
+  const did = (event: string) =>
+    personMatches(env.db, env.run.environment_id, env.run.user_key, { type: "event", event, did: true, countOp: "gte", count: 1, withinDays: 30, sinceTrigger: true, where: [] }, triggerTime(env.run));
+  if (d.goal?.stopOnConversion && (await did(d.goal.event))) return `Converted: did ${d.goal.event}`;
+  if (d.exitEvent && (await did(d.exitEvent))) return `Exit event: did ${d.exitEvent}`;
+  return null;
 }
 
 const target = (run: RunClaim, step: number) => ({ organizationId: run.organization_id, environmentId: run.environment_id, userKey: run.user_key, runId: run.id, step });

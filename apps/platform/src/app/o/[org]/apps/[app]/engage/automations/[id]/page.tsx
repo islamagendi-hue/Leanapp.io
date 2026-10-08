@@ -3,11 +3,12 @@ import { notFound, redirect } from "next/navigation";
 import { automationLifecycleAction, saveAutomationAction } from "@/app/actions/engage";
 import { ActionForm } from "@/components/ActionForm";
 import { AutomationEditor } from "@/components/engage/AutomationEditor";
+import { FlowView } from "@/components/engage/FlowView";
 import { fmtDate, knownEvents, knownProperties, StatusPill } from "@/components/engage/shared";
 import { NotFoundError } from "@/lib/errors";
 import { listAudiences } from "@/modules/audiences/service";
-import { describeStep, describeTrigger } from "@/modules/automation/definition";
-import { getAutomation } from "@/modules/automation/service";
+import { describeTrigger } from "@/modules/automation/definition";
+import { getAutomation, goalReport } from "@/modules/automation/service";
 import { listEmailTemplates } from "@/modules/messaging/email";
 import { listIntegrations } from "@/modules/messaging/integrations";
 import { listTemplates } from "@/modules/whatsapp/service";
@@ -35,7 +36,7 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
   const env = environments.find((e) => e.id === a.environment_id);
   if (!env) notFound();
   const manage = can(ctx.role, "automations.manage");
-  const [audiences, webhooks, organization, integrations, events, properties, whatsappTemplates, emailTemplates] = await Promise.all([
+  const [audiences, webhooks, organization, integrations, events, properties, whatsappTemplates, emailTemplates, goal] = await Promise.all([
     can(ctx.role, "audiences.read") ? listAudiences(ctx, env.id, { includeArchived: true }) : Promise.resolve([]),
     listWebhookTargets(ctx, env.id),
     getOrganization(ctx),
@@ -44,6 +45,7 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
     manage ? knownProperties(ctx, project.id, env.id) : Promise.resolve(undefined),
     manage ? listTemplates(ctx, env.id) : Promise.resolve([]),
     manage ? listEmailTemplates(ctx, env.id) : Promise.resolve([]),
+    goalReport(ctx, a.id),
   ]);
   const audienceName = (aid: string) => audiences.find((x) => x.id === aid)?.name ?? "an audience";
   const base = `/o/${org}/apps/${app}/engage/automations`;
@@ -59,7 +61,7 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-sm text-ink-3"><Link className="hover:underline" href={`${base}?env=${env.type}`}>Automations</Link> / {env.type}</p>
+          <p className="text-sm text-ink-3"><Link className="hover:underline" href={`${base}?env=${env.type}`}>Flows</Link> / {env.type}</p>
           <h1 className="h1">{a.name} <StatusPill status={a.status} /> <span className="text-base font-normal text-ink-3">v{a.version}</span></h1>
           <p className="mt-1 text-sm text-ink-2">{describeTrigger(def.trigger, audienceName)}{a.next_fire_at && a.status === "active" ? ` · next ${fmtDate(a.next_fire_at)}` : ""}</p>
         </div>
@@ -78,13 +80,31 @@ export default async function AutomationPage(props: PageProps<"/o/[org]/apps/[ap
         </p>
       )}
 
-      <section className="card space-y-2">
-        <h2 className="h2">Steps (v{a.version})</h2>
-        <ol className="list-decimal space-y-1 ps-6 text-sm">{def.steps.map((s, i) => <li key={i}>{describeStep(s)}</li>)}</ol>
+      {goal && (
+        <section className="card space-y-3" aria-label="Goal">
+          <h2 className="h2">Goal: {goal.goal.event} within {goal.goal.withinDays} days</h2>
+          <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+            <div><dt className="text-xs text-ink-3">Entered</dt><dd className="text-xl font-semibold tabular-nums">{goal.entered}</dd></div>
+            <div><dt className="text-xs text-ink-3">Converted</dt><dd className="text-xl font-semibold tabular-nums">{goal.converted}</dd></div>
+            <div><dt className="text-xs text-ink-3">Conversion rate</dt><dd className="text-xl font-semibold tabular-nums">{goal.entered ? `${((goal.converted / goal.entered) * 100).toFixed(1)}%` : "–"}</dd></div>
+            <div><dt className="text-xs text-ink-3">Still in window</dt><dd className="text-xl font-semibold tabular-nums">{goal.open}</dd></div>
+            <div><dt className="text-xs text-ink-3">Median time to convert</dt><dd className="text-xl font-semibold tabular-nums">{goal.medianSeconds === null ? "–" : goal.medianSeconds < 3600 ? `${Math.round(goal.medianSeconds / 60)} min` : `${(goal.medianSeconds / 3600).toFixed(1)} h`}</dd></div>
+          </dl>
+          <p className="text-xs text-ink-3">
+            From your event stream: a person converts when they do {goal.goal.event} after their trigger and within {goal.goal.withinDays} days.
+            {goal.goal.stopOnConversion ? ` ${goal.stopped} runs stopped early because the person converted.` : " Runs continue after conversion."} There is no control group, so this shows who converted, not how many converted because of the flow.
+          </p>
+        </section>
+      )}
+
+      <section className="card space-y-3">
+        <h2 className="h2">Flow (v{a.version})</h2>
+        <FlowView definition={def} audienceName={audienceName} />
         <p className="text-xs text-ink-3">
           Entry: {def.entry.mode === "once" ? "once per person" : `each trigger${def.entry.cooldownHours ? `, at most every ${def.entry.cooldownHours} h` : ""}`} ·
           Cap: {def.frequencyCap ? `${def.frequencyCap.messages} messages / ${def.frequencyCap.hours} h` : "none"} ·
           Quiet hours: {def.quietHours ? `${def.quietHours.start}–${def.quietHours.end} ${organization.timezone}` : "none"}
+          {def.exitEvent ? ` · Exit event: ${def.exitEvent}` : ""}
         </p>
       </section>
 

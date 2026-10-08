@@ -19,12 +19,34 @@
   - `delay` (minutes, hours or days);
   - `branch`: an audience condition evaluated for this user. When it's false, the run exits or jumps forward to a later step;
   - `webhook`, `push`, `in_app`, `email` (inline or from an email template), `whatsapp` (an approved template, see [messaging](messaging.md));
-  - `update_user_property`, `send_event`.
+  - `update_user_property`, `send_event`;
+  - `exit`: ends the run. It closes a branch's "yes" path when the "no" path follows.
 
   Text fields accept `{{user.prop}}` and `{{event.prop}}`.
 - **Guardrails:**
   - A per-user frequency cap across all automations in the environment. The default is 3 messages per 24 h, and push, email, WhatsApp and in-app messages all count.
   - Quiet hours in the organization's timezone, 22:00–08:00 by default. Push, email and WhatsApp wait until the window ends; in-app messages aren't delayed.
+
+- **Conversion goal** (`goal`, optional): an event and a window of 1–90 days from the trigger.
+  - Reporting: a run converts when its person does the goal event (counted events only) after the trigger and within the window. The flow's page shows:
+    - entered and converted;
+    - conversion rate;
+    - still in window;
+    - median time to convert;
+    - runs stopped early.
+  - There is no control group, so the report shows who converted, not the lift (`goalReport` in `automation/service.ts`).
+  - With `stopOnConversion` (the default), a run that converted ends before its next step, logged as "Converted: did X".
+- **Exit event** (`exitEvent`, optional): a run whose person did this event since the trigger ends before its next step ("Exit event: did X").
+- The goal and the exit event must differ from the trigger event. Both are checked each time a run wakes, so a run waiting on a delay ends when it wakes up.
+
+### Flow builder
+
+Engage → Flows draws a flow top to bottom (`components/engage/AutomationEditor.tsx`):
+- Trigger, then each step as a node with its kind: Wait, Condition, Branch, Message, Action or Exit. It ends with "End of flow".
+- A "+" menu on every connector inserts a step there.
+- Branch nodes show where "yes" and "no" go.
+- Inserting, removing and moving steps renumber branch jumps so they keep pointing at the same step (`automation/flow.ts`). A jump that no longer points forward is flagged.
+- The flow's page shows the same drawing read-only (`FlowView`).
 
 ## Engine
 
