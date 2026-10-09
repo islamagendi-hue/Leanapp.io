@@ -3,7 +3,8 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # A successful run on main/staging is what starts .github/workflows/deploy.yml.
+    branches: [main, staging]
 
 concurrency:
   group: ci-${{ github.ref }}
