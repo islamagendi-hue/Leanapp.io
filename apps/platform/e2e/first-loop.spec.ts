@@ -827,24 +827,34 @@ test("landing page: Arabic and English, honest labels, comparison, pricing, and 
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("اعرف مستخدميك، وطوّر تطبيقك.");
   await page.getByRole("link", { name: "English" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Know your users. Grow your app.");
+  // The home page is short: features, pricing and about are their own pages, opened from the top tabs.
+  await expect(page.getByRole("heading", { name: "What's in it" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Pricing" })).toHaveCount(0);
+  const compare = page.getByRole("table");
+  await expect(compare.getByRole("columnheader")).toHaveText(["What you need", "LeanApp", "Mixpanel", "Adjust", "MoEngage"]);
+  await expect(compare.getByRole("row", { name: /Install attribution/ }).getByRole("cell").first()).toContainText("Beta");
+  const tabs = page.getByRole("navigation", { name: "Sections" }).first();
+  await tabs.getByRole("link", { name: "Features" }).click();
+  await expect(page).toHaveURL(/\/features\?lang=en$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("What's in it");
   await expect(page.getByRole("list", { name: "Product flow" }).getByRole("link")).toHaveText(["Connect", "Collect", "Understand", "Funnels", "Retention", "Audiences", "Act"]);
   const connect = page.getByRole("article", { name: "Connect your app" });
   await expect(connect.getByRole("listitem").filter({ hasText: "Android, iOS and Flutter SDKs" }).getByText("Beta", { exact: true })).toBeVisible();
   const act = page.getByRole("article", { name: "Act on it" });
   await expect(act.getByRole("listitem").filter({ hasText: "Acquisition" })).toContainText("Not a full mobile measurement partner");
   await expect(page.getByRole("heading", { name: "Coming next" })).toBeVisible();
-  const compare = page.getByRole("table");
-  await expect(compare.getByRole("columnheader")).toHaveText(["What you need", "LeanApp", "Mixpanel", "Adjust", "MoEngage"]);
-  await expect(compare.getByRole("row", { name: /Install attribution/ }).getByRole("cell").first()).toContainText("Beta");
+  await tabs.getByRole("link", { name: "Pricing" }).click();
   await expect(page.getByRole("listitem", { name: "Growth" })).toContainText("$599");
   await expect(page.getByRole("listitem", { name: "Enterprise" })).toContainText("Contact sales");
-  await expect(page.getByRole("heading", { name: "Who we are" })).toBeVisible();
+  await tabs.getByRole("link", { name: "About us" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Who we are");
+  await expect(tabs.getByRole("link", { name: "About us" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
 });
 
 test("developer guide: public, Arabic and English, the four SDKs and an honest release status", async ({ page }) => {
   await page.goto("/?lang=ar");
-  await page.getByRole("navigation", { name: "الأقسام" }).getByRole("link", { name: "للمطوّرين" }).click();
+  await page.getByRole("navigation", { name: "الأقسام" }).first().getByRole("link", { name: "للمطوّرين" }).click();
   await expect(page).toHaveURL(/\/developers\?lang=ar$/);
   await expect(page.locator("div[dir=rtl][lang=ar]").first()).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("أضف LeanApp إلى تطبيقك");
