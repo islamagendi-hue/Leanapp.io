@@ -197,7 +197,7 @@ describe("users", () => {
     const res = await userGet("u1", keys.all);
     expect(res.status).toBe(200);
     const u = await res.json();
-    expect(u).toMatchObject({ user_id: "u1", properties: { city: "Riyadh" }, anonymous_ids: ["anon-1"], event_count: 4 });
+    expect(u).toMatchObject({ user_id: "u1", properties: { city: "Riyadh" }, anonymous_ids: ["anon-1"], event_count: 3 }); // 3 track events; the identify call is not an event in reports
   });
 
   it("is not found from another environment or tenant", async () => {

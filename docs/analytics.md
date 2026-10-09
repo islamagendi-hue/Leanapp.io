@@ -42,6 +42,7 @@ Report pages (Events, Funnels, Retention, Revenue) reuse a finished result for u
 - A page served from the cache says how old its results are, with "Refresh now" (`?fresh=1`) to recompute.
 - Reading needs `analytics.read`, and RLS keeps rows inside their organization.
 - If the cache can't be read or written, the report is computed as if there were no cache.
+- New events drop an environment's cached results older than a minute when they are processed. Changes to data already counted drop all of the environment's cached results at once, in the same transaction (`purgeReportCache`): a completed privacy deletion, a finished `remap` or `growth_rebuild` job, an event-mapping change (which renames recent events immediately), and enforced plan retention deleting events or sessions.
 - Expired rows are deleted by the scheduled cleanup (`purgeOperationalData`).
 - The service functions (`eventTrend`, `funnel` and the others) are not cached. Only the pages go through the cache, so API and test callers always see Postgres.
 

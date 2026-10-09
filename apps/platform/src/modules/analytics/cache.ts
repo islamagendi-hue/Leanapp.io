@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { sha256 } from "@/lib/crypto";
+import type { Db } from "@/lib/db";
 import { log } from "@/lib/log";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { analyticsTx } from "./service";
@@ -16,7 +17,10 @@ import { analyticsTx } from "./service";
  * hashes everything the result depends on: environment, report kind, the
  * report's input (configuration, range, filters, comparison, interval),
  * timezone, and the audience filter's last change, so editing the audience
- * computes the report again at once. Reading the cache needs analytics.read,
+ * computes the report again at once. Anything else that changes or removes
+ * events already counted (privacy deletions, re-mapping, growth rebuilds,
+ * mapping changes, enforced retention) drops the environment's cached
+ * results at once with purgeReportCache. Reading the cache needs analytics.read,
  * like the report itself, and RLS keeps every row inside its organization.
  *
  * The cache never makes a report fail: if reading or writing it fails, the
@@ -105,4 +109,21 @@ export async function cachedReport<T>(
     }
   }
   return { value, computedAt, fromCache: false };
+}
+
+/**
+ * Drops cached report results of these environments so the next read is
+ * computed from Postgres again. Runs in the caller's transaction, under
+ * system or tenant scope (RLS keeps a tenant to its own rows).
+ * `keepNewerThanSeconds` keeps very recent results (event processing uses it
+ * so a busy environment still gets a short cache). Returns the rows dropped.
+ */
+export async function purgeReportCache(db: Db, environmentIds: string | readonly string[], opts: { keepNewerThanSeconds?: number } = {}): Promise<number> {
+  const ids = typeof environmentIds === "string" ? [environmentIds] : [...environmentIds];
+  if (!ids.length) return 0;
+  const rows = await db.query(
+    "delete from platform.report_cache where environment_id = any($1::uuid[]) and created_at <= now() - make_interval(secs => $2) returning 1",
+    [ids, opts.keepNewerThanSeconds ?? 0],
+  );
+  return rows.length;
 }

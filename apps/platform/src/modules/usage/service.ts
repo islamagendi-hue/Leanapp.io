@@ -1,6 +1,6 @@
 import "server-only";
 import type { Db } from "@/lib/db";
-import { PERSON } from "@/modules/analytics/service";
+import { COUNTED_EVENTS, PERSON } from "@/modules/analytics/sql";
 import { seatsUsed } from "@/modules/billing/enforcement";
 import { asLimit, countState, eventHardCap, eventState, LIMIT_FEATURES, usagePeriod, type LimitState } from "@/modules/billing/limits";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
@@ -24,8 +24,17 @@ export async function recordUsage(db: Db, organizationId: string, metric: UsageM
 
 /**
  * Monthly active users are counted from the event stream, not a counter, so they
- * are reproducible. People are stitched like analytics: an install linked to one
- * user counts as that user, not as an extra anonymous person.
+ * are reproducible. They follow the analytics rules exactly, so billed MAU is
+ * the "active people" a report shows for the same window:
+ *
+ * - only counted events (COUNTED_EVENTS: processed track events and screen
+ *   views); identify, alias, push_token, consent and events that are still
+ *   unprocessed or failed processing make nobody active;
+ * - people are stitched like analytics (PERSON): an install linked to one user
+ *   counts as that user, not as an extra anonymous person.
+ *
+ * The month is a calendar month in UTC (billing periods), while reports use
+ * the app's timezone, so a report over "this month" can differ at the edges.
  */
 export async function monthlyActiveUsers(db: Db, environmentIds: string[], monthStart: Date): Promise<number> {
   const row = await db.one<{ n: string }>(
@@ -33,7 +42,7 @@ export async function monthlyActiveUsers(db: Db, environmentIds: string[], month
        from platform.events e
        ${PERSON.join}
       where e.environment_id = any($1) and e."timestamp" >= $2 and e."timestamp" < ($2::timestamptz + interval '1 month')
-        and coalesce(e.user_id, e.anonymous_id) is not null`,
+        and coalesce(e.user_id, e.anonymous_id) is not null and ${COUNTED_EVENTS}`,
     [environmentIds, monthStart],
   );
   return Number(row?.n ?? 0);

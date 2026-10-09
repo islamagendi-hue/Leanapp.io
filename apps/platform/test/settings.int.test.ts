@@ -1,5 +1,6 @@
 /** Organization settings, plan usage and the audit log viewer. */
 import { beforeAll, describe, expect, it } from "vitest";
+import { kpi } from "@/modules/analytics/service";
 import { createApp } from "@/modules/apps/service";
 import { listAuditLogs } from "@/modules/audit/service";
 import { authenticateIngestionKey, listKeys } from "@/modules/credentials/service";
@@ -77,6 +78,34 @@ describe("monthly active users", () => {
     await processPendingEvents({ environmentId: prod.id });
     const u = await usageSummary(t.ctx);
     expect(u.lines.find((l) => l.key === "monthly_active_users")!.used).toBe(2);
+  });
+});
+
+describe("monthly active users follow the analytics counting rule", () => {
+  it("doesn't count protocol calls (identify, push_token), only counted events, matching the active-people KPI", async () => {
+    const m = await makeTenant("mau");
+    const prod = m.environments.find((e) => e.type === "production")!;
+    const keys = await listKeys(m.ctx, m.app.id);
+    const sdk = (await authenticateIngestionKey(keys.sdkKeys.find((k) => k.environment_id === prod.id)!.key))!;
+    const scope = { environmentId: prod.id, timezone: "UTC" };
+    const mau = async () => (await usageSummary(m.ctx)).lines.find((l) => l.key === "monthly_active_users")!.used;
+    const active = async () => (await kpi(m.ctx, scope, { metric: "active_people", days: 7 })).value;
+
+    await ingest(sdk, {
+      batch: [
+        { type: "identify", event_id: crypto.randomUUID(), anonymous_id: "x-install", user_id: "x" },
+        { type: "push_token", event_id: crypto.randomUUID(), anonymous_id: "x-install", user_id: "x", push_token: { token: "fcm-mau-token-x", provider: "fcm", permission: "granted" } },
+      ],
+    }, { mode: "batch" });
+    await processPendingEvents({ environmentId: prod.id });
+    expect(await mau()).toBe(0);
+    expect(await active()).toBe(0);
+
+    await ingest(sdk, { batch: [{ type: "track", event_name: "item_viewed", event_id: crypto.randomUUID(), anonymous_id: "x-install", user_id: "x" }] }, { mode: "batch" });
+    expect(await mau()).toBe(0); // not processed yet: not counted by reports either
+    await processPendingEvents({ environmentId: prod.id });
+    expect(await mau()).toBe(1);
+    expect(await active()).toBe(1);
   });
 });
 

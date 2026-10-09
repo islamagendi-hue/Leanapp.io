@@ -1,5 +1,6 @@
 import "server-only";
 import { withSystem, withTenant } from "@/lib/db";
+import { purgeReportCache } from "@/modules/analytics/cache";
 
 /**
  * Scheduled cleanup, run by the cron worker.
@@ -90,6 +91,11 @@ export async function applyEventRetention(opts: { mode?: RetentionMode; batch?: 
          select count(*)::int as n from d`,
         [org.days, batch],
       );
+      // Cached reports may still count what was just deleted.
+      if (e!.n || s!.n) {
+        const envs = await db.query<{ id: string }>("select id from platform.environments");
+        await purgeReportCache(db, envs.map((r) => r.id));
+      }
       return { events: e!.n, sessions: s!.n };
     });
     if (counts.events || counts.sessions) result.organizations.push({ organizationId: org.id, retentionDays: org.days, ...counts });

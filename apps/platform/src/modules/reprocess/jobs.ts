@@ -1,6 +1,7 @@
 import "server-only";
 import { withSystem, type Db } from "@/lib/db";
 import { log } from "@/lib/log";
+import { purgeReportCache } from "@/modules/analytics/cache";
 import { growthConfig, rebuildPersons } from "@/modules/growth/engine";
 
 /**
@@ -150,6 +151,9 @@ async function runChunk(db: Db, jobId: string): Promise<ChunkResult> {
 
 async function finish(db: Db, job: JobRow): Promise<ChunkResult> {
   await db.query("update platform.app_reprocess_jobs set status = 'done', finished_at = now(), updated_at = now() where id = $1", [job.id]);
+  // Canonical names / growth state changed under the cached reports (some may
+  // have been computed half-way through the job): recompute from Postgres.
+  await purgeReportCache(db, job.environment_id);
   return "done";
 }
 

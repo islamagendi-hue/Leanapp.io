@@ -3,6 +3,7 @@ import { z } from "zod";
 import { withTenant, type Db } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { eventTrend, topEvents, type EventTotal, type Trend } from "@/modules/analytics/service";
+import { COUNTED_EVENTS } from "@/modules/analytics/sql";
 import type { IngestionPrincipal } from "@/modules/credentials/service";
 import type { TenantContext } from "@/modules/tenancy/context";
 
@@ -91,7 +92,8 @@ export function lookupUser(key: ManagementKey, rawUserId: unknown): Promise<ApiU
       [key.environmentId, userId],
     );
     const ev = await db.one<{ n: string; last: Date | null }>(
-      "select count(*) as n, max(\"timestamp\") as last from platform.events where environment_id = $1 and user_id = $2",
+      // Events as reports count them (COUNTED_EVENTS), not identify/alias/push_token calls or failed events.
+      `select count(*) as n, max(e."timestamp") as last from platform.events e where e.environment_id = $1 and e.user_id = $2 and ${COUNTED_EVENTS}`,
       [key.environmentId, userId],
     );
     return {
