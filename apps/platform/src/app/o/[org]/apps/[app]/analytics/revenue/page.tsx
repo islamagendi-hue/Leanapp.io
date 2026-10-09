@@ -35,9 +35,11 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
   const [t, lang] = await Promise.all([getT(), getLang()]);
   const env = await pickEnvironment(environments, sp.env);
   const range = rangeFromParams(toSearch(sp));
-  const by = param(sp.by);
-  const property = param(sp.property)?.trim();
-  const breakdown = by === "property" && property ? `property:${property}` : by || undefined;
+  // `by=property:<name>` from the picker; `by=property&property=<name>` from older saved links.
+  const rawBy = param(sp.by);
+  const property = rawBy?.startsWith("property:") ? rawBy.slice("property:".length).trim() : rawBy === "property" ? param(sp.property)?.trim() : undefined;
+  const by = property ? `property:${property}` : rawBy === "property" ? undefined : rawBy;
+  const breakdown = by || undefined;
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const scope = { environmentId: env.id, timezone: a.timezone };
   const reports = reportRunner(ctx, scope, sp);
@@ -59,10 +61,12 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
           <select name="by" className="input" defaultValue={by ?? ""}>
             <option value="">{t("Nothing")}</option>
             {REVENUE_BREAKDOWNS.map((b) => <option key={b} value={b}>{t(BREAKDOWN_LABELS[b])}</option>)}
-            <option value="property">{t("Event property…")}</option>
+            <optgroup label={t("Event property")}>
+              {[...new Set([...(property ? [property] : []), ...r.properties])].map((name) => <option key={name} value={`property:${name}`}>{name}</option>)}
+              {r.properties.length === 0 && !property && <option disabled value="property:">{t("No properties on revenue events yet")}</option>}
+            </optgroup>
           </select>
         </label>
-        <label><span className="label">{t("Property")}</span><input name="property" className="input w-40" defaultValue={property ?? ""} placeholder={t("e.g. {example}", { example: "product_id" })} maxLength={64} /></label>
         <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
         <ReportRangeFields range={r.range} interval={r.interval} />
         <button className="btn" type="submit" data-apply>{t("Show")}</button>

@@ -97,6 +97,8 @@ describe("revenue", () => {
       { key: "(none)", currency: "SAR", gross: 7, refunds: 0, net: 7, payingUsers: 1 },
     ]);
     const byProduct = await revenueReport(A.ctx, scope, { days: 30, breakdown: "property:product" });
+    expect(byProduct.properties).toContain("product"); // offered in the breakdown picker
+    expect(byProduct.properties).not.toContain("currency");
     expect(byProduct.breakdown!.filter((g) => g.currency === "SAR").map((g) => [g.key, g.net])).toEqual([["shoes", 100], ["(none)", -43], ["bag", 50]].sort((a, b) => Number(b[1]) - Number(a[1])));
   });
 
@@ -124,6 +126,12 @@ describe("revenue", () => {
       [NO_CURRENCY, "(no install on record)", 5],
     ]));
     expect(rows).toHaveLength(5);
+  });
+
+  it("splits an event trend by acquisition channel too", async () => {
+    const r = await eventTrend(A.ctx, scope, { event: "purchase_completed", days: 30, breakdown: "channel" });
+    expect(r.series.map((s) => s.key).sort()).toEqual(["(no install on record)", "organic", "tiktok"]);
+    expect(r.series.find((s) => s.key === "(no install on record)")!.total).toBe(1); // the shared tablet's purchase
   });
 });
 

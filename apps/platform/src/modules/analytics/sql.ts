@@ -129,3 +129,26 @@ export function evCte(cohort?: string, end?: string): string {
        ${cohort ? `and ${PERSON.expr} in (select person from cohort)` : ""}
   )`;
 }
+
+/** Channel keys for people with no attributed source (shown translated). */
+export const CHANNEL_ORGANIC = "organic";
+export const CHANNEL_UNKNOWN = "(unknown)";
+export const CHANNEL_NO_INSTALL = "(no install on record)";
+
+/**
+ * The acquisition channel of the person behind a row of `row` (a CTE with
+ * `person` and `ts`, environment id in $1): the source of their latest install
+ * or reinstall attribution at or before it (last touch), labelled like the
+ * Acquisition reports. The install is found by the person's user_id, their
+ * anonymous_id, or an install linked to their user_id.
+ */
+export function channelSql(row: string): string {
+  return `coalesce((
+      select coalesce(ae.source, case when ae.match_type = 'organic' then '${CHANNEL_ORGANIC}' else '${CHANNEL_UNKNOWN}' end)
+        from platform.attribution_events ae
+       where ae.environment_id = $1 and ae.kind in ('install', 'reinstall') and ae.occurred_at <= ${row}.ts
+         and (ae.user_id = ${row}.person
+              or 'anon:' || ae.anonymous_id = ${row}.person
+              or ae.anonymous_id in (select il.anonymous_id from platform.identity_links il where il.environment_id = $1 and il.user_id = ${row}.person))
+       order by ae.occurred_at desc limit 1), '${CHANNEL_NO_INSTALL}')`;
+}

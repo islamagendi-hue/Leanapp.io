@@ -13,6 +13,7 @@ import { eventLabels } from "@/modules/analytics/labels";
 import { rangeLabel, rangePhrase } from "@/modules/analytics/range";
 import { eventFiltersFromParams, rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { ANY_EVENT, BREAKDOWNS, eventTrend, kpi, MAX_EVENT_FILTERS, topEvents } from "@/modules/analytics/service";
+import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "@/modules/analytics/sql";
 import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
@@ -24,10 +25,12 @@ export async function generateMetadata() {
   return { title: t("Events") };
 }
 
-const BREAKDOWN_LABELS: Record<string, string> = { platform: msg("Platform"), app_version: msg("App version"), country: msg("Country") };
+const BREAKDOWN_LABELS: Record<string, string> = { platform: msg("Platform"), app_version: msg("App version"), country: msg("Country"), channel: msg("Channel") };
+const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic"), [CHANNEL_UNKNOWN]: msg("Unknown source"), [CHANNEL_NO_INSTALL]: msg("No install on record") };
 const INTERVAL_NAMES: Record<string, string> = { day: msg("day"), week: msg("week"), month: msg("month") };
 /** Series names the report makes up ("Other", "(none)"); values people sent stay as they are. */
-const seriesName = (t: T, key: string) => (key === "Other" ? t("Other") : key === "(none)" ? t("(none)") : key);
+const seriesName = (t: T, key: string, by?: string | null) =>
+  key === "Other" ? t("Other") : key === "(none)" ? t("(none)") : by === "channel" && CHANNEL_LABELS[key] ? t(CHANNEL_LABELS[key]) : key;
 const num = (n: number) => n.toLocaleString("en-US");
 
 export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/analytics/events">) {
@@ -123,7 +126,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
                 <Kpi label={t("People who did it")} value={trend.total.people} previous={trend.previous?.people} range={trend.range} />
                 <Kpi label={t("Active people")} value={active.value} previous={active.previous} range={active.range} hint={t("Did any event")} />
               </dl>
-              <TrendChart days={trend.days} series={trend.series.map((s) => ({ ...s, key: seriesName(t, s.key) }))} label={t("{event} per {interval}", { event: label(trend.event), interval: t(INTERVAL_NAMES[trend.interval] ?? trend.interval) })} />
+              <TrendChart days={trend.days} series={trend.series.map((s) => ({ ...s, key: seriesName(t, s.key, trend.breakdown) }))} label={t("{event} per {interval}", { event: label(trend.event), interval: t(INTERVAL_NAMES[trend.interval] ?? trend.interval) })} />
               {trend.interval !== "day" && <p className="text-xs text-ink-3">{trend.interval === "week"
                 ? t("Each point is a week starting on the date shown (Monday); the first and last can be partial.")
                 : t("Each point is a month starting on the date shown; the first and last can be partial.")}</p>}

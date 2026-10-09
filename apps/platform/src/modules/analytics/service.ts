@@ -11,7 +11,7 @@ import {
   bucketKeys, bucketSql, change, datesBetween, defaultInterval, intervalField, comparisonRange, localDate, rangeDays, type Compare, rangeFields, resolveRange,
   type Interval, type ReportRange,
 } from "./range";
-import { ANY_EVENT, evCte, Params } from "./sql";
+import { ANY_EVENT, channelSql, evCte, Params } from "./sql";
 
 /**
  * Analytics on Postgres (ADR-002): event trends, funnels and retention for
@@ -38,7 +38,7 @@ import { ANY_EVENT, evCte, Params } from "./sql";
 
 export { RANGES, type RangeDays } from "./range";
 export const RANGE_SCHEMA = z.unknown().transform(rangeDays);
-export const BREAKDOWNS = ["platform", "app_version", "country"] as const;
+export const BREAKDOWNS = ["platform", "app_version", "country", "channel"] as const;
 
 const STATEMENT_TIMEOUT = "15s";
 const MAX_GROUPS = 5;
@@ -205,6 +205,7 @@ function groupExpr(breakdown: string | undefined, p: Params): string {
   if (breakdown === "platform") return "coalesce(platform, '(none)')";
   if (breakdown === "app_version") return "coalesce(app_version, '(none)')";
   if (breakdown === "country") return "coalesce(context->'location'->>'country', context->>'country', '(none)')";
+  if (breakdown === "channel") return channelSql("ev");
   return `coalesce(properties->>${p.add(breakdown.slice("property:".length))}, '(none)')`;
 }
 

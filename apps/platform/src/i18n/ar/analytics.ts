@@ -137,6 +137,8 @@ const ar: Record<string, string> = {
   "App version": "إصدار التطبيق",
   Country: "الدولة",
   "Event property…": "خاصية الحدث…",
+  "Event property": "خاصية الحدث",
+  "No properties on revenue events yet": "لا توجد خصائص على أحداث الإيرادات بعد",
   Property: "الخاصية",
   "Choose…": "اختر…",
   "Only events where": "الأحداث التي فيها فقط",

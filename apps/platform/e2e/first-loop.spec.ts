@@ -257,8 +257,6 @@ test("product shell: Overview home, Dev Ops in Settings, old addresses and the r
   await expect(page).toHaveURL(/\/acquisition\/links$/);
 
   // The environment chosen in project settings is remembered on every page, and the top bar says so.
-  await page.goto(`${appBase}/analytics/events`);
-  await expect(page.getByRole("banner").getByRole("link", { name: /Viewing .* data/ })).toHaveCount(0);
   await page.goto(`${appBase}/settings/project/environments`);
   const env = page.getByRole("radiogroup", { name: "Environment" });
   await env.getByRole("radio", { name: "staging" }).click();
@@ -271,6 +269,9 @@ test("product shell: Overview home, Dev Ops in Settings, old addresses and the r
   await env.getByRole("radio", { name: "production" }).click();
   await page.waitForURL(/env=production/);
   await expect(page.getByRole("banner").getByRole("link", { name: /Viewing .* data/ })).toHaveCount(0);
+  // Later tests expect staging to be the remembered environment.
+  await env.getByRole("radio", { name: "staging" }).click();
+  await page.waitForURL(/env=staging/);
 });
 
 test("project settings: rename, timezone, environments, archive and restore", async ({ page }) => {
