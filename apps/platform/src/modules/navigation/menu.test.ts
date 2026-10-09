@@ -27,27 +27,24 @@ describe("navigation menu", () => {
   it("keeps developer pages out of the main menu", () => {
     const main = links(projectMenu("owner", base));
     expect(main.some((h) => h.includes("/settings/dev-ops/") || h.includes("/settings/privacy"))).toBe(false);
-    expect(projectMenu("owner", base).map((g) => g.label)).toEqual(["Overview", "Growth", "Analytics", "Acquisition & attribution", "Engagement", "Integrations", "Settings"]);
-    // Integrations and Settings sit apart, under a divider.
-    expect(projectMenu("owner", base).filter((g) => g.heading !== undefined).map((g) => `${g.heading}:${g.label}`)).toEqual([":Integrations"]);
+    expect(projectMenu("owner", base).map((g) => g.label)).toEqual(["Overview", "Growth", "Attribution", "Analyze", "Segments", "Engage Lab", "A/B experiments", "Settings"]);
+    expect(projectMenu("owner", base).filter((g) => g.heading !== undefined).map((g) => `${g.heading}:${g.label}`)).toEqual([":Settings"]);
     expect(labels(projectMenu("owner", base))).toEqual([
       "Overview",
-      "Growth", "Growth/Acquisition", "Growth/Activation", "Growth/Retention", "Growth/Churn", "Growth/RFM segments", "Growth/Revenue",
-      "Analytics", "Analytics/Events & trends", "Analytics/Funnels", "Analytics/Users", "Analytics/Dashboards", "Analytics/Saved reports",
-      "Acquisition & attribution", "Acquisition & attribution/Attribution", "Acquisition & attribution/Sources & campaigns", "Acquisition & attribution/Ad spend",
-      "Acquisition & attribution/CAC & LTV", "Acquisition & attribution/Tracking links & QR", "Acquisition & attribution/Deep links",
-      "Engagement", "Engagement/Audiences", "Engagement/Journeys & flows", "Engagement/Campaigns", "Engagement/Experiments", "Engagement/Templates", "Engagement/Channels & delivery",
-      "Integrations", "Settings",
+      "Growth", "Growth/Acquisition", "Growth/CAC & LTV", "Growth/Sources & campaigns", "Growth/Ad spend",
+      "Growth/Activation", "Growth/Retention", "Growth/Churn", "Growth/RFM segments", "Growth/Revenue",
+      "Attribution", "Attribution/Attribution report", "Attribution/Tracking links & QR", "Attribution/Deep links",
+      "Analyze", "Analyze/Events & trends", "Analyze/Funnels", "Analyze/Dashboards", "Analyze/Saved reports",
+      "Segments", "Segments/Users", "Segments/Audiences",
+      "Engage Lab", "Engage Lab/Campaigns", "Engage Lab/Flows", "Engage Lab/Templates", "Engage Lab/Channels & delivery",
+      "A/B experiments", "Settings",
     ]);
-    // Beta stays on what is in beta: the whole acquisition & attribution section and the acquisition overview.
-    expect(projectMenu("owner", base).find((g) => g.label === "Acquisition & attribution")?.beta).toBe(true);
+    // Beta stays on what is in beta: attribution and the acquisition pages.
+    expect(projectMenu("owner", base).find((g) => g.label === "Attribution")?.beta).toBe(true);
     const growth = projectMenu("owner", base).find((g) => g.label === "Growth")!;
     expect(growth.items.filter((i) => i.beta).map((i) => i.label)).toEqual(["Acquisition"]);
-    // Churn and RFM sit under Retention, behind the retention page's permission.
-    expect(growth.items.filter((i) => i.sub).map((i) => [i.label, i.href])).toEqual([
-      ["Churn", `${base}/analytics/churn`],
-      ["RFM segments", `${base}/analytics/rfm`],
-    ]);
+    // Acquisition's and Retention's pages sit under them.
+    expect(growth.items.filter((i) => i.sub).map((i) => i.label)).toEqual(["CAC & LTV", "Sources & campaigns", "Ad spend", "Churn", "RFM segments"]);
     // Every destination appears once.
     expect(new Set(main).size).toBe(main.length);
     for (const role of ROLES) {
@@ -59,11 +56,12 @@ describe("navigation menu", () => {
 
   it("shows each role only what its permissions open", () => {
     const marketer = labels(projectMenu("marketer", base));
-    expect(marketer).toContain("Engagement/Journeys & flows");
-    expect(marketer).toContain("Analytics/Users");
+    expect(marketer).toContain("Engage Lab/Flows");
+    expect(marketer).toContain("Segments/Users");
     const analyst = labels(projectMenu("analyst", base));
-    expect(analyst).toContain("Analytics/Users");
-    expect(analyst).not.toContain("Engagement/Journeys & flows");
+    expect(analyst).toContain("Segments/Users");
+    expect(analyst).not.toContain("Engage Lab/Flows");
+    expect(projectMenu("analyst", base).some((g) => g.label === "Engage Lab")).toBe(false);
 
     const devSettings = labels(settingsMenu("developer", "acme", base));
     expect(devSettings).toEqual(expect.arrayContaining(["Dev Ops/SDK & API keys", "Dev Ops/Webhooks", "Dev Ops/Debugger", "Workspace/API keys"]));
@@ -76,12 +74,12 @@ describe("navigation menu", () => {
     // Viewer: reports, acquisition, attribution, people and audiences (read only); no engagement or workspace admin.
     expect(labels(projectMenu("viewer", base))).toEqual([
       "Overview",
-      "Growth", "Growth/Acquisition", "Growth/Activation", "Growth/Retention", "Growth/Churn", "Growth/RFM segments", "Growth/Revenue",
-      "Analytics", "Analytics/Events & trends", "Analytics/Funnels", "Analytics/Users", "Analytics/Dashboards", "Analytics/Saved reports",
-      "Acquisition & attribution", "Acquisition & attribution/Attribution", "Acquisition & attribution/Sources & campaigns", "Acquisition & attribution/Ad spend",
-      "Acquisition & attribution/CAC & LTV", "Acquisition & attribution/Tracking links & QR", "Acquisition & attribution/Deep links",
-      "Engagement", "Engagement/Audiences",
-      "Integrations", "Settings",
+      "Growth", "Growth/Acquisition", "Growth/CAC & LTV", "Growth/Sources & campaigns", "Growth/Ad spend",
+      "Growth/Activation", "Growth/Retention", "Growth/Churn", "Growth/RFM segments", "Growth/Revenue",
+      "Attribution", "Attribution/Attribution report", "Attribution/Tracking links & QR", "Attribution/Deep links",
+      "Analyze", "Analyze/Events & trends", "Analyze/Funnels", "Analyze/Dashboards", "Analyze/Saved reports",
+      "Segments", "Segments/Users", "Segments/Audiences",
+      "Settings",
     ]);
     const viewerSettings = labels(settingsMenu("viewer", "acme", base));
     expect(viewerSettings.filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Dev Ops", "Security"]);
@@ -114,6 +112,7 @@ describe("navigation menu", () => {
     expect(activeHref(menu, `${base}/acquisition/sources`)).toBe(`${base}/acquisition/sources`);
     expect(activeHref(menu, `${base}/acquisition`)).toBe(`${base}/acquisition`);
     expect(activeHref(menu, `${base}/engage/automations/abc`)).toBe(`${base}/engage/automations`);
+    expect(activeHref(menu, `${base}/acquisition/channels`)).toBe(`${base}/acquisition/channels`);
     const settings = settingsMenu("owner", "acme", base);
     expect(activeHref(settings, `${base}/settings/dev-ops/implementation/questions`)).toBe(`${base}/settings/dev-ops/implementation/plan`);
     expect(activeHref(settings, `${base}/settings/dev-ops/attribution/skan`)).toBe(`${base}/settings/dev-ops/attribution/skan`);

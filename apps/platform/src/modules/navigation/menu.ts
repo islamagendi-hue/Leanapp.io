@@ -61,6 +61,9 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
         label: msg("Growth"),
         items: pick(role, [
           { label: msg("Acquisition"), href: `${base}/acquisition`, perm: "attribution.read", beta: true },
+          { label: msg("CAC & LTV"), href: `${base}/acquisition/channels`, perm: "attribution.read", sub: true },
+          { label: msg("Sources & campaigns"), href: `${base}/acquisition/sources`, perm: "attribution.read", sub: true },
+          { label: msg("Ad spend"), href: `${base}/acquisition/spend`, perm: "attribution.read", sub: true },
           { label: msg("Activation"), href: `${base}/growth`, perm: "growth.read" },
           { label: msg("Retention"), href: `${base}/analytics/retention`, perm: "analytics.read" },
           { label: msg("Churn"), href: `${base}/analytics/churn`, perm: "analytics.read", sub: true },
@@ -69,41 +72,41 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
         ]),
       },
       {
-        label: msg("Analytics"),
-        items: pick(role, [
-          { label: msg("Events & trends"), href: `${base}/analytics/events`, perm: "analytics.read" },
-          { label: msg("Funnels"), href: `${base}/analytics/funnels`, perm: "analytics.read" },
-          { label: msg("Users"), href: `${base}/analytics/users`, perm: "users.read" },
-          { label: msg("Dashboards"), href: `${base}/analytics/dashboards`, perm: "analytics.read" },
-          { label: msg("Saved reports"), href: `${base}/analytics`, perm: "analytics.read" },
-        ]),
-      },
-      {
-        label: msg("Acquisition & attribution"),
+        label: msg("Attribution"),
         beta: true,
         items: pick(role, [
-          { label: msg("Attribution"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
-          { label: msg("Sources & campaigns"), href: `${base}/acquisition/sources`, perm: "attribution.read" },
-          { label: msg("Ad spend"), href: `${base}/acquisition/spend`, perm: "attribution.read" },
-          { label: msg("CAC & LTV"), href: `${base}/acquisition/channels`, perm: "attribution.read" },
+          { label: msg("Attribution report"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
           { label: msg("Tracking links & QR"), href: `${base}/acquisition/links`, perm: "attribution.read" },
           { label: msg("Deep links"), href: `${base}/acquisition/deep-links`, perm: "attribution.read" },
         ]),
       },
       {
-        label: msg("Engagement"),
+        label: msg("Analyze"),
         items: pick(role, [
+          { label: msg("Events & trends"), href: `${base}/analytics/events`, perm: "analytics.read" },
+          { label: msg("Funnels"), href: `${base}/analytics/funnels`, perm: "analytics.read" },
+          { label: msg("Dashboards"), href: `${base}/analytics/dashboards`, perm: "analytics.read" },
+          { label: msg("Saved reports"), href: `${base}/analytics`, perm: "analytics.read" },
+        ]),
+      },
+      {
+        label: msg("Segments"),
+        items: pick(role, [
+          { label: msg("Users"), href: `${base}/analytics/users`, perm: "users.read" },
           { label: msg("Audiences"), href: `${base}/engage/audiences`, perm: "audiences.read" },
-          { label: msg("Journeys & flows"), href: `${base}/engage/automations`, perm: "automations.read" },
+        ]),
+      },
+      {
+        label: msg("Engage Lab"),
+        items: pick(role, [
           { label: msg("Campaigns"), href: `${base}/engage/campaigns`, perm: "automations.read" },
-          { label: msg("Experiments"), href: `${base}/engage/experiments`, perm: "automations.read" },
+          { label: msg("Flows"), href: `${base}/engage/automations`, perm: "automations.read" },
           { label: msg("Templates"), href: `${base}/engage/email-templates`, perm: "automations.read" },
           { label: msg("Channels & delivery"), href: `${base}/engage/channels`, perm: "automations.read" },
         ]),
       },
-      // Both open the Settings menu: Integrations is a page under Settings → Project.
-      { label: msg("Integrations"), href: `${base}/settings/integrations`, perm: "apps.read", heading: "", items: [] },
-      { label: msg("Settings"), href: `${base}/settings`, items: [] },
+      { label: msg("A/B experiments"), href: `${base}/engage/experiments`, perm: "automations.read", items: [] },
+      { label: msg("Settings"), href: `${base}/settings`, heading: "", items: [] },
     ],
     role,
   );
