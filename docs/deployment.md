@@ -122,3 +122,13 @@ The workflow's smoke step prints each check. By hand:
 ## Releasing the SDKs
 
 See [sdk-release](sdk-release.md). Nothing is published automatically.
+
+## Marketing-only production (MARKETING_ONLY=1)
+
+Until the production app has its own database and settings, the Vercel production environment runs with `MARKETING_ONLY=1` and nothing else. In this mode:
+
+- Only the public pages are served: `/`, `/features`, `/pricing`, `/about`, `/developers`, plus `/lang` and `/theme`. Every other page redirects to `/`; `/v1/*`, `/api/*` and `/.well-known/*` return 404 (`src/lib/marketing-only.ts`, `src/proxy.ts`).
+- No database is used. "Start now" and "Sign in" become **Request access** and the demo buttons become **Get a demo**, both emails to hello@leanapp.io.
+- The configuration check reports a single warning instead of errors, and the public pages are indexable (staging and the app stay `noindex`).
+
+To turn the full app on in production later: create the production database and settings listed above, then remove `MARKETING_ONLY` and redeploy.

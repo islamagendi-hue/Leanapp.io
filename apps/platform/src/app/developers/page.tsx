@@ -9,6 +9,7 @@ import {
   developersCopy, EXAMPLE_EVENTS, PURPOSES, SDK_FACTS, SDK_IDS, SDK_SNIPPETS, SECTION_IDS, SERVER_SNIPPET, SNIPPET_KEYS, sdkPublished, sdkStatus, type SectionId,
 } from "@/modules/marketing/developers";
 import { currentUser } from "@/server/session";
+import { ACCESS_MAILTO, marketingOnly } from "@/modules/marketing/access";
 
 async function pageLang(sp: Record<string, string | string[] | undefined>): Promise<LandingLang> {
   return sp.lang === "ar" || sp.lang === "en" ? sp.lang : await getLang();
@@ -53,9 +54,11 @@ export default async function Developers(props: PageProps<"/developers">) {
   const lang = await pageLang(await props.searchParams);
   const t = developersCopy(lang);
   const other = lang === "ar" ? "en" : "ar";
-  const user = await currentUser();
+  // Marketing-only deployments have no database: no session lookup, and starting means asking us for access.
+  const closed = marketingOnly();
+  const user = closed ? null : await currentUser();
   const theme = await getTheme();
-  const start = user ? "/onboarding" : "/signup";
+  const start = closed ? ACCESS_MAILTO : user ? "/onboarding" : "/signup";
   const s = t.sections;
 
   return (
@@ -73,7 +76,9 @@ export default async function Developers(props: PageProps<"/developers">) {
           <div className="flex items-center gap-3 text-sm">
             <Suspense><ThemeSwitch current={theme} compact /></Suspense>
             <a href={`/lang?to=${other}&next=/developers`} hrefLang={other} lang={other} className="text-ink-2 hover:text-ink">{t.nav.other}</a>
-            {user ? (
+            {closed ? (
+              <a href={ACCESS_MAILTO} className="btn">{t.nav.requestAccess}</a>
+            ) : user ? (
               <Link href="/onboarding" className="btn">{t.nav.dashboard}</Link>
             ) : (
               <>
@@ -229,7 +234,7 @@ export default async function Developers(props: PageProps<"/developers">) {
             <h2 className="text-2xl font-bold md:text-3xl">{t.cta.title}</h2>
             <p className="mt-2 text-paper/80">{t.cta.lead}</p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <Link href={start} className="inline-flex min-h-10 items-center rounded-lg bg-paper px-4 text-sm font-medium text-ink hover:bg-paper-2">{t.cta.start}</Link>
+              <Link href={start} className="inline-flex min-h-10 items-center rounded-lg bg-paper px-4 text-sm font-medium text-ink hover:bg-paper-2">{closed ? t.nav.requestAccess : t.cta.start}</Link>
               <a href={`mailto:${CONTACT_EMAIL}?subject=LeanApp%20SDK`} className="inline-flex min-h-10 items-center rounded-lg border border-paper/40 px-4 text-sm font-medium text-paper hover:bg-paper/10">{t.cta.contact}</a>
             </div>
           </div>

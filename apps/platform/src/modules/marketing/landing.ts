@@ -292,7 +292,7 @@ export const CONTACT_EMAIL = "hello@leanapp.io";
 
 const EN = {
   dir: "ltr" as "ltr" | "rtl",
-  nav: { demo: "Demo", how: "How we work", compare: "Compare", features: "Features", pricing: "Pricing", about: "About us", developers: "Developers", signIn: "Sign in", start: "Start now", dashboard: "Open dashboard", other: "العربية" },
+  nav: { demo: "Demo", how: "How we work", compare: "Compare", features: "Features", pricing: "Pricing", about: "About us", developers: "Developers", signIn: "Sign in", start: "Start now", requestAccess: "Request access", dashboard: "Open dashboard", other: "العربية" },
   hero: {
     eyebrow: "Mobile app analytics for the Arab world",
     title: "Know your users. Grow your app.",
@@ -407,7 +407,7 @@ export type LandingCopy = typeof EN & { compareRows: CompareRow[]; flow: FlowSte
 
 const AR: typeof EN = {
   dir: "rtl",
-  nav: { demo: "العرض التجريبي", how: "طريقة عملنا", compare: "المقارنة", features: "المزايا", pricing: "الأسعار", about: "من نحن", developers: "للمطوّرين", signIn: "تسجيل الدخول", start: "ابدأ الآن", dashboard: "افتح لوحة التحكم", other: "English" },
+  nav: { demo: "العرض التجريبي", how: "طريقة عملنا", compare: "المقارنة", features: "المزايا", pricing: "الأسعار", about: "من نحن", developers: "للمطوّرين", signIn: "تسجيل الدخول", start: "ابدأ الآن", requestAccess: "اطلب الوصول", dashboard: "افتح لوحة التحكم", other: "English" },
   hero: {
     eyebrow: "تحليلات تطبيقات الجوال للعالم العربي",
     title: "اعرف مستخدميك، وطوّر تطبيقك.",

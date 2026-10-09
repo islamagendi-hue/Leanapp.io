@@ -178,7 +178,7 @@ const EN = {
     title: "LeanApp for developers: SDKs and setup guide",
     description: "LeanApp SDKs for JavaScript, React Native, Android, iOS and Flutter: setup, events, identity, consent, testing and the REST API.",
   },
-  nav: { home: "Home", developers: "Developers", sections: "Sections", other: "العربية", signIn: "Sign in", start: "Start now", dashboard: "Open dashboard" },
+  nav: { home: "Home", developers: "Developers", sections: "Sections", other: "العربية", signIn: "Sign in", start: "Start now", requestAccess: "Request access", dashboard: "Open dashboard" },
   hero: {
     eyebrow: "For developers",
     title: "Add LeanApp to your app",
@@ -348,7 +348,7 @@ const AR: DevelopersCopy = {
     title: "LeanApp للمطوّرين: حزم SDK ودليل الإعداد",
     description: "حزم SDK من LeanApp لـ JavaScript و React Native و Android و iOS و Flutter: الإعداد، والأحداث، والمستخدمون، والموافقة، والاختبار، والـ REST API.",
   },
-  nav: { home: "الرئيسية", developers: "للمطوّرين", sections: "الأقسام", other: "English", signIn: "تسجيل الدخول", start: "ابدأ الآن", dashboard: "افتح لوحة التحكم" },
+  nav: { home: "الرئيسية", developers: "للمطوّرين", sections: "الأقسام", other: "English", signIn: "تسجيل الدخول", start: "ابدأ الآن", requestAccess: "اطلب الوصول", dashboard: "افتح لوحة التحكم" },
   hero: {
     eyebrow: "للمطوّرين",
     title: "أضف LeanApp إلى تطبيقك",

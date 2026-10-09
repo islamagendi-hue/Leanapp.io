@@ -61,3 +61,12 @@ describe("checkConfig", () => {
     expect(vars(checkConfig({ ...prod, INTEGRATIONS_ENCRYPTION_KEY: "short" }).errors)).toEqual(["INTEGRATIONS_ENCRYPTION_KEY"]);
   });
 });
+
+describe("marketing-only deployments", () => {
+  it("need none of the app's settings and say so as a warning", () => {
+    const report = checkConfig({ VERCEL_ENV: "production", MARKETING_ONLY: "1" });
+    expect(report.deployment).toBe("production");
+    expect(report.errors).toEqual([]);
+    expect(report.warnings.map((w) => w.variable)).toEqual(["MARKETING_ONLY"]);
+  });
+});

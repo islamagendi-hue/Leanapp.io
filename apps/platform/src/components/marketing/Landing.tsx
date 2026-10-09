@@ -6,6 +6,7 @@ import { BuildingDashboard } from "@/components/marketing/BuildingDashboard";
 import { WorksWith } from "@/components/marketing/WorksWith";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { getTheme } from "@/lib/theme";
+import { ACCESS_MAILTO, DEMO_MAILTO, marketingOnly } from "@/modules/marketing/access";
 import { demoEnabled } from "@/modules/marketing/demo";
 import { COMPETITORS, CONTACT_EMAIL, landingCopy, type Availability, type Coverage, type LandingCopy } from "@/modules/marketing/landing";
 import { getLang } from "@/i18n/server";
@@ -31,8 +32,12 @@ const STATE_STYLE: Record<Availability, string> = {
   coming: "border-line text-ink-3",
 };
 
-/** The demo button: one click signs in to the read-only demo. Without DEMO_ENABLED it goes to sign-up. */
-function DemoButton({ label, className = "btn" }: { label: string; className?: string }) {
+/**
+ * The demo button: one click signs in to the read-only demo. Without DEMO_ENABLED it goes to sign-up;
+ * in marketing-only mode there is no app behind the page, so it asks us for a demo by email.
+ */
+function DemoButton({ label, emailLabel, className = "btn" }: { label: string; emailLabel: string; className?: string }) {
+  if (marketingOnly()) return <a href={DEMO_MAILTO} className={className}>{emailLabel}</a>;
   if (!demoEnabled()) return <Link href="/signup" className={className}>{label}</Link>;
   return (
     <form action={startDemoAction} className="contents">
@@ -64,9 +69,12 @@ export async function Landing({ view, searchParams }: { view: LandingView; searc
   const lang: Lang = sp.lang === "ar" || sp.lang === "en" ? sp.lang : await getLang();
   const t = landingCopy(lang);
   const other = lang === "ar" ? "en" : "ar";
-  const user = await currentUser();
+  // Marketing-only deployments have no database: no session lookup, and starting means asking us for access.
+  const closed = marketingOnly();
+  const user = closed ? null : await currentUser();
   const theme = await getTheme();
-  const start = user ? "/onboarding" : "/signup";
+  const start = closed ? ACCESS_MAILTO : user ? "/onboarding" : "/signup";
+  const startLabel = (label: string) => (closed ? t.nav.requestAccess : label);
   const State = ({ state }: { state: Availability }) => <span className={`pill shrink-0 text-xs ${STATE_STYLE[state]}`}>{t.states[state]}</span>;
 
   return (
@@ -78,7 +86,9 @@ export async function Landing({ view, searchParams }: { view: LandingView; searc
           <div className="flex items-center gap-3 text-sm">
             <Suspense><ThemeSwitch current={theme} compact /></Suspense>
             <a href={`/lang?to=${other}&next=${PATHS[view]}`} hrefLang={other} lang={other} className="text-ink-2 hover:text-ink">{t.nav.other}</a>
-            {user ? (
+            {closed ? (
+              <a href={ACCESS_MAILTO} className="btn">{t.nav.requestAccess}</a>
+            ) : user ? (
               <Link href="/onboarding" className="btn">{t.nav.dashboard}</Link>
             ) : (
               <>
@@ -100,10 +110,10 @@ export async function Landing({ view, searchParams }: { view: LandingView; searc
               <h1 className="mt-4 max-w-4xl text-4xl font-bold leading-tight text-balance md:text-6xl">{t.hero.title}</h1>
               <p className="mt-5 max-w-2xl text-lg text-ink-2">{t.hero.lead}</p>
               <div className="mt-8 flex flex-wrap gap-3">
-                <DemoButton label={t.hero.demo} />
-                <Link href={start} className="btn-secondary">{t.hero.start}</Link>
+                <DemoButton label={t.hero.demo} emailLabel={t.pricing.demo} />
+                <Link href={start} className="btn-secondary">{startLabel(t.hero.start)}</Link>
               </div>
-              <p className="mt-3 text-sm text-ink-3">{t.hero.note}</p>
+              {!closed && <p className="mt-3 text-sm text-ink-3">{t.hero.note}</p>}
             </section>
 
             <section id="demo" aria-labelledby="demo-title" className="mx-auto max-w-6xl scroll-mt-32 px-4 pb-4 pt-8 lg:scroll-mt-20">
@@ -112,7 +122,7 @@ export async function Landing({ view, searchParams }: { view: LandingView; searc
                   <h2 id="demo-title" className="text-2xl font-bold md:text-3xl">{t.demo.title}</h2>
                   <p className="mt-2 text-ink-2">{t.demo.lead}</p>
                 </div>
-                <DemoButton label={t.demo.cta} className="btn-secondary" />
+                <DemoButton label={t.demo.cta} emailLabel={t.pricing.demo} className="btn-secondary" />
               </div>
               <div className="mt-6">
                 <BuildingDashboard copy={t.demo} lang={lang} />
@@ -269,8 +279,8 @@ export async function Landing({ view, searchParams }: { view: LandingView; searc
                       <a href={`mailto:${CONTACT_EMAIL}?subject=LeanApp%20Enterprise`} className="btn-secondary w-full">{t.pricing.contact}</a>
                     ) : (
                       <div className="flex flex-col gap-2">
-                        <Link href={start} className={`${p.featured ? "btn" : "btn-secondary"} w-full`}>{t.pricing.start}</Link>
-                        <a href={`mailto:${CONTACT_EMAIL}?subject=LeanApp%20demo`} className="block py-2 text-center text-sm font-medium text-accent-ink hover:underline">{t.pricing.demo}</a>
+                        <Link href={start} className={`${p.featured ? "btn" : "btn-secondary"} w-full`}>{startLabel(t.pricing.start)}</Link>
+                        <a href={DEMO_MAILTO} className="block py-2 text-center text-sm font-medium text-accent-ink hover:underline">{t.pricing.demo}</a>
                       </div>
                     )}
                   </div>
@@ -322,8 +332,8 @@ export async function Landing({ view, searchParams }: { view: LandingView; searc
             <h2 className="text-2xl font-bold md:text-3xl">{t.cta.title}</h2>
             <p className="mt-2 text-paper/80">{t.cta.lead}</p>
             <div className="mt-6 flex flex-wrap gap-3">
-              <Link href={start} className="inline-flex min-h-10 items-center rounded-lg bg-paper px-4 text-sm font-medium text-ink hover:bg-paper-2">{t.cta.start}</Link>
-              <DemoButton label={t.cta.demo} className="inline-flex min-h-10 items-center rounded-lg border border-paper/40 px-4 text-sm font-medium text-paper hover:bg-paper/10" />
+              <Link href={start} className="inline-flex min-h-10 items-center rounded-lg bg-paper px-4 text-sm font-medium text-ink hover:bg-paper-2">{startLabel(t.cta.start)}</Link>
+              <DemoButton label={t.cta.demo} emailLabel={t.pricing.demo} className="inline-flex min-h-10 items-center rounded-lg border border-paper/40 px-4 text-sm font-medium text-paper hover:bg-paper/10" />
             </div>
           </div>
         </section>

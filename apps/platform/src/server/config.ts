@@ -45,6 +45,11 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   const warnings: ConfigIssue[] = [];
   const err = (variable: string, problem: string) => errors.push({ variable, problem });
   const warn = (variable: string, problem: string) => warnings.push({ variable, problem });
+  // A marketing-only deployment serves the public pages only and needs none of the app's settings.
+  if (env.MARKETING_ONLY === "1") {
+    warn("MARKETING_ONLY", "set: only the public pages are served; sign up, sign in and the API are off");
+    return { deployment, errors, warnings };
+  }
 
   const db = env.DATABASE_URL;
   if (!db) err("DATABASE_URL", "not set");

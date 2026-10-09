@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { I18nProvider } from "@/i18n/client";
 import { clientDictionary } from "@/i18n/server";
 import { getLocale } from "@/lib/locale";
+import { marketingOnly } from "@/lib/marketing-only";
 import { getTheme } from "@/lib/theme";
 import "./globals.css";
 
@@ -23,7 +24,8 @@ const plexMono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"
 export const metadata: Metadata = {
   title: { default: "LeanApp: growth infrastructure for mobile apps", template: "%s · LeanApp" },
   description: "Attribution, analytics and automation for mobile apps, with an implementation designed around your business.",
-  robots: { index: false, follow: false },
+  // Only the public site of a marketing-only deployment is for search engines; staging and the app are not.
+  robots: marketingOnly() ? { index: true, follow: true } : { index: false, follow: false },
 };
 
 export const viewport: Viewport = {
