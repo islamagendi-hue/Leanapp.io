@@ -61,7 +61,7 @@ export const ROLE_INFO: Record<Role, { name: string; description: string; rank: 
   developer: { name: msg("Developer"), description: msg("Apps, environments, SDK, keys, events, integrations and webhooks."), rank: 50 },
   analyst: { name: msg("Analyst"), description: msg("Analytics, funnels, retention, audiences, attribution and user profiles."), rank: 30 },
   marketer: { name: msg("Marketer"), description: msg("Audiences, automations, campaigns, analytics, users and attribution."), rank: 30 },
-  viewer: { name: msg("Viewer"), description: msg("Read-only access to analytics, activation, audiences and user profiles."), rank: 10 },
+  viewer: { name: msg("Viewer"), description: msg("Read-only access to analytics, activation, acquisition, attribution, audiences and user profiles."), rank: 10 },
 };
 
 const read: Permission[] = ["organization.read", "members.read", "apps.read", "implementation.read"];
@@ -105,8 +105,10 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "automations.manage",
     "integrations.read",
   ],
-  // Read-only: sees reports and people, changes nothing and sees no keys, members or configuration.
-  viewer: ["organization.read", "apps.read", "analytics.read", "growth.read", "users.read", "audiences.read"],
+  // Read-only: sees reports (acquisition and attribution included) and people, changes nothing and sees no
+  // keys or members. deep_links.read lets the Deep links and Tracking links pages show the real link
+  // domain and what works; attribution and deep link setup pages are view-only without the manage permissions.
+  viewer: ["organization.read", "apps.read", "analytics.read", "growth.read", "users.read", "audiences.read", "attribution.read", "deep_links.read"],
 };
 
 export const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES as readonly string[]).includes(v);

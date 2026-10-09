@@ -5,7 +5,13 @@
 import { describe, expect, it } from "vitest";
 import { withSystem } from "@/lib/db";
 import { getUserBySessionToken } from "@/modules/auth/service";
-import { DEMO_EMAIL, demoEvents, demoSession, ensureDemo, isDemoUser } from "@/modules/marketing/demo";
+import { ForbiddenError } from "@/lib/errors";
+import { channelEconomicsReport } from "@/modules/attribution/economics";
+import { attributionOverview } from "@/modules/attribution/reports";
+import { listSpend, saveSpend } from "@/modules/attribution/spend";
+import { DEMO_EMAIL, demoEvents, demoSession, ensureDemo, isDemoUser, seedDemoSpend } from "@/modules/marketing/demo";
+import { can } from "@/modules/rbac/authorize";
+import { resolveTenant } from "@/modules/tenancy/context";
 
 const now = new Date();
 
@@ -49,6 +55,66 @@ describe("public demo", () => {
       ),
     );
     expect(role?.role_id).toBe("viewer");
+  });
+
+  it("shows the demo Viewer real Acquisition numbers: installs by source, ad spend, CAC & LTV", async () => {
+    const refs = await ensureDemo({ now });
+    const ctx = await resolveTenant(refs.viewerId, refs.orgSlug);
+    expect(ctx.role).toBe("viewer");
+    expect(can(ctx.role, "attribution.read")).toBe(true);
+    expect(can(ctx.role, "attribution.manage")).toBe(false);
+    const app = await withSystem((db) =>
+      db.one<{ id: string; timezone: string; currency: string }>(
+        "select a.id, a.timezone, a.default_currency as currency from platform.environments e join platform.apps a on a.id = e.app_id where e.id = $1",
+        [refs.environmentId],
+      ),
+    );
+    const scope = { environmentId: refs.environmentId, timezone: app!.timezone };
+
+    // Acquisition → Overview / Sources & campaigns: installs from every paid source, and organic ones.
+    const overview = await attributionOverview(ctx, scope, { days: "30" });
+    expect(overview.totals.installs).toBeGreaterThan(200);
+    expect(overview.totals.organic).toBeGreaterThan(20);
+    const sources = new Set(overview.bySource.map((s) => s.source));
+    for (const s of ["tiktok", "snapchat", "google", "meta"]) expect(sources, s).toContain(s);
+
+    // Acquisition → Ad spend: the paid sources, every day, in the app's currency.
+    const spend = await listSpend(ctx, refs.environmentId);
+    expect(new Set(spend.map((r) => r.source))).toEqual(new Set(["tiktok", "snapchat", "google", "meta"]));
+    expect(new Set(spend.map((r) => r.currency))).toEqual(new Set([app!.currency]));
+    expect(new Set(spend.map((r) => r.date)).size).toBeGreaterThanOrEqual(28);
+    // Viewing only: saving spend is refused.
+    await expect(saveSpend(ctx, { appId: app!.id, environmentId: refs.environmentId, timezone: app!.timezone }, { date: spend[0].date, source: "tiktok", currency: app!.currency, amount: 1 })).rejects.toThrow(ForbiddenError);
+
+    // Acquisition → CAC & LTV: each paid channel has new users, a CAC, an LTV and LTV:CAC.
+    const econ = await channelEconomicsReport(ctx, scope, { days: "30" });
+    expect(econ.channels.length).toBeGreaterThan(0);
+    expect(econ.totals.newUsers).toBeGreaterThan(200);
+    expect(econ.totals.buyers).toBeGreaterThan(20);
+    for (const source of ["tiktok", "snapchat", "google", "meta"]) {
+      const c = econ.channels.find((x) => x.channel === source);
+      expect(c, source).toBeDefined();
+      const a = c!.amounts.find((x) => x.currency === app!.currency)!;
+      expect(c!.newUsers, source).toBeGreaterThan(0);
+      expect(a.cac, source).toBeGreaterThan(5);
+      expect(a.cac, source).toBeLessThan(50);
+      expect(a.ltv, source).toBeGreaterThan(0);
+      expect(a.ltvToCac, source).toBeGreaterThan(0);
+    }
+  });
+
+  it("fills in ad spend for a demo whose events were sent before spend existed, and a refresh changes nothing", async () => {
+    const refs = await ensureDemo({ now });
+    const total = () =>
+      withSystem((db) => db.one<{ n: number; amount: string }>("select count(*)::int as n, coalesce(sum(amount), 0)::text as amount from platform.ad_spend_daily where environment_id = $1", [refs.environmentId]));
+    const before = (await total())!;
+    expect(before.n).toBeGreaterThan(50);
+    expect(await seedDemoSpend(refs, now)).toBe(0);
+
+    await withSystem((db) => db.query("delete from platform.ad_spend_daily where environment_id = $1", [refs.environmentId]));
+    // The demo exists and its events are fresh (as on staging): only spend is filled in.
+    await ensureDemo({ now, staleHours: Number.POSITIVE_INFINITY });
+    expect(await total()).toEqual(before);
   });
 
   it("signs in as the demo Viewer", async () => {

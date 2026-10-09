@@ -346,10 +346,16 @@ test("a viewer sees reports and people, and can change nothing", async ({ page, 
   await expect(v.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(v.getByRole("link", { name: "Get started" })).toHaveCount(0);
   const menu = v.getByRole("navigation", { name: "Food Express Pro" });
-  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
-  for (const name of ["Flows", "Tracking links & QR"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
+  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "CAC & LTV", "Ad spend", "Tracking links & QR", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
+  for (const name of ["Flows"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
   await v.goto(`${appBase}/analytics/events`);
   await expect(v.getByRole("heading", { name: "Events", level: 1 })).toBeVisible();
+  // Acquisition and attribution are read-only: no spend entry, CSV import or link creation.
+  await v.goto(`${appBase}/acquisition/spend`);
+  await expect(v.getByRole("button", { name: "Save spend" })).toHaveCount(0);
+  await expect(v.getByRole("button", { name: "Import" })).toHaveCount(0);
+  await v.goto(`${appBase}/acquisition/links`);
+  await expect(v.getByRole("button", { name: "Create link" })).toHaveCount(0);
 
   await v.goto(`${appBase}/settings/project`);
   await expect(v.getByRole("button", { name: "Save changes" })).toHaveCount(0);

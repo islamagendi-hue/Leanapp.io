@@ -3,6 +3,8 @@ import { msg } from "@/i18n/translate";
 import { createHash } from "node:crypto";
 import { randomToken } from "@/lib/crypto";
 import { withSystem } from "@/lib/db";
+import { purgeReportCache } from "@/modules/analytics/cache";
+import { localDate } from "@/modules/analytics/range";
 import { createApp, getAppBySlug } from "@/modules/apps/service";
 import { createSession, signUp } from "@/modules/auth/service";
 import { authenticateIngestionKey } from "@/modules/credentials/service";
@@ -20,7 +22,10 @@ import { resolveTenant } from "@/modules/tenancy/context";
  * It is on only when DEMO_ENABLED=1. The data is generated from a fixed seed,
  * so refreshing it re-sends the same events (ingestion drops duplicates by
  * event_id) plus the days that have passed since, which keeps the reports
- * current without growing.
+ * current without growing. Installs carry the campaign parameters an SDK
+ * captures, so attribution records them by source as it would real ones, and
+ * the paid sources get daily ad spend (seedDemoSpend) for Acquisition's Ad
+ * spend and CAC & LTV.
  */
 export const DEMO_EMAIL = "demo@leanapp.io";
 const OWNER_EMAIL = "demo-owner@leanapp.io";
@@ -88,6 +93,11 @@ function rng(seed: number) {
   return () => (s = (s * 16807) % 2147483647) / 2147483647;
 }
 
+/** A uniform number in [0, 1) fixed by `key`. */
+function unitHash(key: string): number {
+  return parseInt(createHash("sha256").update(`leanapp-demo:${key}`).digest("hex").slice(0, 8), 16) / 2 ** 32;
+}
+
 const SOURCES = [
   { source: "tiktok", campaign: "tiktok_ramadan", weight: 0.24 },
   { source: "snapchat", campaign: "snap_weekend_deals", weight: 0.2 },
@@ -113,7 +123,12 @@ export function demoEvents(now: Date): Record<string, unknown>[] {
     for (let n = 0; n < count; n++) {
       const r = rng(day * 1000 + n + 7);
       const id = `${day}-${n}`;
-      const pick = r();
+      // The source comes from a hash of the person, not from the generator's first draw: that
+      // draw is nearly the same for everyone on a day (consecutive seeds), which gave one source
+      // per day and left most sources out. The draw is still taken so the rest of each journey
+      // stays as it was.
+      r();
+      const pick = unitHash(`source:${id}`);
       let acc = 0;
       const src = SOURCES.find((s) => (acc += s.weight) >= pick) ?? SOURCES[SOURCES.length - 1];
       const anon = `demo-device-${id}`;
@@ -163,7 +178,75 @@ export function demoEvents(now: Date): Record<string, unknown>[] {
   return out;
 }
 
-/** The demo, created on first use; its events are sent again when the newest one is over `staleHours` old. */
+/**
+ * What the demo's paid sources cost per install, in the app's currency (SAR), before a daily
+ * swing of up to ±25%.
+ */
+const COST_PER_INSTALL: Record<string, number> = { tiktok: 14, snapchat: 17, google: 26, meta: 21 };
+/** Spend older than this many days is dropped, so the demo doesn't grow. */
+const SPEND_KEEP_DAYS = 90;
+
+/**
+ * The demo's ad spend (Acquisition → Ad spend, CAC & LTV): for each app-local day of the last
+ * DAYS days and each paid source, the installs attribution recorded that day × the source's
+ * cost per install, with a fixed daily swing. Being derived from the recorded installs, it also
+ * fills in a demo whose events were sent before spend was seeded, and follows a day's installs
+ * as they arrive. Saving the same amounts again changes nothing. Returns the rows written.
+ */
+export async function seedDemoSpend(refs: DemoRefs, now: Date): Promise<number> {
+  return withSystem(async (db) => {
+    const app = await db.one<{ organization_id: string; timezone: string; currency: string }>(
+      `select a.organization_id, a.timezone, a.default_currency as currency
+         from platform.environments e join platform.apps a on a.id = e.app_id where e.id = $1`,
+      [refs.environmentId],
+    );
+    if (!app) return 0;
+    // The last DAYS days in the app's timezone, today first.
+    const days = Array.from({ length: DAYS }, (_, i) => localDate(new Date(now.getTime() - i * 86_400_000), app.timezone));
+    const today = days[0];
+    const installs = await db.query<{ day: string; source: string; n: number }>(
+      `select (occurred_at at time zone $2)::date::text as day, source, count(*)::int as n
+         from platform.attribution_events
+        where environment_id = $1 and kind in ('install', 'reinstall') and source = any($3::text[])
+          and occurred_at >= $4 and (occurred_at at time zone $2)::date between $5::date and $6::date
+        group by 1, 2`,
+      [refs.environmentId, app.timezone, Object.keys(COST_PER_INSTALL), new Date(now.getTime() - (DAYS + 2) * 86_400_000), days[DAYS - 1], today],
+    );
+    const count = new Map(installs.map((r) => [`${r.day}|${r.source}`, r.n]));
+    // Campaigns run every day, including days that brought no install (then half an install's cost).
+    const rows = days.flatMap((day) =>
+      Object.entries(COST_PER_INSTALL).map(([source, cost]) => ({
+        day,
+        source,
+        campaign: SOURCES.find((s) => s.source === source)?.campaign ?? "",
+        amount: Math.round(Math.max(count.get(`${day}|${source}`) ?? 0, 0.5) * cost * (0.75 + 0.5 * unitHash(`spend:${day}:${source}`)) * 100) / 100,
+      })),
+    );
+    const written = await db.query(
+      `insert into platform.ad_spend_daily (organization_id, environment_id, day, source, campaign, currency, amount)
+       select $1, $2, r.day, r.source, r.campaign, $3, r.amount
+         from unnest($4::date[], $5::text[], $6::text[], $7::numeric[]) as r(day, source, campaign, amount)
+       on conflict (environment_id, day, source, campaign, currency)
+       do update set amount = excluded.amount where ad_spend_daily.amount is distinct from excluded.amount
+       returning 1`,
+      [app.organization_id, refs.environmentId, app.currency, rows.map((r) => r.day), rows.map((r) => r.source), rows.map((r) => r.campaign), rows.map((r) => r.amount)],
+    );
+    const dropped = await db.query("delete from platform.ad_spend_daily where environment_id = $1 and day < $2::date - $3::int returning 1", [
+      refs.environmentId,
+      today,
+      SPEND_KEEP_DAYS,
+    ]);
+    // The reports cache results: drop them so the new spend shows at once.
+    if (written.length || dropped.length) await purgeReportCache(db, refs.environmentId);
+    return written.length;
+  });
+}
+
+/**
+ * The demo, created on first use; its events are sent again when the newest one is over
+ * `staleHours` old. Its ad spend is brought in line with its installs on every call (cheap; it
+ * also fills in a demo created before spend was seeded).
+ */
 export async function ensureDemo(opts: { now?: Date; staleHours?: number; deadline?: number } = {}): Promise<DemoRefs> {
   const now = opts.now ?? new Date();
   const refs = (await findDemo()) ?? (await createDemo());
@@ -172,6 +255,7 @@ export async function ensureDemo(opts: { now?: Date; staleHours?: number; deadli
   );
   const stale = !newest?.at || now.getTime() - new Date(newest.at).getTime() > (opts.staleHours ?? 6) * 3_600_000;
   if (stale) await sendDemoEvents(refs, now, opts.deadline);
+  await seedDemoSpend(refs, now);
   return refs;
 }
 

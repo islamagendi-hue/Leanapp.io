@@ -49,10 +49,19 @@ describe("navigation menu", () => {
     expect(marketerSettings).toContain("Dev Ops/Messaging channels");
     expect(labels(settingsMenu("owner", "acme", base))).toContain("Project/Privacy requests");
 
-    // Viewer: reports, people and audiences (read only); no engagement, acquisition, Dev Ops or workspace admin.
-    expect(labels(projectMenu("viewer", base))).toEqual(["Overview", "Activation", "Retention", "Revenue", "Reports", "Reports/Events & trends", "Reports/Funnels", "Reports/Dashboards", "Reports/Saved reports", "Users", "Audiences", "Settings"]);
+    // Viewer: reports, acquisition, attribution, people and audiences (read only); no engagement or workspace admin.
+    expect(labels(projectMenu("viewer", base))).toEqual([
+      "Overview",
+      "Acquisition", "Acquisition/Overview", "Acquisition/CAC & LTV", "Acquisition/Sources & campaigns", "Acquisition/Ad spend",
+      "Activation", "Retention", "Revenue",
+      "Attribution", "Attribution/Attribution report", "Attribution/Tracking links & QR", "Attribution/Deep links",
+      "Reports", "Reports/Events & trends", "Reports/Funnels", "Reports/Dashboards", "Reports/Saved reports",
+      "Users", "Audiences", "Settings",
+    ]);
     const viewerSettings = labels(settingsMenu("viewer", "acme", base));
-    expect(viewerSettings.filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Security"]);
+    expect(viewerSettings.filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Dev Ops", "Security"]);
+    // Dev Ops shows only the view-only attribution and deep link setup pages: no keys, debugger or webhooks.
+    expect(viewerSettings.filter((l) => l.startsWith("Dev Ops/"))).toEqual(["Dev Ops/Deep link setup", "Dev Ops/Attribution setup", "Dev Ops/Postbacks", "Dev Ops/SKAdNetwork"]);
     expect(viewerSettings).toContain("You/Your profile");
     expect(viewerSettings).not.toContain("Workspace/API keys");
     expect(viewerSettings).toEqual(expect.arrayContaining(["Project/General", "Project/Environments", "Project/Timezone & currency"]));

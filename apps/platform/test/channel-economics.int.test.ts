@@ -145,8 +145,8 @@ describe("CAC and LTV by channel", () => {
   });
 
   it("needs attribution.read and analytics.read, and keeps each organization to its own data", async () => {
-    const viewer: TenantContext = { ...A.ctx, role: "viewer" }; // analytics.read, no attribution.read
-    await expect(channelEconomicsReport(viewer, scope, range())).rejects.toBeInstanceOf(ForbiddenError);
+    const developer: TenantContext = { ...A.ctx, role: "developer" }; // analytics.read, no attribution.read
+    await expect(channelEconomicsReport(developer, scope, range())).rejects.toBeInstanceOf(ForbiddenError);
     const analyst: TenantContext = { ...A.ctx, role: "analyst" };
     const r = await channelEconomicsReport(analyst, scope, range());
     expect(r.window).toBe(90); // the default
