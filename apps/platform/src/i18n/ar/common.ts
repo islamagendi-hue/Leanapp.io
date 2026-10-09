@@ -109,6 +109,6 @@ const ar: Record<string, string> = {
   "Apps, environments, SDK, keys, events, integrations and webhooks.": "التطبيقات والبيئات و SDK والمفاتيح والأحداث والتكاملات وخطافات Webhooks.",
   "Analytics, funnels, retention, audiences, attribution and user profiles.": "التحليلات ومسارات التحويل والاحتفاظ والجماهير والإسناد وملفات المستخدمين.",
   "Audiences, automations, campaigns, analytics, users and attribution.": "الجماهير والأتمتة والحملات والتحليلات وملفات المستخدمين وتقارير الإسناد.",
-  "Read-only access to analytics, activation, audiences and user profiles.": "عرض فقط للتحليلات والتفعيل والجماهير والمستخدمين، دون أي تعديل.",
+  "Read-only access to analytics, activation, acquisition, attribution, audiences and user profiles.": "عرض فقط للتحليلات والتفعيل والاستحواذ والإسناد والجماهير والمستخدمين، دون أي تعديل.",
 };
 export default ar;
