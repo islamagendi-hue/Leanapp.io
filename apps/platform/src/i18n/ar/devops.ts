@@ -211,6 +211,14 @@ const ar: Record<string, string> = {
   Session: "الجلسة",
   Processed: "تمت المعالجة",
   Context: "السياق",
+  "Failed events ({days} days)": "الأحداث الفاشلة ({days} أيام)",
+  "An event whose processing failed is left out of every report until it is processed again.": "الحدث الذي فشلت معالجته يُستبعد من كل التقارير حتى تُعاد معالجته.",
+  "Retry failed events": "أعد معالجة الأحداث الفاشلة",
+  "Put up to {n} failed events back in the processing queue?": "إعادة ما يصل إلى {n} حدثًا فاشلًا إلى قائمة انتظار المعالجة؟",
+  "No failed events.": "لا توجد أحداث فاشلة.",
+  "Showing the newest {shown} of {total}.": "يُعرض أحدث {shown} من أصل {total}.",
+  "Queued for processing again. Refresh in a few seconds to see the result.": "أُعيدت إلى قائمة انتظار المعالجة. حدّث الصفحة بعد ثوانٍ لترى النتيجة.",
+  "No failed events to retry.": "لا توجد أحداث فاشلة لإعادة معالجتها.",
 
   // ── Validation (events) ────────────────────────────────────────────────────
   Validation: "التحقق",

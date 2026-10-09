@@ -42,6 +42,7 @@ export type AuditAction =
   | "event_mapping.accepted"
   | "event_mapping.rejected"
   | "event_mapping.reverted"
+  | "events.retried"
   | "property.described"
   | "dashboard.created"
   | "dashboard.updated"
