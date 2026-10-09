@@ -2,7 +2,20 @@
 
 App → Settings → Integrations (`/o/{org}/apps/{app}/settings/integrations`) lists every provider LeanApp knows, by category, with the status of **each capability** in the selected environment. There is no project-wide "connected" flag.
 
-Code: `apps/platform/src/modules/integrations/` (registry `registry.ts`, status rules `status.ts` and `center.ts`, tenant service `service.ts`, sync engine `sync.ts`, OAuth `oauth.ts`, ad adapters `ads/`). Migration `0035_integrations_center.sql`. Outbound conversion checks: `modules/attribution/conversions.ts` and `delivery.ts`.
+Code: `apps/platform/src/modules/integrations/` (registry `registry.ts`, connector map `connectors.ts`, status rules `status.ts` and `center.ts`, tenant service `service.ts`, sync engine `sync.ts`, OAuth `oauth.ts`, ad adapters `ads/`). Migrations `0035_integrations_center.sql`, `0040_provider_connectors.sql`. Outbound conversion checks: `modules/attribution/conversions.ts` and `delivery.ts`; Apple AdServices lookups: `modules/attribution/adservices.ts`. Meta specifics and the approvals only the owner can obtain: [meta-integration.md](meta-integration.md).
+
+## Connector architecture
+
+`connectors.ts` is the provider-agnostic map: each provider LeanApp has code for is one **connector** made of independent parts, each a capability with its own setup, provider permissions and status.
+
+| Part | Direction | Implemented by | Providers today |
+| --- | --- | --- | --- |
+| `auth` | — | OAuth app of LeanApp (`oauth.ts`) or pasted credentials; `none` when the provider needs none | Meta, Google, TikTok, Snapchat (oauth/manual); Apple AdServices (none) |
+| `costImport` | inbound | an `AdAdapter` (`ads/types.ts`) driven by `sync.ts` | Meta, Google, TikTok, Snapchat |
+| `eventDelivery` | outbound | a postback network (`attribution/networks.ts`) plus the postback settings that select a destination | Meta app events, Meta website events, Google click conversions, Google Enhanced Conversions, TikTok, Snap |
+| `attributionLookup` | inbound | `attribution/adservices.ts` | Apple Search Ads (AdServices) |
+
+**No part decides attribution.** Cost import writes spend; event delivery sends events the attribution engine has already attributed and queued; an attribution lookup stores what the provider reports (evidence `provider_reported`), which the engine may read. LeanApp's analytics and attribution work with no connector connected. A new provider is an adapter and/or a network, its capabilities in `registry.ts`, and an entry in `connectors.ts`; `connectors.test.ts` checks the three agree.
 
 ## Concepts
 
@@ -24,6 +37,8 @@ Inbound and outbound stay separate: Meta **ad reporting import** (Marketing API,
 | --- | --- |
 | Ad reporting import, cost import (Meta, Google Ads, TikTok, Snapchat) | `integration_capabilities` (verify / sync outcomes) |
 | Conversions API / postbacks | `attribution_postbacks` + last 30 days of `attribution_postback_deliveries` (last success, last failure, recent provider errors, skipped count) |
+| Meta website events; Google Enhanced Conversions | the same, counted only for postbacks with Event source `website` / `auto` (key `meta:website`) or with `send_user_data` on (key `google:enhanced`); a Meta postback set to `auto` counts for both Meta capabilities |
+| Apple AdServices lookup | `adservices_attributions` of the last 30 days: none → `not_configured`; tokens waiting → `unverified`; `verified` only after Apple answered (attributed or not); `error` when the latest outcome is a rejection or Apple error |
 | Push, email, WhatsApp | `integrations` rows (`last_error`, `live_verified_at`) — owned by the messaging module |
 | Webhooks | `webhooks` / `webhook_deliveries` |
 | SKAdNetwork | `skan_postbacks` received |
@@ -61,15 +76,41 @@ Shown only when the operator configured LeanApp's own provider app (env below); 
 Built on the existing postbacks ([attribution](attribution.md#postbacks)). Added in `conversions.ts` / `delivery.ts`, checked right before each send:
 
 - **Consent**: the user's or install's latest `attribution` consent (`consent_state`) is read at send time; denied → `skipped` (`consent_denied`), never sent.
-- **Eligibility**: Meta needs an `fbclid` or the install id (sent as `user_data.anon_id`); Snap needs a `ScCid`. Otherwise `skipped` (`no_match_key`).
-- **Payload validation** (Meta, Snap, TikTok): event name, `event_id` (deduplication key), integer Unix `event_time` not in the future and at most 7 days old, value ≥ 0 with a 3-letter currency, Meta app events need `app_data` and a non-empty `user_data`. Failing → `skipped` (`invalid_payload`) with the reason.
+- **Eligibility**: Meta app events need an `fbclid` or the install id (sent as `user_data.anon_id`); Meta website events need an `fbclid`, an `_fbp` / `_fbc` browser id or hashed user data; Snap needs a `ScCid`; Google needs a `gclid` / `gbraid` / `wbraid` or Enhanced Conversions user identifiers. Otherwise `skipped` (`no_match_key`).
+- **Payload validation** (Meta, Snap, TikTok): event name, `event_id` (deduplication key), integer Unix `event_time` not in the future and at most 7 days old, value ≥ 0 with a 3-letter currency, Meta app events need `app_data` and a non-empty `user_data`; Meta website events need `event_source_url`, `client_user_agent`, at least one match key, no `app_data`, and can't be installs; `em` / `ph` / `external_id` must be SHA-256 hex. Failing → `skipped` (`invalid_payload`) with the reason.
 - **Deduplication**: one delivery per postback and attribution / conversion (unique idempotency key), and every request carries that stable `event_id` (Google: `orderId`).
 - **Retries**: as before (1 min → 12 h), plus provider "try later" codes sent with HTTP 400 (Meta 1/2/4/17/32/613, TikTok 40100, Google RESOURCE_EXHAUSTED/UNAVAILABLE).
-- **Delivery log**: `skip_reason`, `provider_error_code` (e.g. Meta `100/2804050`), `provider_trace_id` (Meta `fbtrace_id`, Snap / TikTok `request_id`) and `request_summary` (endpoint without query string, event names and ids; never tokens), shown on the Postbacks page and summarised on the center card.
+- **Delivery log**: `skip_reason`, `provider_error_code` (e.g. Meta `100/2804050`), `provider_trace_id` (Meta `fbtrace_id`, Snap / TikTok `request_id`) and `request_summary` (endpoint without query string, event names and ids, Meta `action_source` and the *names* of the match keys sent, Google the *number* of user identifiers; never tokens, hashes or personal data), shown on the Postbacks page and summarised on the center card.
+
+### Meta website events (Pixel + Conversions API)
+
+A Meta postback has an **Event source** setting (`config.action_source`): `app` (default; Conversions API for app events, as before), `website`, or `auto` (events from the web SDK as website, others as app). Website events are sent with `action_source: "website"` and, read at send time from the stored event (`delivery.ts` `loadSendContext`; nothing is copied to the delivery row):
+
+| Field | Source |
+| --- | --- |
+| `event_id` | the LeanApp event's own `event_id`, so a browser Pixel that sends the same value as `eventID` is deduplicated by Meta |
+| `event_source_url` | event `properties.url`, `properties.page_url`, `context.page.url`, else `context.attribution.landing_url` (fragment dropped) |
+| `user_data.client_user_agent` | `context.user_agent` (required by Meta for website events; without it the delivery is skipped as `invalid_payload`) |
+| `user_data.fbp`, `fbc` | `context.attribution.fbp` / `fbc` of the event, else the visitor's latest earlier event within 90 days; `fbc` falls back to one built from the attributed `fbclid` |
+| `user_data.em`, `ph`, `external_id` | only with hashed user data allowed (below) |
+
+`client_ip_address` is not sent: LeanApp does not store visitors' IP addresses (only a keyed hash for clicks), so match quality relies on the browser ids and hashed data. An optional **Test event code** (`config.test_event_code`) sends to Events Manager → Test events; the Postbacks page flags postbacks that carry one.
+
+### Hashed user data (Meta advanced matching, Google Enhanced Conversions)
+
+Setting `config.send_user_data` on Meta and Google postbacks: `off` (default), `with_consent` (only users whose latest `attribution` consent is granted), `unless_denied`. The values are the `email` and `phone` user properties (identify traits) and the user id; they are normalised and SHA-256 hashed in memory just before the request (Meta: lowercase trimmed email, phone digits with country code; Google: also drops dots before `@gmail.com` / `@googlemail.com`, phone in E.164). Phones without a country code are dropped, never guessed.
+
+**Google Enhanced Conversions**: with `send_user_data` on, `uploadClickConversions` gets `userIdentifiers` (`hashedEmail`, `hashedPhoneNumber`, `userIdentifierSource: FIRST_PARTY`). A conversion with no Google click id but with identifiers is uploaded on them alone (enhanced conversions for leads); identifiers are not combined with `gbraid` / `wbraid`. `consent.adUserData: GRANTED` is sent only when the user's consent is explicitly granted, never assumed. Which conversions reach a Google postback is still decided by the engine and the postback's sources (to send conversions attributed to other sources, list them under "Only these sources").
+
+## Apple Search Ads attribution (AdServices)
+
+The iOS SDK sends `AAAttribution.attributionToken()` (iOS 14.3+) once as `context.attribution.adservices_token`. The scheduled worker (`runAttributionJobs` → `runAdServicesJobs`) scans newly stored events by id (a cursor in `adservices_scan_state`, starting at the newest event when the migration runs; events younger than 2 minutes wait for the next run), queues one lookup per token per environment (`adservices_attributions`, deduplicated by SHA-256), and posts the token as `text/plain` to `https://api-adservices.apple.com/api/v1/`. Apple's answer (`attribution`, `orgId`, `campaignId`, `adGroupId`, `keywordId`, `adId`, `countryOrRegion`, `conversionType`, `claimType`, `clickDate` when present) is stored; HTTP 404 (token not ready) and 5xx are retried on later runs (1 min → 6 h) until the token's 24 hours are up (`expired`); 400 is final (`failed`). Users who denied `attribution` consent are `skipped` and never looked up. The token is cleared once the lookup is final and is not readable by the tenant database role. No credentials are needed. `APPLE_ADSERVICES_LOOKUP=off` turns the step off.
+
+This is provider-reported data: it creates no touchpoint and changes no attribution. `adServicesAttributionFor(db, environmentId, anonymousId)` is the read the attribution engine can use as `provider_reported` evidence.
 
 ## Simulated vs live
 
-Everything above is tested with local fakes (`src/modules/integrations/**/*.test.ts`, `src/modules/attribution/conversions.test.ts`, `test/integrations.int.test.ts`): request shapes, paging, parsing, retries, error classification, status transitions, spend import, OAuth state handling, consent skipping. **None of it has been run against Meta, Google, TikTok or Snap**: no account or app exists yet. Endpoint paths follow each provider's published documentation; the Meta Graph default version (`v23.0`) and the Google Ads version you enter must be checked against the providers' current release notes. A capability turns `verified` only after a real call succeeds in production.
+Everything above is tested with local fakes (`src/modules/integrations/**/*.test.ts`, `src/modules/attribution/conversions.test.ts`, `adservices.test.ts`, `test/integrations.int.test.ts`, `test/provider-connectors.int.test.ts`): request shapes, paging, parsing, retries, error classification, status transitions, spend import, OAuth state handling, consent skipping, Meta website events, hashing and Enhanced Conversions, AdServices lookups. **None of it has been run against Meta, Google, TikTok, Snap or Apple**: no account or app exists yet. Endpoint paths follow each provider's published documentation; the Meta Graph default version (`v23.0`) and the Google Ads version you enter must be checked against the providers' current release notes. A capability turns `verified` only after a real call succeeds in production.
 
 ## Owner actions
 
@@ -80,10 +121,16 @@ Everything above is tested with local fakes (`src/modules/integrations/**/*.test
    - **TikTok**: TikTok for Business developer app with Reporting scope, redirect URI `…/integrations/oauth/tiktok_ads/callback`; set `TIKTOK_APP_ID`, `TIKTOK_APP_SECRET`.
    - **Snapchat**: Snap Business Manager OAuth app (Marketing API), redirect URI `…/integrations/oauth/snapchat_ads/callback`; set `SNAPCHAT_CLIENT_ID`, `SNAPCHAT_CLIENT_SECRET`.
 3. Live verification, per provider, with a real ad account: connect, **Test connection**, turn on ad reporting, **Import now**, compare a day's spend with the provider's UI, then turn on cost import. For Meta / Snap CAPI, send a test install from a link with `fbclid` / `ScCid` and check the network's events manager.
-4. Then update the "not verified" notes here and in [attribution](attribution.md).
+4. Meta website events: follow [meta-integration.md](meta-integration.md) (dataset / Pixel, system user token, Test events code, Event Match Quality, Pixel `eventID` deduplication).
+5. Google Enhanced Conversions: in Google Ads, turn on enhanced conversions for the conversion action (and accept the customer data terms) before setting `send_user_data`; upload a test conversion and check the conversion action's diagnostics. For EEA traffic, make sure the app records `attribution` consent so `adUserData` can be sent as granted.
+6. Apple Search Ads: run an Apple Search Ads campaign for the iOS app with the SDK sending the token; confirm an `attributed` row in `adservices_attributions` matches the campaign id in the Apple Search Ads UI. No Apple credentials are needed for the lookup itself.
+7. Then update the "not verified" notes here and in [attribution](attribution.md).
 
 ## Hooks for other workstreams
 
 - **Messaging providers**: `messagingDescriptors()` in `registry.ts` is the hook; replace its body with a mapping from the messaging provider registry when it lands. Status already reads any provider row in `platform.integrations`.
 - **Channel registry / CPA**: imported cost lands in `ad_spend_daily` (`origin = 'import'`), so anything reading that table includes it.
 - **Billing**: the Stripe card reads `paymentsConnected()`; a richer billing status can be plugged into `centerData`.
+- **Web SDK** (sdks/javascript): Meta website events need `context.user_agent` on events and `context.attribution.fbp` / `fbc` (from the `_fbp` / `_fbc` cookies) at least on a session's first event; the page URL as `properties.url` or `context.attribution.landing_url`.
+- **iOS SDK**: `context.attribution.adservices_token` once per install (the ingestion schema caps attribution values at 1,000 characters).
+- **Attribution engine**: may read `adServicesAttributionFor()` as provider-reported evidence for iOS installs; web conversions reach Meta / Google postbacks as soon as the engine queues deliveries for them (delivery reads the conversion's own event).

@@ -37,7 +37,10 @@ export type CapabilityId =
   | "ad_reporting"
   | "spend_import"
   | "conversions_outbound"
+  | "web_conversions_outbound"
+  | "enhanced_conversions"
   | "skan_postbacks"
+  | "adservices_attribution"
   | "tracking_links"
   | "deep_links"
   | "custom_postbacks"
@@ -122,18 +125,34 @@ export const PROVIDERS: ProviderDescriptor[] = [
   {
     id: "meta_ads", name: "Meta Ads", category: "advertising", implementation: "built",
     docsUrl: "https://developers.facebook.com/docs/marketing-api/insights",
-    capabilities: adCapabilities("meta_ads", ["ads_read"], {
-      title: msg("Meta Conversions API"), perms: [msg("Dataset access token")],
-      requirements: [msg("Dataset (app) ID"), msg("Conversions API access token")],
-    }),
+    capabilities: [
+      ...adCapabilities("meta_ads", ["ads_read"], {
+        title: msg("Meta Conversions API: app events"), perms: [msg("Dataset access token")],
+        requirements: [msg("Dataset (app) ID"), msg("Conversions API access token")],
+      }),
+      {
+        id: "web_conversions_outbound", direction: "outbound", title: msg("Meta Pixel and Conversions API: website events"),
+        description: msg("Sends attributed website conversions with the page URL, browser user agent, _fbp / _fbc browser ids and, if you allow it, hashed email and phone. Uses the event's own id, so a browser Pixel sending the same id as eventID is counted once."),
+        requirements: [msg("A Meta postback with Event source set to website or by platform"), msg("Pixel (dataset) ID and Conversions API access token"), msg("The web SDK sending the page URL and user agent")],
+        providerPermissions: [msg("Dataset access token")], setupPath: postbacks, perm: "attribution.read",
+      },
+    ],
   },
   {
     id: "google_ads", name: "Google Ads", category: "advertising", implementation: "built",
     docsUrl: "https://developers.google.com/google-ads/api/docs/start",
-    capabilities: adCapabilities("google_ads", ["https://www.googleapis.com/auth/adwords"], {
-      title: msg("Google Ads click conversions"), perms: ["https://www.googleapis.com/auth/adwords"],
-      requirements: [msg("Customer ID and conversion action"), msg("Developer token and OAuth refresh token")],
-    }),
+    capabilities: [
+      ...adCapabilities("google_ads", ["https://www.googleapis.com/auth/adwords"], {
+        title: msg("Google Ads click conversions"), perms: ["https://www.googleapis.com/auth/adwords"],
+        requirements: [msg("Customer ID and conversion action"), msg("Developer token and OAuth refresh token")],
+      }),
+      {
+        id: "enhanced_conversions", direction: "outbound", title: msg("Google Ads Enhanced Conversions"),
+        description: msg("Adds SHA-256 hashed email and phone to uploaded conversions, and uploads conversions without a click id when they have them. Only for users your setting and their consent allow."),
+        requirements: [msg("A Google Ads postback with enhanced conversions turned on"), msg("Enhanced conversions turned on for the conversion action in Google Ads"), msg("email or phone user properties")],
+        providerPermissions: ["https://www.googleapis.com/auth/adwords"], setupPath: postbacks, perm: "attribution.read",
+      },
+    ],
   },
   {
     id: "tiktok_ads", name: "TikTok Ads", category: "advertising", implementation: "built",
@@ -159,6 +178,17 @@ export const PROVIDERS: ProviderDescriptor[] = [
       description: msg("Developer copies of Apple's install postbacks, decoded with your conversion value schema."),
       requirements: [msg("NSAdvertisingAttributionReportEndpoint set in the iOS app")], providerPermissions: [],
       setupPath: "settings/dev-ops/attribution/skan", perm: "attribution.read",
+    }],
+  },
+  {
+    id: "apple_search_ads", name: "Apple Search Ads", category: "attribution", implementation: "built",
+    docsUrl: "https://developer.apple.com/documentation/adservices",
+    capabilities: [{
+      id: "adservices_attribution", direction: "inbound", title: msg("AdServices attribution lookup"),
+      description: msg("Asks Apple whether an iOS install came from an Apple Search Ads campaign, using the token the iOS SDK collects once. Apple's answer is stored as provider-reported data; it doesn't change other attribution."),
+      requirements: [msg("LeanApp iOS SDK sending the AdServices token (iOS 14.3 or later)")], providerPermissions: [],
+      // Nothing to configure on the LeanApp side: the SDK setup is where it starts.
+      setupPath: "settings/dev-ops/sdk", perm: "credentials.read",
     }],
   },
   // Descriptor-only advertising providers: official APIs exist; LeanApp does not call them yet.

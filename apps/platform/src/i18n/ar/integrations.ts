@@ -184,6 +184,45 @@ const ar: Record<string, string> = {
   "Not sent: the event breaks the network's rules:": "لم يُرسَل: الحدث يخالف قواعد الشبكة:",
   "Provider code": "رمز المزوّد",
   trace: "التتبّع",
+
+  // ── Meta website events, Google Enhanced Conversions, Apple AdServices ─────
+  "Off: send no email, phone or user id": "إيقاف: لا يُرسَل بريد ولا هاتف ولا معرّف مستخدم",
+  "Only when the user granted attribution consent": "فقط عندما يوافق المستخدم على الإسناد",
+  "Unless the user denied attribution consent": "ما لم يرفض المستخدم الموافقة على الإسناد",
+  "For website events this is the dataset of your Meta Pixel (the Pixel ID).": "لأحداث الموقع، هذه هي مجموعة بيانات Meta Pixel الخاصة بك (معرّف Pixel).",
+  "Event source": "مصدر الحدث",
+  "App events (Conversions API for apps)": "أحداث التطبيق (Conversions API للتطبيقات)",
+  "Website events (Pixel + Conversions API)": "أحداث الموقع (Pixel مع Conversions API)",
+  "By platform: web SDK events as website, others as app": "حسب المنصة: أحداث SDK الويب كموقع، والباقي كتطبيق",
+  "Hashed user data (advanced matching)": "بيانات المستخدم المجزّأة (المطابقة المتقدّمة)",
+  "SHA-256 hashes of the email and phone user properties and the user id.": "تجزئات SHA-256 لخاصيتَي البريد والهاتف للمستخدم ولمعرّف المستخدم.",
+  "Test event code (optional)": "رمز حدث الاختبار (اختياري)",
+  "From Events Manager → Test events. Events sent with it appear there and are not used for ads; remove it when done.":
+    "من Events Manager ← Test events. الأحداث المرسلة به تظهر هناك ولا تُستخدم للإعلانات؛ احذفه عند الانتهاء.",
+  "Enhanced conversions (hashed email and phone)": "التحويلات المحسّنة (بريد وهاتف مجزّآن)",
+  "Turn on enhanced conversions for this conversion action in Google Ads first.": "فعّل التحويلات المحسّنة لإجراء التحويل هذا في Google Ads أولًا.",
+  "Meta Conversions API: app events": "Meta Conversions API: أحداث التطبيق",
+  "Meta Pixel and Conversions API: website events": "Meta Pixel وConversions API: أحداث الموقع",
+  "Sends attributed website conversions with the page URL, browser user agent, _fbp / _fbc browser ids and, if you allow it, hashed email and phone. Uses the event's own id, so a browser Pixel sending the same id as eventID is counted once.":
+    "يرسل تحويلات الموقع المُسنَدة مع رابط الصفحة ووكيل المستخدم للمتصفح ومعرّفَي المتصفح _fbp / _fbc، ومع البريد والهاتف مجزّأين إن سمحت بذلك. يستخدم معرّف الحدث نفسه، فإذا أرسل Pixel في المتصفح المعرّف نفسه كـ eventID يُحتسَب الحدث مرة واحدة.",
+  "A Meta postback with Event source set to website or by platform": "Postback لـ Meta مع ضبط مصدر الحدث على الموقع أو حسب المنصة",
+  "Pixel (dataset) ID and Conversions API access token": "معرّف Pixel (مجموعة البيانات) ورمز وصول Conversions API",
+  "The web SDK sending the page URL and user agent": "SDK الويب يرسل رابط الصفحة ووكيل المستخدم",
+  "Google Ads Enhanced Conversions": "التحويلات المحسّنة في Google Ads",
+  "Adds SHA-256 hashed email and phone to uploaded conversions, and uploads conversions without a click id when they have them. Only for users your setting and their consent allow.":
+    "يضيف البريد والهاتف مجزّأين بـ SHA-256 إلى التحويلات المرفوعة، ويرفع التحويلات التي بلا معرّف نقرة إن توفّرا. فقط للمستخدمين الذين يسمح بهم إعدادك وموافقتهم.",
+  "A Google Ads postback with enhanced conversions turned on": "Postback لـ Google Ads مع تفعيل التحويلات المحسّنة",
+  "Enhanced conversions turned on for the conversion action in Google Ads": "تفعيل التحويلات المحسّنة لإجراء التحويل في Google Ads",
+  "email or phone user properties": "خاصية البريد أو الهاتف للمستخدم",
+  "AdServices attribution lookup": "استعلام إسناد AdServices",
+  "Asks Apple whether an iOS install came from an Apple Search Ads campaign, using the token the iOS SDK collects once. Apple's answer is stored as provider-reported data; it doesn't change other attribution.":
+    "يسأل Apple إن كان تثبيت iOS قد جاء من حملة Apple Search Ads، باستخدام الرمز الذي يجمعه SDK الخاص بـ iOS مرة واحدة. يُخزَّن ردّ Apple كبيانات يبلّغ عنها المزوّد، ولا يغيّر الإسناد الآخر.",
+  "LeanApp iOS SDK sending the AdServices token (iOS 14.3 or later)": "SDK الخاص بـ LeanApp على iOS يرسل رمز AdServices (iOS 14.3 أو أحدث)",
+  "No AdServices token received in the last 30 days.": "لم يُستلَم أي رمز AdServices خلال آخر 30 يومًا.",
+  "Test event code set: Meta shows these events under Test events only.": "رمز حدث الاختبار مضبوط: تعرض Meta هذه الأحداث في Test events فقط.",
+  "choose one of the listed values.": "اختر إحدى القيم المدرجة.",
+  "Apple Search Ads installs are reported by Apple's AdServices API: LeanApp looks up the token the iOS SDK sends and stores Apple's answer (Settings → Integrations). A link only covers web traffic.":
+    "تُبلِغ واجهة AdServices من Apple عن تثبيتات Apple Search Ads: يستعلم LeanApp عن الرمز الذي يرسله SDK الخاص بـ iOS ويخزّن ردّ Apple (الإعدادات ← التكاملات). الرابط يغطي حركة الويب فقط.",
 };
 
 export default ar;
