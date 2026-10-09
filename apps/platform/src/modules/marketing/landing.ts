@@ -304,7 +304,7 @@ const EN = {
   flowLabel: "Product flow",
   demo: {
     title: "From one event to a full dashboard",
-    lead: "Pick an event and the reports fill in: key numbers, a daily trend, the order funnel and where installs come from.",
+    lead: "Pick an event and the reports fill in: key numbers, a daily trend, the order funnel and where sign ups come from.",
     note: "Sample data from the demo food delivery app.",
     cta: "Open the live demo",
     alt: "Animation: a sample dashboard builds itself. An event is picked, four key numbers count up, orders per day draw in, then the order funnel and acquisition by source fill in.",
@@ -419,7 +419,7 @@ const AR: typeof EN = {
   flowLabel: "رحلة المنتج",
   demo: {
     title: "من حدث واحد إلى لوحة كاملة",
-    lead: "اختر حدثًا فتمتلئ التقارير: الأرقام الأساسية، والاتجاه اليومي، ومسار الطلب، ومصادر التثبيت.",
+    lead: "اختر حدثًا فتمتلئ التقارير: الأرقام الأساسية، والاتجاه اليومي، ومسار الطلب، ومصادر التسجيلات.",
     note: "بيانات تجريبية من تطبيق توصيل الطعام في العرض.",
     cta: "افتح العرض المباشر",
     alt: "رسم متحرك: لوحة متابعة تجريبية تبني نفسها. يُختار حدث، ثم تعدّ أربعة أرقام أساسية، ويُرسم خط الطلبات اليومية، ثم يمتلئ مسار الطلب والاستحواذ حسب المصدر.",
