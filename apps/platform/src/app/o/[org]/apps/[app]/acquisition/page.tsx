@@ -23,7 +23,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
   requirePermission(ctx, "attribution.read");
   const env = await pickEnvironment(environments, sp.env);
   const rangeInput = rangeFromParams(toSearch(sp));
-  const model = sp.model === "first_touch" || sp.model === "last_touch" ? sp.model : undefined;
+  const model = sp.model === "first_touch" || sp.model === "last_touch" || sp.model === "last_non_direct" ? sp.model : undefined;
   const spendAccess = can(ctx.role, "analytics.read");
   const [r, { report: ch, dashboard }] = await Promise.all([
     attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, rangeInput),
@@ -56,6 +56,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
           <select name="model" className="input" defaultValue={ch.model}>
             <option value="last_touch">{tr("Last touch")}</option>
             <option value="first_touch">{tr("First touch")}</option>
+            <option value="last_non_direct">{tr("Last non-direct touch")}</option>
           </select>
         </label>
       </AcquisitionRange>

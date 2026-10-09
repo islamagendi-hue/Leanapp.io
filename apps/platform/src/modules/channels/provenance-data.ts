@@ -24,7 +24,9 @@ const SIGNUP = "^(sign_?up|signup_completed|sign_up_completed|registration|regis
 
 /** The conversion's credited attribution under a model; unknown models fall back to last touch. */
 export function creditColumn(model: CreditModel): string {
-  return model === "first_touch" ? "case when c.first_touch_recorded then c.first_attribution_event_id else c.attribution_event_id end" : "c.attribution_event_id";
+  return model === "first_touch" ? "case when c.first_touch_recorded then c.first_attribution_event_id else c.attribution_event_id end"
+    : model === "last_non_direct" ? "case when c.last_non_direct_recorded then c.last_non_direct_attribution_event_id else c.attribution_event_id end"
+    : "c.attribution_event_id";
 }
 
 const num = (v: unknown) => Number(v ?? 0);

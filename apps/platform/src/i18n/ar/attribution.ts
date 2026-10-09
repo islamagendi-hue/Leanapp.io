@@ -5,7 +5,7 @@ const attribution: Record<string, string> = {
   "Channels with their own window below use that one instead.": "القنوات التي لها نافذة خاصة أدناه تستخدم نافذتها بدلًا من ذلك.",
   "Conversions this long after the install, re-engagement or web touch are credited to its source. Default 90.":
     "تُنسب التحويلات التي تقع خلال هذه المدة بعد التثبيت أو إعادة التفاعل أو زيارة الويب إلى مصدرها. الافتراضي 90.",
-  "Last non-direct touch": "آخر نقطة تواصل غير مباشرة",
+  "Last non-direct touch": "آخر نقطة تواصل غير الزيارة المباشرة",
   "last non-direct touch": "آخر نقطة تواصل غير مباشرة",
   "Every model is always available on Sources & campaigns; this is the one it shows first. First touch is the person's earliest install, re-engagement or web touch within the conversion window. Last non-direct touch is the latest one with a known source: a later direct, organic or unattributed visit or install never takes the credit away from it.":
     "كل النماذج متاحة دائمًا في المصادر والحملات؛ وهذا هو النموذج الذي يظهر أولًا. أول نقطة تواصل هي أقدم تثبيت أو إعادة تفاعل أو زيارة ويب للشخص ضمن نافذة التحويل. آخر نقطة تواصل غير مباشرة هي أحدثها من مصدر معروف: الزيارة أو التثبيت اللاحق المباشر أو العضوي أو غير المنسوب لا يسلبها الإسناد أبدًا.",
