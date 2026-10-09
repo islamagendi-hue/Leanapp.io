@@ -10,7 +10,7 @@ const ar: Record<string, string> = {
   Password: "كلمة المرور",
   "Forgot your password?": "نسيت كلمة المرور؟",
   "Create your account": "أنشئ حسابك",
-  "Answer a few questions, get your tracking plan, send your first event.": "أجب عن بضعة أسئلة، واحصل على خطة التتبّع، وأرسل أول حدث.",
+  "Answer a few questions about your app, get your tracking plan, then send your first event to LeanApp.": "أجب عن بضعة أسئلة حول تطبيقك، واحصل على خطة التتبّع الخاصة بك، ثم أرسل أول حدث إلى LeanApp.",
   "Already have an account?": "لديك حساب بالفعل؟",
   "Create account": "أنشئ الحساب",
   "Creating…": "جارٍ الإنشاء…",
@@ -18,7 +18,7 @@ const ar: Record<string, string> = {
   "Work email": "بريد العمل الإلكتروني",
   "At least 10 characters with letters and a number.": "10 أحرف على الأقل، تتضمن حروفًا ورقمًا.",
   "Reset your password": "أعد تعيين كلمة المرور",
-  "We'll email you a link to choose a new one.": "سنرسل إليك رابطًا عبر البريد الإلكتروني لاختيار كلمة مرور جديدة.",
+  "We'll email you a link to choose a new one.": "سنرسل إلى بريدك رابطًا لاختيار كلمة مرور جديدة.",
   "Back to sign in": "العودة إلى تسجيل الدخول",
   "Send reset link": "أرسل رابط إعادة التعيين",
   "Sending…": "جارٍ الإرسال…",
@@ -56,8 +56,8 @@ const ar: Record<string, string> = {
   "LeanApp live demo": "العرض التجريبي المباشر لـ LeanApp",
   "Want your own app in it?": "تريد إضافة تطبيقك؟",
   "Create a free account": "أنشئ حسابًا مجانيًا",
-  "Explore a food delivery app with 30 days of sample data: Overview, funnels, retention, users and acquisition. It is read-only and nothing in it is real.":
-    "استكشف تطبيق توصيل طعام فيه بيانات تجريبية لآخر 30 يومًا: النظرة العامة ومسارات التحويل والاحتفاظ والمستخدمون والاستحواذ. للعرض فقط، ولا شيء فيه حقيقي.",
+  "Explore a sample food delivery app with 30 days of data: Overview, funnels, retention, users and acquisition. You can only view it, and nothing in it is real.":
+    "استكشف تطبيق توصيل طعام تجريبيًا فيه بيانات لآخر 30 يومًا: النظرة العامة ومسارات التحويل والاحتفاظ والمستخدمون والاستحواذ. يمكنك الاطلاع عليه فقط، ولا شيء فيه حقيقي.",
   "The demo couldn't open. Please try again in a minute.": "تعذّر فتح العرض التجريبي. حاول مرة أخرى بعد دقيقة.",
   "Open the demo": "افتح العرض التجريبي",
   "The demo isn't switched on here.": "العرض التجريبي غير مفعّل هنا.",

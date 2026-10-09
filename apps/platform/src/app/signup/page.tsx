@@ -16,7 +16,7 @@ export default async function SignUpPage(props: PageProps<"/signup">) {
   if (await currentUser()) redirect(next ?? "/onboarding");
   const t = await getT();
   return (
-    <AuthShell title={t("Create your account")} subtitle={t("Answer a few questions, get your tracking plan, send your first event.")} footer={<>{t("Already have an account?")} <Link className="underline" href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`}>{t("Sign in")}</Link></>}>
+    <AuthShell title={t("Create your account")} subtitle={t("Answer a few questions about your app, get your tracking plan, then send your first event to LeanApp.")} footer={<>{t("Already have an account?")} <Link className="underline" href={`/login${next ? `?next=${encodeURIComponent(next)}` : ""}`}>{t("Sign in")}</Link></>}>
       <ActionForm action={signUpAction} submitLabel={t("Create account")} pendingLabel={t("Creating…")}>
         {next && <input type="hidden" name="next" value={next} />}
         <div>
