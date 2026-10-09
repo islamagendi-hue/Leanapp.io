@@ -18,7 +18,12 @@ import { numeric, type Params } from "./sql";
  * individually). People and stitching follow the other reports.
  */
 
-export const REVENUE_BREAKDOWNS = ["platform", "event"] as const;
+export const REVENUE_BREAKDOWNS = ["platform", "event", "channel"] as const;
+
+/** Channel keys for people with no attributed source (shown translated). */
+export const CHANNEL_ORGANIC = "organic";
+export const CHANNEL_UNKNOWN = "(unknown)";
+export const CHANNEL_NO_INSTALL = "(no install on record)";
 
 export const revenueSchema = z.object({
   ...rangeFields,
@@ -102,7 +107,25 @@ function groupExpr(breakdown: string | undefined, p: Params): string {
   if (!breakdown) return "'All'";
   if (breakdown === "platform") return "coalesce(platform, '(none)')";
   if (breakdown === "event") return "name";
+  if (breakdown === "channel") return channelExpr();
   return `coalesce(properties->>${p.add(breakdown.slice("property:".length))}, '(none)')`;
+}
+
+/**
+ * The acquisition channel of the person behind a transaction: the source of
+ * their latest install or reinstall attribution at or before it (last touch),
+ * labelled like the Acquisition reports. The install is found by the person's
+ * user_id, their anonymous_id, or an install linked to their user_id.
+ */
+function channelExpr(): string {
+  return `coalesce((
+      select coalesce(ae.source, case when ae.match_type = 'organic' then '${CHANNEL_ORGANIC}' else '${CHANNEL_UNKNOWN}' end)
+        from platform.attribution_events ae
+       where ae.environment_id = $1 and ae.kind in ('install', 'reinstall') and ae.occurred_at <= tx.ts
+         and (ae.user_id = tx.person
+              or 'anon:' || ae.anonymous_id = tx.person
+              or ae.anonymous_id in (select il.anonymous_id from platform.identity_links il where il.environment_id = $1 and il.user_id = tx.person))
+       order by ae.occurred_at desc limit 1), '${CHANNEL_NO_INSTALL}')`;
 }
 
 const round = (n: number) => Math.round(n * 100) / 100;

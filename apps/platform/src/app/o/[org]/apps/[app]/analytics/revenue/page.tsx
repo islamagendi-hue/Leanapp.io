@@ -7,7 +7,7 @@ import { CohortSelect } from "@/components/CohortSelect";
 import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { TrendChart } from "@/components/TrendChart";
-import { NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport } from "@/modules/analytics/revenue";
+import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN, NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport } from "@/modules/analytics/revenue";
 import { FALLBACK_PROPERTY } from "@/modules/analytics/revenue-rules";
 import { rangeLabel, rangePhrase } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
@@ -21,7 +21,8 @@ export async function generateMetadata() {
   return { title: t("Revenue") };
 }
 
-const BREAKDOWN_LABELS: Record<string, string> = { platform: msg("Platform"), event: msg("Event") };
+const BREAKDOWN_LABELS: Record<string, string> = { platform: msg("Platform"), event: msg("Event"), channel: msg("Channel") };
+const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic"), [CHANNEL_UNKNOWN]: msg("Unknown source"), [CHANNEL_NO_INSTALL]: msg("No install on record") };
 const INTERVAL_NAMES: Record<string, string> = { day: msg("day"), week: msg("week"), month: msg("month") };
 const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cur = (t: T, c: string) => (c === NO_CURRENCY ? t("No currency") : c);
@@ -112,6 +113,9 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
 
           {r.breakdown && (
             <section className="card overflow-x-auto p-0">
+              {r.breakdownBy === "channel" && (
+                <p className="px-5 pt-4 text-sm text-ink-3">{t("Channel is where each paying person came from: the source of their latest install before the purchase, as in Acquisition.")}</p>
+              )}
               <table className="table">
                 <thead>
                   <tr>
@@ -123,7 +127,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
                 <tbody>
                   {r.breakdown.map((g) => (
                     <tr key={`${g.currency}-${g.key}`}>
-                      <td className="font-mono text-sm">{g.key === "(none)" ? t("(none)") : g.key}</td>
+                      <td className="font-mono text-sm">{g.key === "(none)" ? t("(none)") : r.breakdownBy === "channel" && CHANNEL_LABELS[g.key] ? t(CHANNEL_LABELS[g.key]) : g.key}</td>
                       <td>{cur(t, g.currency)}</td>
                       <td className="text-end tabular-nums">{money(g.gross)}</td>
                       <td className="text-end tabular-nums">{g.refunds ? `−${money(g.refunds)}` : ""}</td>

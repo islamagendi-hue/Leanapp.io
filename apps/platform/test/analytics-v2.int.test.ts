@@ -99,6 +99,32 @@ describe("revenue", () => {
     const byProduct = await revenueReport(A.ctx, scope, { days: 30, breakdown: "property:product" });
     expect(byProduct.breakdown!.filter((g) => g.currency === "SAR").map((g) => [g.key, g.net])).toEqual([["shoes", 100], ["(none)", -43], ["bag", 50]].sort((a, b) => Number(b[1]) - Number(a[1])));
   });
+
+  it("breaks down by acquisition channel: the person's latest install before each purchase", async () => {
+    await withSystem(async (db) => {
+      await db.query("delete from platform.attribution_events where environment_id = $1", [A.dev.id]);
+      const env = (await db.one<{ organization_id: string; app_id: string }>("select organization_id, app_id from platform.environments where id = $1", [A.dev.id]))!;
+      const install = (anon: string, n: number, matchType: string, source: string | null) =>
+        db.query(
+          `insert into platform.attribution_events (organization_id, app_id, environment_id, kind, anonymous_id, occurred_at, match_type, source)
+           values ($1, $2, $3, 'install', $4, $5, $6, $7)`,
+          [env.organization_id, env.app_id, A.dev.id, anon, daysAgo(n, 11), matchType, source],
+        );
+      await install("a1", 6, "deterministic", "tiktok"); // u1 through the stitched install
+      await install("a2", 5, "organic", null); // u2
+      await install("a3", 0, "deterministic", "meta"); // after a3's tip, so it doesn't count
+    });
+    const r = await revenueReport(A.ctx, scope, { days: 30, breakdown: "channel" });
+    const rows = r.breakdown!.map((g) => [g.currency, g.key, g.net]);
+    expect(rows).toEqual(expect.arrayContaining([
+      ["SAR", "tiktok", 100],
+      ["SAR", "(no install on record)", 7],
+      ["USD", "tiktok", 10],
+      ["USD", "organic", 20],
+      [NO_CURRENCY, "(no install on record)", 5],
+    ]));
+    expect(rows).toHaveLength(5);
+  });
 });
 
 describe("user profiles", () => {
