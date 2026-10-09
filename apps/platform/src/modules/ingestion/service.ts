@@ -9,14 +9,18 @@ import { eventAllowance, noteEventsAccepted } from "@/modules/billing/enforcemen
 import { retryAfterSeconds } from "@/modules/billing/limits";
 import { recordUsage } from "@/modules/usage/service";
 import { effectiveConsent, loadStateRows, recordConsentChanges, userKeysOf } from "@/modules/privacy/consent";
+import { deletedSubjectFilter, lockTombstonesShared } from "@/modules/privacy/tombstones";
 import { batchSchema, normalizeEvent, type NormalizedEvent, type NormalizeIssue } from "./schema";
 
 export interface IngestResponse {
   batch_id: string;
   accepted: number;
   duplicates: number;
-  /** `reason: "consent_denied"`: valid, but the user denied analytics consent, so it was not stored. */
-  rejected: { index: number; event_id?: string; reason?: "consent_denied"; errors: NormalizeIssue[] }[];
+  /**
+   * `reason: "consent_denied"`: valid, but the user denied analytics consent, so it was not stored.
+   * `reason: "subject_deleted"`: valid, but its user (or anonymous install) was deleted by a privacy request, so it was not stored.
+   */
+  rejected: { index: number; event_id?: string; reason?: "consent_denied" | "subject_deleted"; errors: NormalizeIssue[] }[];
   warnings: { index: number; warnings: NormalizeIssue[] }[];
 }
 
@@ -44,6 +48,12 @@ export const PLAN_GRACE_HEADER = "X-LeanApp-Plan-Limit";
  *     reported as rejected with reason `consent_denied`. Where attribution is
  *     denied, `context.attribution` is removed before storing. One
  *     primary-key lookup per batch.
+ *
+ * Privacy deletions (modules/privacy/tombstones): events (consent changes
+ * included) carrying a deleted user_id, and an install's anonymous events (no
+ * user_id) once its anonymous activity was deleted, are not stored: they are
+ * reported as rejected with reason `subject_deleted`. Checked before consent,
+ * with one primary-key lookup per batch.
  *
  * Idempotency:
  *   - Per event: unique (environment_id, event_id). Retried events are counted
@@ -143,9 +153,23 @@ export async function ingest(
     const body = await withSystem(async (db) => {
       const scope = { organizationId: principal.organizationId, environmentId: principal.environmentId };
       let accepted = 0;
+      // 0. Drop everything of deleted users and installs, consent changes included.
+      let subjectDeleted = 0;
+      let live = valid;
+      if (valid.length) {
+        await lockTombstonesShared(db, principal.environmentId);
+        const isDeleted = await deletedSubjectFilter(db, principal.environmentId, valid);
+        live = valid.filter((e) => {
+          if (!isDeleted(e)) return true;
+          subjectDeleted++;
+          rejected.push({ index: e.index, event_id: e.event_id, reason: "subject_deleted", errors: [{ field: "", message: "this user or install was deleted by a privacy request; not stored" }] });
+          return false;
+        });
+        if (subjectDeleted) rejected.sort((a, b) => a.index - b.index);
+      }
       // 1. Consent changes first, so the rest of the batch is judged by them.
-      const changes = valid.filter((v) => v.type === "consent");
-      let events = valid.filter((v) => v.type !== "consent");
+      const changes = live.filter((v) => v.type === "consent");
+      let events = live.filter((v) => v.type !== "consent");
       if (changes.length) {
         const recorded = await recordConsentChanges(
           db,
@@ -201,7 +225,7 @@ export async function ingest(
       const response: IngestResponse = {
         batch_id: batchId,
         accepted,
-        duplicates: valid.length - consentDenied - accepted + inBatchDuplicates,
+        duplicates: valid.length - subjectDeleted - consentDenied - accepted + inBatchDuplicates,
         rejected,
         warnings,
       };
@@ -219,8 +243,8 @@ export async function ingest(
     });
     // 207-style semantics without 207: the batch was processed; per-event errors are in the body.
     if (body.accepted) noteEventsAccepted(principal.organizationId, body.accepted, now);
-    // An event dropped for consent was valid: not a client error.
-    const status = opts.mode === "single" && rejected.some((r) => r.reason !== "consent_denied") ? 400 : 200;
+    // An event dropped for consent or a privacy deletion was valid: not a client error.
+    const status = opts.mode === "single" && rejected.some((r) => r.reason === undefined) ? 400 : 200;
     return { status, body, headers: graceHeaders };
   } catch (err) {
     // Concurrent retry with the same Idempotency-Key: the other request won; replay its response.

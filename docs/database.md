@@ -30,7 +30,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | Engagement | `audiences`, `audience_members`, `audience_events`, `audience_snapshots`, `automations`, `automation_versions`, `automation_runs`, `notifications`, `in_app_messages`, `whatsapp_templates`, `email_templates`, `email_domains` (unused: `audience_conditions`, `automation_triggers`, `automation_actions`; definitions are JSON) |
 | Integrations | `integrations` (push and email credentials in `secret_ciphertext`, AES-256-GCM with `INTEGRATIONS_ENCRYPTION_KEY`), `webhooks` (signing secret hashed and encrypted), `webhook_deliveries` |
 | Operations | `audit_logs` (append-only for tenants), `api_request_logs`, `rate_limit_buckets` |
-| Privacy | `consent_records`, `privacy_requests`, `data_deletion_jobs` |
+| Privacy | `consent_records`, `consent_state`, `suppressions`, `privacy_requests`, `data_deletion_jobs`, `privacy_tombstones` (hashed ids of deleted users and installs; ingestion drops their events) |
 | Analytics | `analytics_cohorts` (legacy; copied into `audiences` with the same ids by 0024, no longer written), `analytics_saved_reports`, `report_cache` (finished report results reused for up to 10 minutes; key hash per environment), `dashboards` and `dashboard_widgets` (per project; widgets reference a saved report or hold an inline report config) |
 
 Attribution, engagement and integration tables are in use ([attribution](attribution.md), [audiences](audiences.md), [automation](automation.md), [webhooks](webhooks.md)). All privacy tables are in use; `consent_records`, `consent_state` and `suppressions` are described in [API](api.md#consent-and-suppression) and checked by automations before every message.

@@ -39,6 +39,8 @@ System types map to stored names: `screen` → `screen_viewed`, `identify` → `
 
 Events from a user whose latest analytics decision is "denied" are rejected with `"reason": "consent_denied"` (not stored, not billed).
 
+Events of a user deleted by a privacy request (their `user_id`, or a deleted install's anonymous events) are rejected with `"reason": "subject_deleted"` (not stored, not billed). See [API](api.md#privacy-requests).
+
 ## Response
 
 ```json
