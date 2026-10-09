@@ -130,7 +130,8 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
                   </span>
                 </div>
                 <Link href={peopleLink(String(i + 1))} scroll={false} aria-label={t("See the {people} people who reached step {n}", { people: s.people, n: i + 1 })}
-                  className="group mt-1.5 block h-6 overflow-hidden rounded bg-paper-2 focus-visible:outline-2">
+                  data-tip={`${t("{people} people", { people: s.people.toLocaleString("en-US") })} · ${pct(s.fromStart)}`}
+                  className="group mt-1.5 block h-6 rounded bg-paper-2 focus-visible:outline-2">
                   <div className="h-full rounded bg-accent transition group-hover:brightness-110" style={{ width: `${Math.max(s.fromStart * 100, s.people ? 0.5 : 0)}%` }} />
                 </Link>
                 <p className="mt-1 flex flex-wrap gap-x-3 text-xs">

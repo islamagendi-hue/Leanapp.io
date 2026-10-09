@@ -1,3 +1,4 @@
+import { CountUp } from "@/components/CountUp";
 import { Delta } from "@/components/ReportRange";
 import { TrendChart } from "@/components/TrendChart";
 import { getT } from "@/i18n/server";
@@ -46,7 +47,7 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
     case "trend":
       return (
         <div className="space-y-2">
-          <p className="text-2xl font-bold tabular-nums">{num(d.trend.total.count)} <span className="text-sm font-normal text-ink-3">{t("events · {people} people", { people: num(d.trend.total.people) })}</span></p>
+          <p className="text-2xl font-bold tabular-nums"><CountUp value={num(d.trend.total.count)} /> <span className="text-sm font-normal text-ink-3">{t("events · {people} people", { people: num(d.trend.total.people) })}</span></p>
           <Delta value={d.trend.total.count} previous={d.trend.previous?.count} range={d.trend.range} />
           <TrendChart days={d.trend.days} series={d.trend.series} label={t("{event} per {interval}", { event: d.trend.event, interval: t(INTERVALS[d.trend.interval] ?? d.trend.interval) })} />
         </div>
@@ -54,7 +55,7 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
     case "kpi":
       return (
         <div>
-          <p className="text-3xl font-bold tabular-nums">{num(d.kpi.value)}</p>
+          <p className="text-3xl font-bold tabular-nums"><CountUp value={num(d.kpi.value)} /></p>
           <Delta value={d.kpi.value} previous={d.kpi.previous} range={d.kpi.range} />
         </div>
       );
@@ -65,7 +66,7 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
           {d.funnel.steps.map((s, i) => (
             <li key={i} className="text-sm">
               <div className="flex justify-between gap-2"><span className="truncate">{i + 1}. {s.name}</span><span className="tabular-nums">{num(s.people)} · {pct(s.fromStart)}</span></div>
-              <div className="h-2 rounded bg-paper-2"><div className="h-2 rounded bg-accent" style={{ width: `${first ? (s.people / first) * 100 : 0}%` }} /></div>
+              <div className="h-2 rounded bg-paper-2" data-tip={`${num(s.people)} · ${pct(s.fromStart)}`}><div className="h-2 rounded bg-accent" style={{ width: `${first ? (s.people / first) * 100 : 0}%` }} /></div>
             </li>
           ))}
         </ol>
@@ -76,7 +77,7 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
         <div className="space-y-1">
           <div className="grid grid-cols-5 gap-2 text-center">
             {[1, 3, 7, 14, 30].map((day, i) => (
-              <div key={day}><p className="text-xs text-ink-3">D{day}</p><p className="font-semibold tabular-nums">{pct(d.retention.overall[i])}</p></div>
+              <div key={day}><p className="text-xs text-ink-3">D{day}</p><p className="font-semibold tabular-nums"><CountUp value={pct(d.retention.overall[i])} /></p></div>
             ))}
           </div>
           <p className="text-xs text-ink-3">{t("{n} people started", { n: num(d.retention.people) })}</p>
@@ -87,7 +88,7 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
         <ul className="space-y-1">
           {d.revenue.currencies.map((c) => (
             <li key={c.currency} className="flex items-baseline justify-between gap-2">
-              <span className="text-2xl font-bold tabular-nums">{money(c.net)} <span className="text-sm font-normal">{c.currency}</span></span>
+              <span className="text-2xl font-bold tabular-nums"><CountUp value={money(c.net)} /> <span className="text-sm font-normal">{c.currency}</span></span>
               <span className="text-xs text-ink-3">{t("{n} paying · ARPU {arpu}", { n: num(c.payingUsers), arpu: money(c.arpu) })}</span>
             </li>
           ))}
@@ -95,8 +96,8 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
       );
     case "growth":
       if (!d.enabled) return <p className="text-sm text-ink-3">{t("Activation isn't turned on for this project.")}</p>;
-      return <p className="text-3xl font-bold tabular-nums">{d.value === null ? "–" : d.rate ? pct(d.value) : num(d.value)}</p>;
+      return <p className="text-3xl font-bold tabular-nums"><CountUp value={d.value === null ? "–" : d.rate ? pct(d.value) : num(d.value)} /></p>;
     case "audience_size":
-      return <p className="text-3xl font-bold tabular-nums">{num(d.size)} <span className="text-sm font-normal text-ink-3">{t("people now")}</span></p>;
+      return <p className="text-3xl font-bold tabular-nums"><CountUp value={num(d.size)} /> <span className="text-sm font-normal text-ink-3">{t("people now")}</span></p>;
   }
 }
