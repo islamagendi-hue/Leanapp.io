@@ -204,34 +204,39 @@ export default async function Home(props: PageProps<"/">) {
         <section id="pricing" aria-labelledby="pricing-title" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-14">
           <h2 id="pricing-title" className="text-2xl font-bold md:text-3xl">{t.pricing.title}</h2>
           <p className="mt-3 max-w-2xl text-ink-2">{t.pricing.lead}</p>
-          <ul className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+          <ul className="mt-8 grid gap-4 md:grid-cols-3">
             {t.pricing.plans.map((p) => (
               <li key={p.id} aria-labelledby={`plan-${p.id}`} className={`card flex flex-col gap-4 ${p.featured ? "border-accent ring-1 ring-accent" : ""}`}>
                 <div className="flex items-center justify-between gap-2">
                   <h3 id={`plan-${p.id}`} className="font-bold">{t.pricing.names[p.id]}</h3>
                   {p.featured && <span className="pill border-accent text-accent-ink">{t.pricing.popular}</span>}
                 </div>
-                <p className="tabular-nums" dir="ltr">
-                  {p.price === 0 ? <span className="text-3xl font-bold">{t.pricing.free}</span> : <><span className="text-3xl font-bold">${p.price}</span> <span className="text-sm text-ink-3">{t.pricing.month}</span></>}
+                <p className="text-sm text-ink-2">{p.tagline}</p>
+                <p className="tabular-nums">
+                  {p.price === null ? (
+                    <span className="text-3xl font-bold">{t.pricing.custom}</span>
+                  ) : (
+                    <>
+                      {p.from && <span className="text-sm text-ink-3">{t.pricing.from} </span>}
+                      <span className="text-3xl font-bold" dir="ltr">${p.price}</span> <span className="text-sm text-ink-3">{t.pricing.month}</span>
+                    </>
+                  )}
                 </p>
                 <ul className="space-y-1.5 text-sm text-ink-2">
-                  {[p.events, p.apps, p.seats, p.history].map((x) => <li key={x} className="flex gap-2"><span aria-hidden className="text-accent">✓</span>{x}</li>)}
+                  {p.features.map((x) => <li key={x} className="flex gap-2"><span aria-hidden className="text-accent">✓</span>{x}</li>)}
                 </ul>
+                <p className="text-xs text-ink-3">{p.limits}</p>
                 <div className="mt-auto">
-                  {p.price === 0 ? (
-                    <Link href={start} className="btn w-full">{t.pricing.start}</Link>
+                  {p.price === null ? (
+                    <a href={`mailto:${CONTACT_EMAIL}?subject=LeanApp%20Enterprise`} className="btn-secondary w-full">{t.pricing.contact}</a>
                   ) : (
-                    <a href={`mailto:${CONTACT_EMAIL}?subject=LeanApp%20${p.id}`} className={`${p.featured ? "btn" : "btn-secondary"} w-full`}>{t.pricing.contact}</a>
+                    <Link href={start} className={`${p.featured ? "btn" : "btn-secondary"} w-full`}>{t.pricing.start}</Link>
                   )}
                 </div>
               </li>
             ))}
           </ul>
           <p className="mt-6 text-sm text-ink-2">{t.pricing.all}</p>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-line bg-card px-5 py-4">
-            <p className="text-sm">{t.pricing.enterprise}</p>
-            <a href={`mailto:${CONTACT_EMAIL}?subject=LeanApp%20Enterprise`} className="btn-secondary">{t.pricing.enterpriseCta}</a>
-          </div>
         </section>
 
         <section id="about" aria-labelledby="about-title" className="scroll-mt-20 border-y border-line bg-card">

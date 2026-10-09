@@ -163,28 +163,67 @@ export const NOT_OFFERED =
 const NOT_OFFERED_AR =
   "غير متوفر: الرسائل النصية SMS، إشعارات الويب، اختبارات A/B، التوقّعات الذكية، استيراد تكلفة الإعلانات و ROAS، منع الاحتيال، التصدير لمستودع بيانات، و SSO.";
 
-/** A plan card. Limits mirror the seeded plans (db/migrations/0001_foundation.sql); prices are the introductory list prices. */
+/** A plan card. Starter and Growth are self-serve with a monthly price; Enterprise is priced on a call. */
 export interface Plan {
-  id: "free" | "starter" | "growth" | "pro";
-  price: number;
-  events: string;
-  apps: string;
-  seats: string;
-  history: string;
+  id: "starter" | "growth" | "enterprise";
+  /** US dollars a month; Growth's is a starting price that grows with usage. null = priced with sales. */
+  price: number | null;
+  from?: boolean;
+  tagline: string;
+  features: string[];
+  limits: string;
   featured?: boolean;
 }
 
 const PLANS_EN: Plan[] = [
-  { id: "free", price: 0, events: "100K events / month", apps: "1 app", seats: "3 teammates", history: "30 days of history" },
-  { id: "starter", price: 49, events: "2M events / month", apps: "3 apps", seats: "10 teammates", history: "6 months of history" },
-  { id: "growth", price: 199, events: "20M events / month", apps: "10 apps", seats: "25 teammates", history: "1 year of history", featured: true },
-  { id: "pro", price: 499, events: "100M events / month", apps: "Unlimited apps", seats: "Unlimited teammates", history: "2 years of history" },
+  {
+    id: "starter",
+    price: 49,
+    tagline: "For new apps",
+    features: ["Core analytics and event tracking", "Basic funnels and retention", "Limited integrations and usage"],
+    limits: "2M events / month, 3 apps. Free up to 100K events.",
+  },
+  {
+    id: "growth",
+    price: 199,
+    from: true,
+    tagline: "For growing apps",
+    features: ["Advanced analytics and cohorts", "Growth playbooks (experiments coming soon)", "More integrations and automation"],
+    limits: "From 20M events / month. The price follows your usage.",
+    featured: true,
+  },
+  {
+    id: "enterprise",
+    price: null,
+    tagline: "For larger organizations",
+    features: ["Custom usage and data requirements", "Advanced access controls and governance", "Dedicated support and commercial terms"],
+    limits: "A call with our team and a price made for you.",
+  },
 ];
 const PLANS_AR: Plan[] = [
-  { id: "free", price: 0, events: "100 ألف حدث شهريًا", apps: "تطبيق واحد", seats: "3 أعضاء فريق", history: "بيانات آخر 30 يوم" },
-  { id: "starter", price: 49, events: "2 مليون حدث شهريًا", apps: "3 تطبيقات", seats: "10 أعضاء فريق", history: "بيانات آخر 6 شهور" },
-  { id: "growth", price: 199, events: "20 مليون حدث شهريًا", apps: "10 تطبيقات", seats: "25 عضو فريق", history: "بيانات آخر سنة", featured: true },
-  { id: "pro", price: 499, events: "100 مليون حدث شهريًا", apps: "تطبيقات بلا حدود", seats: "أعضاء بلا حدود", history: "بيانات آخر سنتين" },
+  {
+    id: "starter",
+    price: 49,
+    tagline: "للتطبيقات الجديدة",
+    features: ["التحليلات الأساسية وتتبّع الأحداث", "مسارات التحويل والاحتفاظ الأساسية", "تكاملات واستخدام محدودان"],
+    limits: "2 مليون حدث شهريًا، و3 تطبيقات. مجانًا حتى 100 ألف حدث.",
+  },
+  {
+    id: "growth",
+    price: 199,
+    from: true,
+    tagline: "للتطبيقات التي تنمو",
+    features: ["تحليلات متقدمة وشرائح المستخدمين", "خطط نمو جاهزة (التجارب قريبًا)", "تكاملات وأتمتة أكثر"],
+    limits: "من 20 مليون حدث شهريًا. السعر يتبع استخدامك.",
+    featured: true,
+  },
+  {
+    id: "enterprise",
+    price: null,
+    tagline: "للمؤسسات الكبيرة",
+    features: ["استخدام ومتطلبات بيانات مخصصة", "صلاحيات وحوكمة متقدمة", "دعم مخصص وشروط تجارية"],
+    limits: "مكالمة مع فريقنا وسعر مخصص لك.",
+  },
 ];
 
 /** How a product covers a need in the comparison table. */
@@ -277,16 +316,16 @@ const EN = {
   },
   pricing: {
     title: "Pricing",
-    lead: "Start free. Upgrade when your app grows. Prices in US dollars, billed monthly.",
+    lead: "Clear monthly prices you can start on yourself, or a custom plan for larger teams. Prices in US dollars.",
     month: "/ month",
     free: "Free",
     start: "Start free",
-    contact: "Talk to us",
+    contact: "Contact sales",
+    custom: "Custom",
+    from: "from",
     popular: "Most popular",
-    all: "Every plan has all the features above, support in Arabic and English, and separate development, staging and production.",
-    enterprise: "More than 100M events, or need a contract and invoices in your currency?",
-    enterpriseCta: "Contact us for Enterprise",
-    names: { free: "Free", starter: "Starter", growth: "Growth", pro: "Pro" } as Record<Plan["id"], string>,
+    all: "Every plan has support in Arabic and English, and separate development, staging and production.",
+    names: { starter: "Starter", growth: "Growth", enterprise: "Enterprise" } as Record<Plan["id"], string>,
     plans: PLANS_EN,
   },
   about: {
@@ -365,16 +404,16 @@ const AR: typeof EN = {
   features: { title: "ماذا يتضمن", lead: "بجانب كل ميزة توضيح لحالتها: متاحة، أو تجريبية، أو قريبًا.", coming: "قريبًا" },
   pricing: {
     title: "الأسعار",
-    lead: "ابدأ مجانًا، وارقَ بباقتك عندما يكبر تطبيقك. الأسعار بالدولار الأمريكي، وتُدفع شهريًا.",
+    lead: "أسعار شهرية واضحة تبدأ بها بنفسك، أو باقة مخصصة للفرق الكبيرة. الأسعار بالدولار الأمريكي.",
     month: "/ شهريًا",
     free: "مجانًا",
     start: "ابدأ مجانًا",
-    contact: "تواصل معنا",
+    contact: "تواصل مع المبيعات",
+    custom: "سعر مخصص",
+    from: "يبدأ من",
     popular: "الأكثر طلبًا",
-    all: "تتضمن كل الباقات جميع الميزات أعلاه، ودعمًا بالعربية والإنجليزية، وبيئات منفصلة للتطوير والاختبار والإنتاج.",
-    enterprise: "أكثر من 100 مليون حدث، أو تحتاج إلى عقد وفواتير بعملتك المحلية؟",
-    enterpriseCta: "تواصل معنا بشأن باقة الشركات",
-    names: { free: "المجانية", starter: "البداية", growth: "النمو", pro: "الاحترافية" },
+    all: "تتضمن كل الباقات دعمًا بالعربية والإنجليزية، وبيئات منفصلة للتطوير والاختبار والإنتاج.",
+    names: { starter: "Starter", growth: "Growth", enterprise: "Enterprise" },
     plans: PLANS_AR,
   },
   about: {
