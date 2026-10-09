@@ -127,7 +127,7 @@ const ar: Record<string, string> = {
   "Audience size": "حجم الجمهور",
   "Event (for the last two)": "الحدث (للخيارين الأخيرين)",
   "Compare with the previous period": "قارن مع الفترة السابقة",
-  "Steps, in order (at least two)": "الخطوات بالترتيب (خطوتان على الأقل)",
+  "Steps, in order (at least one)": "الخطوات بالترتيب (خطوة واحدة على الأقل)",
   "Step {n}": "الخطوة {n}",
   "Conversion window (days)": "نافذة التحويل (بالأيام)",
   "Start event": "حدث البداية",

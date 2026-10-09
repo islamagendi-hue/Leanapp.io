@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 import { useT } from "@/i18n/client";
 import { activeHref, type NavGroup } from "@/modules/navigation/menu";
 
@@ -11,6 +11,13 @@ import { activeHref, type NavGroup } from "@/modules/navigation/menu";
  * Dev Ops, Security) with a way back to the product. Both menus are built on the server for the
  * member's role (modules/navigation/menu.ts); this only highlights the current page.
  */
+function writeFolded(labels: string[]) {
+  try {
+    localStorage.setItem(FOLDED_KEY, JSON.stringify(labels));
+  } catch {}
+  window.dispatchEvent(new Event(FOLDED_KEY));
+}
+
 export function AppNav({ base, appName, menu, settings }: { base: string; appName: string; menu: NavGroup[]; settings: NavGroup[] }) {
   const path = usePathname();
   const t = useT();
@@ -55,18 +62,22 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
   const t = useT();
   const path = given ?? current;
   const active = activeHref(menu, path);
-  // Folded sections are remembered per browser; the section holding the current page always opens.
+  // Folded sections are remembered per browser. Any section folds, the current page's too;
+  // moving to a page in a folded section opens that section.
   const saved = useSyncExternalStore(onFoldedChange, readFolded, () => "[]");
   const here = menu.find((g) => g.items.some((i) => i.href === active))?.label;
-  const closed = new Set(parseFolded(saved).filter((l) => l !== here));
+  const closed = new Set(parseFolded(saved));
+  const lastHere = useRef(here);
+  useEffect(() => {
+    if (here === lastHere.current) return;
+    lastHere.current = here;
+    if (here && parseFolded(readFolded()).includes(here)) writeFolded(parseFolded(readFolded()).filter((l) => l !== here));
+  }, [here]);
   const toggle = (label: string) => {
     const next = new Set(parseFolded(readFolded()));
     if (closed.has(label)) next.delete(label);
     else next.add(label);
-    try {
-      localStorage.setItem(FOLDED_KEY, JSON.stringify([...next]));
-    } catch {}
-    window.dispatchEvent(new Event(FOLDED_KEY));
+    writeFolded([...next]);
   };
   const link = (href: string, label: string, sub = false) => (
     <Link

@@ -1,7 +1,8 @@
 import Link from "next/link";
+import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "@/modules/analytics/sql";
 import { AnalyticsHeader, param, rich } from "@/components/AnalyticsHeader";
 import { getLang, getT } from "@/i18n/server";
-import { dateLocale, type T } from "@/i18n/translate";
+import { dateLocale, msg, type T } from "@/i18n/translate";
 import { EventName } from "@/components/EventName";
 import { AutoApply } from "@/components/AutoApply";
 import { CohortSelect } from "@/components/CohortSelect";
@@ -14,6 +15,8 @@ import { FUNNEL_PEOPLE_LIMIT, funnel, funnelPeople, topEvents } from "@/modules/
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
+
+const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic"), [CHANNEL_UNKNOWN]: msg("Unknown source"), [CHANNEL_NO_INSTALL]: msg("No install on record") };
 
 export async function generateMetadata() {
   const t = await getT();
@@ -40,15 +43,16 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
   const env = await pickEnvironment(environments, sp.env);
   const range = rangeFromParams(toSearch(sp));
   const windowDays = Number(param(sp.window)) || 7;
-  const split = param(sp.split) === "platform";
-  const chosen = (Array.isArray(sp.step) ? sp.step : sp.step ? [sp.step] : []).map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  const split = param(sp.split) === "platform" ? "platform" : param(sp.split) === "channel" ? "channel" : undefined;
+  const chosen = (Array.isArray(sp.step) ? sp.step : sp.step ? [sp.step] : []).map((s) => s.trim()).filter(Boolean).slice(0, 10);
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const scope = { environmentId: env.id, timezone: a.timezone };
   const reports = reportRunner(ctx, scope, sp);
   const events = await reports.run("top_events", { ...range }, () => topEvents(ctx, { ...scope, ...range }));
-  const funnelInput = { steps: chosen, windowDays, ...range, breakdown: split ? "platform" : undefined, cohortId: cf.cohortId };
-  const result = chosen.length >= 2 ? await reports.run("funnel", funnelInput, () => funnel(ctx, scope, funnelInput)) : null;
-  const slots = Math.min(6, Math.max(2, chosen.length + 1));
+  const funnelInput = { steps: chosen, windowDays, ...range, breakdown: split, cohortId: cf.cohortId };
+  const result = chosen.length >= 1 ? await reports.run("funnel", funnelInput, () => funnel(ctx, scope, funnelInput)) : null;
+  // Always at least five step slots; a funnel already runs from one step.
+  const slots = Math.min(10, Math.max(5, chosen.length + 1));
   const label = await eventLabels(ctx, a.id, t);
   // "people=3" lists who reached step 3, "people=3-dropped" who reached step 2 but not 3.
   const peopleParam = /^(\d)(-dropped)?$/.exec(param(sp.people) ?? "");
@@ -81,7 +85,7 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
             <li key={i}>
               <label className="block"><span className="label">{t("Step {n}", { n: i + 1 })}</span>
                 <select name="step" className="input" defaultValue={chosen[i] ?? ""}>
-                  <option value="">{i < 2 ? t("Choose an event") : t("Add a step (optional)")}</option>
+                  <option value="">{i < 1 ? t("Choose an event") : t("Add a step (optional)")}</option>
                   {names.map((n) => <option key={n} value={n}>{label(n)}</option>)}
                 </select>
               </label>
@@ -94,14 +98,20 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
           </label>
           <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
           <ReportRangeFields label={t("People who started in")} range={result?.range ?? { ...resolveRange(range, a.timezone), previous: null }} />
-          <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" name="split" value="platform" defaultChecked={split} /> {t("Split by platform")}</label>
+          <label><span className="label">{t("Break down by")}</span>
+            <select name="split" className="input" defaultValue={split ?? ""}>
+              <option value="">{t("Nothing")}</option>
+              <option value="platform">{t("Platform")}</option>
+              <option value="channel">{t("Channel")}</option>
+            </select>
+          </label>
           <button className="btn" type="submit" data-apply>{t("Show funnel")}</button>
         </div>
       </form>
 
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the funnel shows everyone.")}</p>}
       {!result ? (
-        <p className="text-sm text-ink-3">{t("Choose at least two steps.")} {events.length === 0 && t("There are no events in this environment and range yet.")}</p>
+        <p className="text-sm text-ink-3">{t("Choose at least one step.")} {events.length === 0 && t("There are no events in this environment and range yet.")}</p>
       ) : (
         <section className="card space-y-5">
           <p className="text-sm text-ink-2">
@@ -148,11 +158,11 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
           {result.breakdown && (
             <div className="overflow-x-auto">
               <table className="table">
-                <thead><tr><th>{t("Platform")}</th>{result.steps.map((s, i) => <th key={i} className="text-end">{i + 1}. {label(s.name)}</th>)}<th className="text-end">{t("Overall")}</th></tr></thead>
+                <thead><tr><th>{split === "channel" ? t("Channel") : t("Platform")}</th>{result.steps.map((s, i) => <th key={i} className="text-end">{i + 1}. {label(s.name)}</th>)}<th className="text-end">{t("Overall")}</th></tr></thead>
                 <tbody>
                   {result.breakdown.map((g) => (
                     <tr key={g.key}>
-                      <td>{g.key === "(none)" ? t("(none)") : g.key}</td>
+                      <td>{g.key === "(none)" ? t("(none)") : split === "channel" && CHANNEL_LABELS[g.key] ? t(CHANNEL_LABELS[g.key]) : g.key}</td>
                       {g.people.map((n, i) => <td key={i} className="text-end tabular-nums">{n.toLocaleString("en-US")}</td>)}
                       <td className="text-end tabular-nums">{g.people[0] ? pct(g.people.at(-1)! / g.people[0]) : "–"}</td>
                     </tr>

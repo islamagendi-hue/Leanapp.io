@@ -68,7 +68,7 @@ export async function AddWidgetForm({ org, app, dashboardId, type, events, audie
       {type === "funnel" && (
         <>
           <fieldset className="grid gap-2 sm:grid-cols-2">
-            <legend className="label">{t("Steps, in order (at least two)")}</legend>
+            <legend className="label">{t("Steps, in order (at least one)")}</legend>
             {FUNNEL_STEP_FIELDS.map((f, i) => (
               <input key={f} name={f} className="input" list="widget-events" placeholder={t("Step {n}", { n: i + 1 })} aria-label={t("Step {n}", { n: i + 1 })} required={i < 2} maxLength={200} />
             ))}

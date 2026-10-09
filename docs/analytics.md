@@ -3,7 +3,7 @@
 **Status: built on Postgres** (`src/modules/analytics/`, app → Analytics). Overview page at `…/analytics` lists the reports and saved reports of the selected environment.
 
 - **Events:** every event in the range with counts and distinct people; a daily chart for one event, optionally split by platform, app version, country, acquisition channel (as in Revenue) or an event property (top 5 values, the rest as Other).
-- **Funnels:** 2–6 ordered steps, a conversion window of 1–30 days, conversion from start and from the previous step, median time between steps, optional split by platform.
+- **Funnels:** 1–10 ordered steps (the form always offers at least five), a conversion window of 1–30 days, conversion from start and from the previous step, median time between steps, optional split by platform or acquisition channel.
 - **Retention:** cohorts by the day of a person's first start event; day 1, 3, 7, 14 and 30 returns, as a heat map with a weighted average. Days that aren't over yet are left empty.
 - **Revenue** (`revenue.ts`, `revenue-rules.ts`): totals per currency (gross, refunds, net, transactions, paying people, ARPU, ARPPU), a daily net chart per currency, and a breakdown by platform, event, acquisition channel or any event property (picked from the properties the range's revenue events carry). Channel is the source of the paying person's latest install or reinstall at or before each transaction (last touch, labelled as in Acquisition: a source, `organic`, `(unknown)`, or `(no install on record)`); the install is found by the person's user_id, anonymous_id or an install linked to their user_id.
 - **Audience filter**: any [audience](audiences.md) limits events, funnels, retention, revenue and the Users list to its people.

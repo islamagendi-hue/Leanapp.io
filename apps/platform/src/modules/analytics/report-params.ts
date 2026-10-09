@@ -86,7 +86,7 @@ export function inputFromParams(kind: ReportKind, sp: Search): Record<string, un
         ...common,
         steps: sp.getAll("step").map((s) => s.trim()).filter(Boolean),
         windowDays: sp.get("window") ?? undefined,
-        breakdown: sp.get("split") === "platform" ? "platform" : undefined,
+        breakdown: sp.get("split") === "platform" || sp.get("split") === "channel" ? sp.get("split") : undefined,
       };
     case "retention":
       return { ...common, startEvent: sp.get("start") ?? "", returnEvent: sp.get("return") ?? "" };
@@ -111,7 +111,7 @@ export function paramsFromConfig(kind: ReportKind, config: Record<string, unknow
     case "funnel":
       for (const s of Array.isArray(config.steps) ? config.steps : []) q.append("step", String(s));
       str("window", config.windowDays);
-      if (config.breakdown === "platform") q.set("split", "platform");
+      if (config.breakdown === "platform" || config.breakdown === "channel") q.set("split", String(config.breakdown));
       break;
     case "retention":
       str("start", config.startEvent);

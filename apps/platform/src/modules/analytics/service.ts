@@ -342,10 +342,10 @@ async function newPeopleIn(db: Db, scope: { environmentId: string; timezone?: st
 
 // ── Funnel ──────────────────────────────────────────────────────────────────
 export const funnelSchema = z.object({
-  steps: z.array(eventName).min(2, msg("A funnel needs at least two steps.")).max(6, msg("Use at most six steps.")),
+  steps: z.array(eventName).min(1, msg("Choose at least one step.")).max(10, msg("Use at most ten steps.")),
   windowDays: z.coerce.number().int().min(1).max(30).catch(7),
   ...rangeFields,
-  breakdown: z.enum(["platform"]).optional().catch(undefined),
+  breakdown: z.enum(["platform", "channel"]).optional().catch(undefined),
   cohortId,
 });
 
@@ -380,11 +380,13 @@ export interface Funnel {
  * that step, with the time they did it. Parameters: $1 env, $2 range start,
  * $3 window (days), $4 range end, $5.. step names.
  */
-function funnelCtes(steps: string[], breakdown: boolean): string[] {
+function funnelCtes(steps: string[], breakdown?: "platform" | "channel"): string[] {
   const stepParam = (i: number) => `$${5 + i}`;
+  const g = breakdown === "platform" ? "coalesce(platform, '(none)')" : breakdown === "channel" ? channelSql("ev") : "'all'";
   return [
-    `s0 as (select distinct on (person) person, ts as t, id, ts as t0, ${breakdown ? "coalesce(platform, '(none)')" : "'all'"} as g
-            from ev where name = ${stepParam(0)} and ts < $4 order by person, ts, id)`,
+    // $3 (the window) is unused by a one-step funnel; naming it keeps its type known.
+    `s0 as (select distinct on (person) person, ts as t, id, ts as t0, ${g} as g
+            from ev where name = ${stepParam(0)} and ts < $4 and $3::int > 0 order by person, ts, id)`,
     // Each step is the earliest matching event strictly after the previous step's
     // event (ties on timestamp broken by id), so a repeated step needs a second event.
     ...steps.slice(1).map(
@@ -427,7 +429,7 @@ export async function funnelPeople(
     const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start, windowDays, range.end, ...steps]);
     const limit = src.p.add(FUNNEL_PEOPLE_LIMIT);
     const rows = await db.query<{ person: string; t: Date; total: string }>(
-      `with ${src.sql}, ${funnelCtes(steps, false).join(", ")}, picked as (${set})
+      `with ${src.sql}, ${funnelCtes(steps).join(", ")}, picked as (${set})
        select person, t, count(*) over () as total from picked order by t desc, person limit ${limit}`,
       src.p.values,
     );
@@ -449,7 +451,7 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
   const timezone = scope.timezone ?? "UTC";
   const range = resolveRange(r.data, timezone);
   // $1 env, $2 range start, $3 window (days), $4 range end, $5.. step names.
-  const ctes = funnelCtes(steps, Boolean(breakdown));
+  const ctes = funnelCtes(steps, breakdown);
   const select = steps
     .map((_, k) =>
       k === 0

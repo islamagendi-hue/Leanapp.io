@@ -99,7 +99,7 @@ describe("dashboards", () => {
   });
 
   it("validates widgets with the report schemas", async () => {
-    await expect(addWidget(A.ctx, id, { type: "funnel", config: { steps: ["one"] } })).rejects.toThrow(/two steps/);
+    await expect(addWidget(A.ctx, id, { type: "funnel", config: { steps: [] } })).rejects.toThrow(/at least one step/);
     await expect(addWidget(A.ctx, id, { type: "kpi", config: { metric: "events" } })).rejects.toThrow(/Choose an event/);
     await expect(addWidget(A.ctx, id, { type: "growth", config: { metric: "x" } })).rejects.toBeInstanceOf(ValidationError);
     await expect(addWidget(A.ctx, id, { type: "pie" })).rejects.toBeInstanceOf(ValidationError);
@@ -184,7 +184,7 @@ describe("templates and arranging (PR 9)", () => {
     const funnel = widgetInputFromForm("funnel", form({ step1: "signup", step2: " purchase_completed ", step3: "", windowDays: "3", days: "7" }));
     expect(funnel).toEqual({ steps: ["signup", "purchase_completed"], windowDays: "3", days: "7" });
     await addWidget(A.ctx, dash, { type: "funnel", config: funnel });
-    await expect(addWidget(A.ctx, dash, { type: "funnel", config: widgetInputFromForm("funnel", form({ step1: "signup" })) })).rejects.toThrow(/two steps/);
+    await expect(addWidget(A.ctx, dash, { type: "funnel", config: widgetInputFromForm("funnel", form({})) })).rejects.toThrow(/at least one step/);
     await expect(addWidget(A.ctx, dash, { type: "kpi", config: widgetInputFromForm("kpi", form({ metric: "people" })) })).rejects.toThrow(/Choose an event/);
     const [w] = (await getDashboard(A.ctx, dash)).widgets;
     const r = await runWidget(A.ctx, scope, w);

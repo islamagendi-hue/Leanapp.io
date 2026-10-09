@@ -128,6 +128,12 @@ describe("revenue", () => {
     expect(rows).toHaveLength(5);
   });
 
+  it("splits a funnel by acquisition channel, and runs a one-step funnel", async () => {
+    const f = await funnel(A.ctx, scope, { steps: ["purchase_completed"], days: 30, breakdown: "channel" });
+    expect(f.steps).toHaveLength(1);
+    expect(Object.fromEntries(f.breakdown!.map((g) => [g.key, g.people[0]]))).toEqual({ tiktok: 1, organic: 1, "(no install on record)": 1 });
+  });
+
   it("splits an event trend by acquisition channel too", async () => {
     const r = await eventTrend(A.ctx, scope, { event: "purchase_completed", days: 30, breakdown: "channel" });
     expect(r.series.map((s) => s.key).sort()).toEqual(["(no install on record)", "organic", "tiktok"]);

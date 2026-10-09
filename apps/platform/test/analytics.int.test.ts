@@ -155,9 +155,12 @@ describe("funnels", () => {
     expect(thrice.steps.map((s) => s.people)).toEqual([3, 2, 0]);
   });
 
-  it("needs two to six steps", async () => {
-    await expect(funnel(t.ctx, scope, { steps: ["app_installed"] })).rejects.toThrow(/two steps/);
-    await expect(funnel(t.ctx, scope, { steps: Array(7).fill("x") })).rejects.toThrow(/six/);
+  it("runs from one step and takes up to ten", async () => {
+    const one = await funnel(t.ctx, scope, { steps: ["app_installed"] });
+    expect(one.steps).toHaveLength(1);
+    expect(one.steps[0].fromStart).toBe(1);
+    await expect(funnel(t.ctx, scope, { steps: [] })).rejects.toThrow(/at least one step/);
+    await expect(funnel(t.ctx, scope, { steps: Array(11).fill("x") })).rejects.toThrow(/ten/);
   });
 });
 
