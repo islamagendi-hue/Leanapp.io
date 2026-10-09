@@ -125,6 +125,7 @@ export default async function DeepLinksPage(props: PageProps<"/o/[org]/apps/[app
               <label className="block"><span className="label">{t("Deep link")}</span><input name="deepLinkPath" className="input font-mono" maxLength={500} placeholder="/offers/eid?promo=EID10" dir="ltr" />
                 <span className="help">{t("The screen to open, returned with its query parameters by the resolve API when the app opens from the link.")}</span></label>
               <label className="block"><span className="label">{t("Campaign")}</span><input name="campaign" className="input" maxLength={100} placeholder="eid_2026" /></label>
+              <label className="block"><span className="label">{t("Ad group")}</span><input name="adGroup" className="input" maxLength={100} placeholder="riyadh_women_25_34" dir="ltr" /></label>
               <label className="block"><span className="label">{t("Creative / placement / influencer")}</span><input name="creative" className="input" maxLength={100} placeholder={t("@handle or poster_mall")} /></label>
               <label className="block"><span className="label">{t("Source (optional override)")}</span><input name="source" className="input" maxLength={100} placeholder={t("From the channel")} /></label>
               <label className="block"><span className="label">{t("Medium (optional override)")}</span><input name="medium" className="input" maxLength={100} placeholder={t("From the channel")} /></label>

@@ -333,6 +333,8 @@ const ar: Record<string, string> = {
   "Smart banner or button on your site. Ad group = the page.": "بانر ذكي أو زر على موقعك. المجموعة الإعلانية = الصفحة.",
   "Social (organic)": "التواصل الاجتماعي (عضوي)",
   "Bio links and posts. Social in-app browsers get the Open-in-app page.": "روابط النبذة والمنشورات. تحصل متصفحات تطبيقات التواصل الاجتماعي على صفحة «افتح في التطبيق».",
+  "Paid media / PPC": "الإعلانات المدفوعة / PPC",
+  "Search, social and display ads. Set Source to the network (google, meta, tiktok, snapchat) and fill Ad group and Creative from the ad.": "إعلانات البحث والتواصل الاجتماعي والعرض. اجعل المصدر اسم الشبكة (google أو meta أو tiktok أو snapchat)، واملأ المجموعة الإعلانية والتصميم من الإعلان.",
 
   // Attribution settings
   "Attribution settings": "إعدادات الإسناد",

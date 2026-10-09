@@ -49,7 +49,7 @@ export async function checkWellKnownAction(orgSlug: string, appSlug: string, env
   }
 }
 
-/** Creates a tracking link for a non-ad channel with the channel's source / medium preset. */
+/** Creates a tracking link for a channel with the channel's source / medium preset. */
 export async function createChannelLinkAction(orgSlug: string, appSlug: string, _: ActionState, form: FormData): Promise<ActionState> {
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);

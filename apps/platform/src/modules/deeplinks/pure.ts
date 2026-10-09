@@ -245,8 +245,8 @@ export function interstitialCsp(nonce: string): string {
 // ── Channels ────────────────────────────────────────────────────────────────
 
 /**
- * Source / medium presets for non-ad channels. A link per channel (or per influencer,
- * per QR placement) keeps reporting clean; the same link works in every channel.
+ * Source / medium presets per channel, paid ads included. A link per channel (or per influencer,
+ * per QR placement, per ad) keeps reporting clean; the same link works in every channel.
  */
 export const CHANNEL_PRESETS = [
   { id: "email", label: msg("Email"), source: "email", medium: "email", hint: msg("Newsletter or lifecycle email. Campaign = the email or flow name.") },
@@ -256,5 +256,6 @@ export const CHANNEL_PRESETS = [
   { id: "influencer", label: msg("Influencer"), source: "influencer", medium: "influencer", hint: msg("One link per creator: put the handle in Creative.") },
   { id: "web_banner", label: msg("Web banner"), source: "website", medium: "banner", hint: msg("Smart banner or button on your site. Ad group = the page.") },
   { id: "social_organic", label: msg("Social (organic)"), source: "instagram", medium: "social", hint: msg("Bio links and posts. Social in-app browsers get the Open-in-app page.") },
+  { id: "paid", label: msg("Paid media / PPC"), source: "google", medium: "cpc", hint: msg("Search, social and display ads. Set Source to the network (google, meta, tiktok, snapchat) and fill Ad group and Creative from the ad.") },
 ] as const;
 export type ChannelPreset = (typeof CHANNEL_PRESETS)[number];
