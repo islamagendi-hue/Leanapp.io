@@ -68,6 +68,7 @@ paths:
         "200": { $ref: "#/components/responses/Ingested" }
         "400": { $ref: "#/components/responses/IngestRejected" }
         "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/IdempotencyKeyReused" }
         "413": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/IngestLimited" }
     options:
@@ -106,6 +107,7 @@ paths:
         "200": { $ref: "#/components/responses/Ingested" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/IdempotencyKeyReused" }
         "413": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/IngestLimited" }
     options:
@@ -896,7 +898,11 @@ components:
       name: Idempotency-Key
       in: header
       required: false
-      description: Same value on every retry of the same request; the stored response is replayed.
+      description: >-
+        Same value on every retry of the same request; the stored response is replayed when the
+        request carries the same events (same event_ids in the same order; sent_at and JSON key order
+        may differ). The same key with different events returns 409 idempotency_key_reused and
+        stores nothing. Use one key per distinct batch.
       schema: { type: string, maxLength: 200 }
     Org:
       name: org
@@ -929,6 +935,14 @@ components:
       headers:
         Retry-After:
           schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    IdempotencyKeyReused:
+      description: >-
+        `idempotency_key_reused`: this Idempotency-Key was already used for a request with
+        different events. Nothing in the request was stored. Resend with a new key, or without one
+        (event_id still de-duplicates).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }

@@ -73,7 +73,7 @@ Analytics.reset(); // on logout
 | Background / close | Browsers: on `visibilitychange` → hidden and `pagehide`, one `fetch` with `keepalive` sends as much of the queue as fits the browser's 64 KiB keepalive budget; the rest stays queued for the next visit. `sendBeacon` is not used because it cannot send the `Authorization` header. React Native: pass `appState: AppState` and the queue is flushed on `background` (the SDK does not import `react-native`). Turn the browser behaviour off with `flushOnHide: false` | on in browsers |
 | TTL | Older queued events are dropped before sending | 7 days (server rejects > 31 days) |
 | Retry | Network errors and 5xx: exponential backoff with jitter (1s → 5min); `429` honours `Retry-After` | |
-| Idempotency | `Idempotency-Key` derived from the batch's events, same on every retry | |
+| Idempotency | `Idempotency-Key` = `<batch size>:<hash of every event id>:<first event id>` (FNV-1a 32-bit over the UTF-8 ids joined by `\n`, identical in every SDK): same on every retry of the same events, different as soon as the batch's events change, so a retry is never answered with the response of another batch. `409 idempotency_key_reused` (should not happen with this key) keeps the events and resends them once without a key; `event_id` still de-duplicates | |
 | 413 | Halves batch size and retries | |
 | 400 | Drops the batch (cannot succeed) | |
 | 401/403 | Stops sending, keeps events (revoked key or wrong environment) | |
@@ -157,7 +157,7 @@ The server adds an IP hash (`context._server.ip_hash`) to `app_installed` events
 
 ## Native SDKs: Android, iOS, Flutter
 
-Each is a port of `sdks/javascript/src/client.ts`: same method names, wire format (`POST /v1/events/batch`, the schema in `apps/platform/src/modules/ingestion/schema.ts`), defaults and delivery rules from the table above (batching, persistent queue with cap and TTL, backoff with jitter, `Retry-After`, `413` halving, `400/422` drop, `401/403` pause, `Idempotency-Key` = first event id + batch size, 30-minute sessions). Storage uses the same namespace as the JavaScript SDK (`leanapp:la_pk_live:`). Native additions:
+Each is a port of `sdks/javascript/src/client.ts`: same method names, wire format (`POST /v1/events/batch`, the schema in `apps/platform/src/modules/ingestion/schema.ts`), defaults and delivery rules from the table above (batching, persistent queue with cap and TTL, backoff with jitter, `Retry-After`, `413` halving, `400/422` drop, `401/403` pause, `Idempotency-Key` = batch size + hash of every event id + first event id, `409` resend without the key, 30-minute sessions). Storage uses the same namespace as the JavaScript SDK (`leanapp:la_pk_live:`). Native additions:
 
 | | Android (`sdks/android`) | iOS (`sdks/ios`) | Flutter (`sdks/flutter`) |
 | --- | --- | --- | --- |

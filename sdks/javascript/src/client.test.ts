@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Analytics, LeanAppClient, memoryStorage, parseAttribution, storagePrefix, type StorageAdapter, type WireEvent } from "./index.js";
+import { eventIdsHash, idempotencyKey } from "./client.js";
 
 const KEY = "la_pk_dev_abcdefghijklmnopqrstuvwx";
 
@@ -77,7 +78,8 @@ describe("events", () => {
     const { url, headers, body } = s.calls[0];
     expect(url).toBe("https://api.example.test/v1/events/batch");
     expect(headers.Authorization).toBe(`Bearer ${KEY}`);
-    expect(headers["Idempotency-Key"]).toBeTruthy();
+    // batch size : hash of every event id : first event id
+    expect(headers["Idempotency-Key"]).toBe(`4:${eventIdsHash(body.batch.map((e) => e.event_id))}:id-2`);
     const [view, screen, identify, order] = body.batch;
     expect(view).toMatchObject({ type: "track", event_name: "product_viewed", properties: { product_id: "p1" }, anonymous_id: "id-1" });
     expect(view.user_id).toBeUndefined();
@@ -167,6 +169,35 @@ describe("delivery", () => {
     // Same ids as the failed attempts, so the server de-duplicates if one of them actually landed.
     expect(sent.map((e) => e.event_id)).toEqual(s.calls[0].body.batch.map((e) => e.event_id));
     expect(s.calls[s.calls.length - 1].headers["Idempotency-Key"]).toBe(s.calls[0].headers["Idempotency-Key"]);
+  });
+
+  it("derives the Idempotency-Key from every event id in the batch", () => {
+    // FNV-1a 32-bit over the UTF-8 ids joined by "\n"; the Android, iOS and Flutter SDKs test the same vectors.
+    expect(eventIdsHash(["a"])).toBe("e40c292c");
+    expect(eventIdsHash(["a", "b"])).toBe("28e4c710");
+    expect(eventIdsHash(["é😀"])).toBe("039d63cc");
+    expect(idempotencyKey(["id-2", "id-3"])).toBe("2:408dab4a:id-2");
+    // Same first id and size but different events (the queue changed before a retry): different key.
+    expect(idempotencyKey(["A", "B"])).not.toBe(idempotencyKey(["A", "C"]));
+    expect(idempotencyKey(["A", "B"])).not.toBe(idempotencyKey(["B", "A"]));
+    expect(idempotencyKey(["A", "B"])).toBe(idempotencyKey(["A", "B"]));
+  });
+
+  it("resends without the Idempotency-Key when the server says the key was used for other events", async () => {
+    const s = server((_c, n) => (n === 1 ? { status: 409, body: { error: "idempotency_key_reused" } } : { status: 200 }));
+    const { client } = make({ fetch: s.fetch });
+    client.track("a");
+    client.track("b");
+    expect(await client.flush()).toMatchObject({ status: "retry", retryInMs: 0 });
+    expect(client.queueLength).toBe(2); // never dropped
+    expect(await client.flush()).toMatchObject({ status: "sent", accepted: 2 });
+    expect(s.calls[1].headers["Idempotency-Key"]).toBeUndefined();
+    expect(s.calls[1].body.batch.map((e) => e.event_id)).toEqual(s.calls[0].body.batch.map((e) => e.event_id));
+    expect(client.queueLength).toBe(0);
+    // Later batches carry a key again.
+    client.track("c");
+    await client.flush();
+    expect(s.calls[2].headers["Idempotency-Key"]).toMatch(/^1:[0-9a-f]{8}:/);
   });
 
   it("honours Retry-After on 429", async () => {

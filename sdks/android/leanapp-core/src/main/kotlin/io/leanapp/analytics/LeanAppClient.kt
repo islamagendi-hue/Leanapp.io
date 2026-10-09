@@ -26,6 +26,26 @@ fun storagePrefix(apiKey: String): String {
 }
 
 /**
+ * FNV-1a (32-bit) of the UTF-8 bytes of the event ids joined by "\n", as 8 hex digits.
+ * Same value as eventIdsHash in the JavaScript SDK.
+ */
+fun eventIdsHash(ids: List<String>): String {
+    var h = 0x811c9dc5.toInt()
+    for (b in ids.joinToString("\n").toByteArray(Charsets.UTF_8)) {
+        h = (h xor (b.toInt() and 0xff)) * 0x01000193
+    }
+    return Integer.toHexString(h).padStart(8, '0')
+}
+
+/**
+ * `<batch size>:<hash of every event id>:<first event id>`: the same events give the same key on every
+ * retry, and a batch whose events changed before a retry gets a different key, so the server never
+ * answers it with the response of a batch it did not send. The first id goes last so the server's
+ * 200-character limit can only truncate it, never the hash.
+ */
+fun idempotencyKey(ids: List<String>): String = "${ids.size}:${eventIdsHash(ids)}:${ids.firstOrNull() ?: ""}"
+
+/**
  * The LeanApp client: a Kotlin port of sdks/javascript/src/client.ts with the same wire format and rules.
  *
  * Every public call returns immediately and never throws after construction. All state lives on one
@@ -58,6 +78,8 @@ class LeanAppClient @JvmOverloads constructor(
     @Volatile private var optedOut: Boolean = config.optedOut
     private var failures = 0
     private var retryAt = 0L
+    /** Set after a 409 idempotency_key_reused: the next request goes without a key (event ids still de-duplicate). */
+    private var skipIdempotencyKey = false
     private var maxBatchSize = config.maxBatchSize
     private var timer: ScheduledFuture<*>? = null
     private val loaded = CountDownLatch(1)
@@ -464,17 +486,15 @@ class LeanAppClient @JvmOverloads constructor(
 
         val batch = ArrayList(queue.subList(0, minOf(maxBatchSize, queue.size)))
         val body = Json.encode(linkedMapOf("batch" to batch.map { it.e }, "sent_at" to Iso8601.format(clock())))
+        val headers = linkedMapOf(
+            "Content-Type" to "application/json",
+            "Authorization" to "Bearer ${o.apiKey}",
+        )
+        // Same events → same key, so a retried request is answered from the server's idempotency store.
+        if (!skipIdempotencyKey) headers["Idempotency-Key"] = idempotencyKey(batch.map { it.e["event_id"].toString() })
+        skipIdempotencyKey = false
         val res: HttpResponse = try {
-            transport.post(
-                "${o.endpoint}/v1/events/batch",
-                linkedMapOf(
-                    "Content-Type" to "application/json",
-                    "Authorization" to "Bearer ${o.apiKey}",
-                    // Same events → same key, so a retried request is answered from the server's idempotency store.
-                    "Idempotency-Key" to "${batch[0].e["event_id"]}:${batch.size}",
-                ),
-                body,
-            )
+            transport.post("${o.endpoint}/v1/events/batch", headers, body)
         } catch (err: Exception) {
             return backoff(null, err.message ?: "network error")
         }
@@ -502,6 +522,12 @@ class LeanAppClient @JvmOverloads constructor(
             paused = true
             warn("API key rejected (revoked, expired or wrong environment). Events are kept but not sent.")
             return FlushResult.Unauthorized
+        }
+        if (res.status == 409) {
+            // idempotency_key_reused: nothing was stored. Keep the events and resend them without a key;
+            // their event ids still make the resend safe.
+            skipIdempotencyKey = true
+            return backoff(0, "idempotency key already used for other events; resending without it")
         }
         if (res.status == 413 && batch.size > 1) {
             maxBatchSize = maxOf(1, batch.size / 2)

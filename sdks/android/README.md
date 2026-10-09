@@ -45,7 +45,7 @@ Analytics.reset() // on logout
 ## What it does automatically
 
 - **Queue**: events are written to `filesDir/leanapp` (atomic file writes) and sent in batches of up to 100, every 10 s or at 20 queued events, and when the app goes to the background.
-- **Retries**: network errors and 5xx back off exponentially with jitter (1 s → 5 min); `429` honours `Retry-After`; `413` halves the batch; `400/422` drops the batch; `401/403` stops sending and keeps the events. Each request carries an `Idempotency-Key`; retries reuse event ids so nothing is double counted.
+- **Retries**: network errors and 5xx back off exponentially with jitter (1 s → 5 min); `429` honours `Retry-After`; `413` halves the batch; `400/422` drops the batch; `401/403` stops sending and keeps the events. Each request carries an `Idempotency-Key` derived from every event id in the batch; retries reuse event ids so nothing is double counted, and a `409 idempotency_key_reused` resends the batch without the key instead of dropping it.
 - **Sessions**: a new `session_id` after 30 minutes of inactivity.
 - **Context**: `platform: android`, `os_version`, `device.model`/`manufacturer`/`type`, `screen`, `locale`, `language`, `timezone`, `app_version`/`app_build` (from the package), `sdk {name: leanapp-android}`. No device identifiers (no Android ID, no advertising ID).
 - **Lifecycle**: `app_installed` (first launch), `app_updated` (version or build changed), `app_opened` (`from_background`).

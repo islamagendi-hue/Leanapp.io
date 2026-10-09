@@ -116,6 +116,25 @@ func jsonSafe(_ value: Any?) -> Any {
     }
 }
 
+/// FNV-1a (32-bit) of the UTF-8 bytes of the event ids joined by "\n", as 8 hex digits.
+/// Same value as eventIdsHash in the JavaScript SDK.
+public func eventIdsHash(_ ids: [String]) -> String {
+    var h: UInt32 = 0x811c9dc5
+    for b in ids.joined(separator: "\n").utf8 {
+        h = (h ^ UInt32(b)) &* 0x01000193
+    }
+    let hex = String(h, radix: 16)
+    return String(repeating: "0", count: 8 - hex.count) + hex
+}
+
+/// `<batch size>:<hash of every event id>:<first event id>`: the same events give the same key on every
+/// retry, and a batch whose events changed before a retry gets a different key, so the server never
+/// answers it with the response of a batch it did not send. The first id goes last so the server's
+/// 200-character limit can only truncate it, never the hash.
+public func idempotencyKey(_ ids: [String]) -> String {
+    return "\(ids.count):\(eventIdsHash(ids)):\(ids.first ?? "")"
+}
+
 /// The LeanApp client: a Swift port of sdks/javascript/src/client.ts with the same wire format and rules.
 ///
 /// Every call returns immediately and never throws after init. State lives on one serial queue, so
@@ -142,6 +161,8 @@ public final class LeanAppClient {
     private var optedOut: Bool
     private var failures = 0
     private var retryAt: Int64 = 0
+    /// Set after a 409 idempotency_key_reused: the next request goes without a key (event ids still de-duplicate).
+    private var skipIdempotencyKey = false
     private var maxBatchSize: Int
     private var timer: DispatchWorkItem?
 
@@ -450,12 +471,13 @@ public final class LeanAppClient {
             remove(batch)
             return completion(.sent(accepted: 0, duplicates: 0, rejected: batch.count))
         }
-        let headers = [
+        var headers = [
             "Content-Type": "application/json",
             "Authorization": "Bearer \(o.apiKey)",
-            // Same events → same key, so a retried request is answered from the server's idempotency store.
-            "Idempotency-Key": "\(batch[0].eventId):\(batch.count)",
         ]
+        // Same events → same key, so a retried request is answered from the server's idempotency store.
+        if !skipIdempotencyKey { headers["Idempotency-Key"] = idempotencyKey(batch.map { $0.eventId }) }
+        skipIdempotencyKey = false
         sending = true
         transport.post(url: url, headers: headers, body: body) { [self] result in
             queue.async { [self] in
@@ -489,6 +511,12 @@ public final class LeanAppClient {
             paused = true
             warn("API key rejected (revoked, expired or wrong environment). Events are kept but not sent.")
             return .unauthorized
+        }
+        if res.status == 409 {
+            // idempotency_key_reused: nothing was stored. Keep the events and resend them without a key;
+            // their event ids still make the resend safe.
+            skipIdempotencyKey = true
+            return backoff(0, "idempotency key already used for other events; resending without it")
         }
         if res.status == 413 && batch.count > 1 {
             maxBatchSize = max(1, batch.count / 2)

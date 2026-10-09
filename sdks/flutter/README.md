@@ -50,7 +50,7 @@ if (await Analytics.installReferrerPending()) {
 ## What it does automatically
 
 - **Queue** in SharedPreferences, batches of up to 100 every 10 s or at 20 events, flushed when the app is paused (`WidgetsBindingObserver`).
-- **Retries** with exponential backoff and jitter (1 s → 5 min), `Retry-After` on 429, batch halving on 413, drop on 400/422, pause on 401/403, `Idempotency-Key` per batch.
+- **Retries** with exponential backoff and jitter (1 s → 5 min), `Retry-After` on 429, batch halving on 413, drop on 400/422, pause on 401/403, `Idempotency-Key` per batch derived from every event id (resent without it on `409`).
 - **Sessions**: new `session_id` after 30 minutes of inactivity.
 - **Context**: `platform: flutter`, `os`, `os_version`, `locale`, `language`, `screen`, `sdk {name: leanapp-flutter}`, plus your `context`. Device model and IANA timezone need plugins, so pass them in `context`.
 - **Lifecycle**: `app_installed`, `app_updated` (from `appVersion`/`appBuild`), `app_opened` (`from_background`).

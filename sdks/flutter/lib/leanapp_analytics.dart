@@ -14,7 +14,7 @@ import 'src/device_context.dart';
 import 'src/storage.dart';
 
 export 'src/attribution.dart' show InstallReferrer, attributionParams, parseAttribution;
-export 'src/client.dart' show FlushResult, LeanAppClient, LeanAppOptions, defaultEndpoint, sdkName, sdkVersion, storagePrefix;
+export 'src/client.dart' show FlushResult, LeanAppClient, LeanAppOptions, defaultEndpoint, eventIdsHash, idempotencyKey, sdkName, sdkVersion, storagePrefix;
 export 'src/device_context.dart' show flutterContext;
 export 'src/storage.dart' show KeyValueStore, MemoryStore, SharedPreferencesStore;
 

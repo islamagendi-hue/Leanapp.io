@@ -23,6 +23,25 @@ String storagePrefix(String apiKey) {
   return 'leanapp:la_${m.group(1)}_${m.group(2)}:';
 }
 
+/// FNV-1a (32-bit) of the UTF-8 bytes of the event ids joined by "\n", as 8 hex digits.
+/// Same value as eventIdsHash in the JavaScript SDK. Multiplication is split so every
+/// intermediate stays exact on the web, where ints are doubles.
+String eventIdsHash(List<String> ids) {
+  var h = 0x811c9dc5;
+  for (final b in utf8.encode(ids.join('\n'))) {
+    h = (h ^ b) & 0xffffffff;
+    // h * 0x01000193 mod 2^32 == (h * 0x193 + (h & 0xff) * 2^24) mod 2^32
+    h = (h * 0x193 + (h & 0xff) * 0x1000000) % 0x100000000;
+  }
+  return h.toRadixString(16).padLeft(8, '0');
+}
+
+/// `<batch size>:<hash of every event id>:<first event id>`: the same events give the same key on every
+/// retry, and a batch whose events changed before a retry gets a different key, so the server never
+/// answers it with the response of a batch it did not send. The first id goes last so the server's
+/// 200-character limit can only truncate it, never the hash.
+String idempotencyKey(List<String> ids) => '${ids.length}:${eventIdsHash(ids)}:${ids.isEmpty ? '' : ids.first}';
+
 /// Client options. Defaults match the JavaScript SDK (docs/sdk.md).
 class LeanAppOptions {
   LeanAppOptions({
@@ -270,6 +289,8 @@ class LeanAppClient {
   bool _optedOut;
   int _failures = 0;
   int _retryAt = 0;
+  /// Set after a 409 idempotency_key_reused: the next request goes without a key (event ids still de-duplicate).
+  bool _skipIdempotencyKey = false;
   int _maxBatchSize;
   Timer? _timer;
   Future<void> _persistChain = Future<void>.value();
@@ -566,6 +587,8 @@ class LeanAppClient {
 
     final batch = _queue.sublist(0, min(_maxBatchSize, _queue.length));
     _sending = true;
+    final withKey = !_skipIdempotencyKey;
+    _skipIdempotencyKey = false;
     try {
       final res = await _http.post(
         Uri.parse('${_o.endpoint}/v1/events/batch'),
@@ -573,7 +596,7 @@ class LeanAppClient {
           'Content-Type': 'application/json',
           'Authorization': 'Bearer ${_o.apiKey}',
           // Same events → same key, so a retried request is answered from the server's idempotency store.
-          'Idempotency-Key': '${batch[0].eventId}:${batch.length}',
+          if (withKey) 'Idempotency-Key': idempotencyKey(batch.map((q) => q.eventId).toList()),
         },
         body: jsonEncode({'batch': batch.map((q) => q.e).toList(), 'sent_at': isoString(_now())}),
       );
@@ -603,6 +626,12 @@ class LeanAppClient {
         _paused = true;
         _warn('API key rejected (revoked, expired or wrong environment). Events are kept but not sent.');
         return const FlushResult.unauthorized();
+      }
+      if (res.statusCode == 409) {
+        // idempotency_key_reused: nothing was stored. Keep the events and resend them without a key;
+        // their event ids still make the resend safe.
+        _skipIdempotencyKey = true;
+        return _backoff(0, 'idempotency key already used for other events; resending without it');
       }
       if (res.statusCode == 413 && batch.length > 1) {
         _maxBatchSize = max(1, batch.length ~/ 2);
