@@ -28,6 +28,13 @@ The organization's plan is `organizations.plan_id`. With Stripe connected it fol
 
 Environments are not a separate limit: every app has exactly three (development, staging, production), created with the app, so they are bounded by the apps limit. Monthly active users are shown but not limited (no plan defines an MTU limit yet).
 
+**Monthly active users** (shown on Plan & billing for production environments) are the distinct people with at least one *counted* event in the calendar month (UTC). It is the same rule as the analytics "Active users" KPI (`COUNTED_EVENTS` and `PERSON` in `modules/analytics/sql.ts`):
+
+- counted events are processed `track` events and screen views without a processing error; `identify`, `alias`, `push_token` and consent calls, and events still waiting for processing or that failed it, make nobody active;
+- people are stitched like analytics: an install linked to exactly one user counts as that user, not as an extra anonymous person.
+
+Billing months are UTC, while reports use the app's timezone, so a report over "this month" can differ from the billed figure by the activity in the hours between the two month boundaries. Monthly *events* (the allowance above) are different: they count every event ingestion accepted, protocol calls included.
+
 Apps and seats are checked inside the transaction that adds one, under a per-organization advisory lock, so two concurrent requests can't both take the last slot.
 
 ### Monthly events: soft limit, then a grace, then refusal

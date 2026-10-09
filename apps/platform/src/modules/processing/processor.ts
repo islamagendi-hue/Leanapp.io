@@ -7,6 +7,7 @@ import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
 import { attributeEvent } from "@/modules/attribution/engine";
 import { GrowthBatch, growthConfig } from "@/modules/growth/engine";
 import { enqueueReprocess } from "@/modules/reprocess/jobs";
+import { purgeReportCache } from "@/modules/analytics/cache";
 import { log } from "@/lib/log";
 
 /**
@@ -160,10 +161,7 @@ async function processBatch(environmentId: string, size: number): Promise<{ clai
     // New data makes cached report results out of date. Results less than a
     // minute old are kept, so a busy environment still gets a short cache.
     if (processed > 0) {
-      await db.query(
-        "delete from platform.report_cache where environment_id = $1 and created_at < now() - make_interval(secs => $2)",
-        [environmentId, REPORT_CACHE_MIN_AGE_SECONDS],
-      );
+      await purgeReportCache(db, environmentId, { keepNewerThanSeconds: REPORT_CACHE_MIN_AGE_SECONDS });
     }
     return { claimed: rows.length, processed, failed };
   });
@@ -400,12 +398,15 @@ export async function recomputeImplementation(db: Db, appId: string, opts: { day
       invalid.push({ organization_id: e.organization_id, environment_id: e.environment_id, event_row_id: e.id, event_name: canonical, errors: result.errors });
     }
   }
-  await db.query(
+  const renamed = await db.query<{ environment_id: string }>(
     `update platform.events e set canonical_name = v.c
        from unnest($1::bigint[], $2::text[]) as v(id, c)
-      where e.id = v.id and e.canonical_name is distinct from v.c`,
+      where e.id = v.id and e.canonical_name is distinct from v.c
+      returning e.environment_id`,
     [ids, canonicals],
   );
+  // Reports group by canonical name: results cached before the rename are wrong now.
+  if (renamed.length) await purgeReportCache(db, [...new Set(renamed.map((r) => r.environment_id))]);
   // Results from an older plan version, or for the events re-validated here, are replaced.
   await db.query(
     `delete from platform.tracking_validation_results

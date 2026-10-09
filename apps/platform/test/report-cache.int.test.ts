@@ -10,8 +10,11 @@ import { eventTrend } from "@/modules/analytics/service";
 import { createAudience, updateAudience } from "@/modules/audiences/service";
 import { authenticateIngestionKey } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
-import { purgeOperationalData } from "@/modules/maintenance/retention";
+import { createMapping } from "@/modules/implementation/service";
+import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
+import { requestDeletion, runDeletionJobs } from "@/modules/privacy/service";
 import { processPendingEvents } from "@/modules/processing/processor";
+import { enqueueReprocess, runReprocessJobs } from "@/modules/reprocess/jobs";
 import { makeTenant } from "./helpers";
 
 type T = Awaited<ReturnType<typeof makeTenant>>;
@@ -124,5 +127,57 @@ describe("cachedReport", () => {
     expect(r.report_cache).toBeGreaterThanOrEqual(1);
     const left = await withSystem((db) => db.query("select 1 from platform.report_cache where environment_id = $1", [A.dev.id]));
     expect(left).toEqual([]);
+  });
+});
+
+describe("invalidation when counted data changes", () => {
+  const input = { event: "order_completed", days: 7 };
+  const run = () => cachedReport(A.ctx, scope, "trend", input, () => eventTrend(A.ctx, scope, input));
+  async function primed() {
+    await run();
+    const again = await run();
+    expect(again.fromCache).toBe(true);
+    return again.value.total;
+  }
+
+  it("drops the environment's results when a privacy deletion completes", async () => {
+    expect(await primed()).toEqual({ count: 4, people: 4 });
+    const { jobId } = await requestDeletion({ kind: "user", ctx: A.ctx }, A.dev.id, { userId: "u1" });
+    expect(await runDeletionJobs({ jobIds: [jobId] })).toEqual({ completed: 1, failed: 0 });
+    const after = await run();
+    expect(after.fromCache).toBe(false);
+    expect(after.value.total).toEqual({ count: 3, people: 3 });
+  });
+
+  it("drops them when a remap or growth_rebuild job finishes", async () => {
+    for (const kind of ["remap", "growth_rebuild"] as const) {
+      await primed();
+      await withSystem((db) => enqueueReprocess(db, A.app.id, kind, "test"));
+      await runReprocessJobs({ deadline: Date.now() + 30_000 });
+      const job = await withSystem((db) => db.one<{ status: string }>("select status from platform.app_reprocess_jobs where environment_id = $1 and kind = $2 order by created_at desc limit 1", [A.dev.id, kind]));
+      expect(job?.status).toBe("done");
+      expect((await run()).fromCache).toBe(false);
+    }
+  });
+
+  it("drops them when enforced retention deletes events", async () => {
+    await primed();
+    // One event of u2 is now past the free plan's 30-day retention.
+    await withSystem((db) =>
+      db.query("update platform.events set received_at = now() - interval '60 days' where id = (select min(id) from platform.events where environment_id = $1 and user_id = 'u2')", [A.dev.id]),
+    );
+    const r = await applyEventRetention({ mode: "enforce", organizationIds: [A.org.id] });
+    expect(r.organizations[0]?.events).toBe(1);
+    const after = await run();
+    expect(after.fromCache).toBe(false);
+    expect(after.value.total).toEqual({ count: 2, people: 2 });
+  });
+
+  it("drops them when a mapping change renames past events", async () => {
+    await primed();
+    await createMapping(A.ctx, A.app.id, "order_completed", "purchase_completed");
+    const after = await run();
+    expect(after.fromCache).toBe(false);
+    expect(after.value.total.count).toBe(0);
   });
 });

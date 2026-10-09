@@ -697,8 +697,13 @@ paths:
                     type: array
                     description: Installs linked to the user (newest first, at most 100).
                     items: { type: string }
-                  event_count: { type: integer }
-                  last_event_at: { type: [string, "null"], format: date-time }
+                  event_count:
+                    type: integer
+                    description: The user's events as reports count them (processed `track` events and screen views; identify, alias, push_token and consent calls and failed events are left out).
+                  last_event_at:
+                    type: [string, "null"]
+                    format: date-time
+                    description: Time of the latest of those events.
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }

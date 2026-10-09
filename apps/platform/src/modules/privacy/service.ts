@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import { withSystem, withTenant, type Db } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import { purgeReportCache } from "@/modules/analytics/cache";
 import { audit } from "@/modules/audit/service";
 import { assertCan } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
@@ -364,6 +365,8 @@ export async function runDeletionJobs(opts: { limit?: number; jobIds?: string[] 
           [job.id, total, JSON.stringify(details), resolved.skippedAnonymousIds],
         );
         await db.query("update platform.privacy_requests set status = 'completed', completed_at = now() where id = $1", [job.privacy_request_id]);
+        // Cached reports may still count the deleted person; drop them with the data, in the same transaction.
+        await purgeReportCache(db, job.environment_id);
         await audit(db, {
           organizationId: job.organization_id,
           actorUserId: null,
