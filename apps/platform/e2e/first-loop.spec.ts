@@ -48,8 +48,8 @@ async function answerQuestionnaire(page: Page) {
 }
 
 test("sign up, create an organization and an app", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("link", { name: "Get started" }).first().click();
+  await page.goto("/?lang=en");
+  await page.getByRole("link", { name: "Start free" }).first().click();
   await page.fill('[name="name"]', "Sara Ali");
   await page.fill('[name="email"]', email);
   await page.fill('[name="password"]', password);
@@ -643,15 +643,24 @@ test("reports apply as you change them, funnel bars open their people, and Ctrl+
   await expect(search.getByRole("option", { name: /Order Completed/ })).toBeVisible();
 });
 
-test("landing page: positioning, the product flow with honest labels, and noindex", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Affordable product analytics and growth infrastructure for mobile apps.");
+test("landing page: Arabic and English, honest labels, comparison, pricing, and noindex", async ({ page }) => {
+  await page.goto("/?lang=ar");
+  await expect(page.locator("div[dir=rtl][lang=ar]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("اعرف مستخدمينك، وكبّر تطبيقك.");
+  await page.getByRole("link", { name: "English" }).click();
+  await expect(page).toHaveURL(/lang=en/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Know your users. Grow your app.");
   await expect(page.getByRole("list", { name: "Product flow" }).getByRole("link")).toHaveText(["Connect", "Collect", "Understand", "Funnels", "Retention", "Audiences", "Act"]);
   const connect = page.getByRole("article", { name: "Connect your app" });
   await expect(connect.getByRole("listitem").filter({ hasText: "Android, iOS and Flutter SDKs" }).getByText("Beta", { exact: true })).toBeVisible();
   const act = page.getByRole("article", { name: "Act on it" });
   await expect(act.getByRole("listitem").filter({ hasText: "Acquisition" })).toContainText("Not a full mobile measurement partner");
   await expect(page.getByRole("heading", { name: "Coming next" })).toBeVisible();
+  const compare = page.getByRole("table");
+  await expect(compare.getByRole("columnheader")).toHaveText(["What you need", "LeanApp", "Mixpanel", "Adjust", "MoEngage"]);
+  await expect(compare.getByRole("row", { name: /Install attribution/ }).getByRole("cell").first()).toContainText("Beta");
+  await expect(page.getByRole("listitem", { name: "Growth" })).toContainText("$199");
+  await expect(page.getByRole("heading", { name: "Who we are" })).toBeVisible();
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
 });
 

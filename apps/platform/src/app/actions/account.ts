@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { changePassword, requestPasswordReset, resetPassword, sendVerificationEmail, signOutOtherSessions, updateProfile, verifyEmail } from "@/modules/auth/account";
 import { safeNext } from "@/lib/safe-next";
+import { DEMO_LOCKED, isDemoUser } from "@/modules/marketing/demo";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requestMeta, requireUser, sessionToken } from "@/server/session";
 
@@ -40,6 +41,7 @@ export async function verifyEmailAction(token: string, next: string | null, _: A
 export async function resendVerificationAction(_: ActionState, form?: FormData): Promise<ActionState> {
   try {
     const user = await requireUser();
+    if (isDemoUser(user)) return { error: DEMO_LOCKED };
     const r = await sendVerificationEmail(user.id, { next: safeNext(form?.get("next")) });
     if (r.transport === "skipped") return { ok: true, message: "Your email is already confirmed." };
     if (!r.delivered) return { error: "Email delivery isn't configured on this server yet, so the confirmation email couldn't be sent." };
@@ -52,6 +54,7 @@ export async function resendVerificationAction(_: ActionState, form?: FormData):
 export async function changePasswordAction(_: ActionState, form: FormData): Promise<ActionState> {
   try {
     const user = await requireUser();
+    if (isDemoUser(user)) return { error: DEMO_LOCKED };
     if (form.get("newPassword") !== form.get("confirm")) return { error: "The new passwords don't match." };
     await changePassword(user.id, { currentPassword: form.get("currentPassword"), newPassword: form.get("newPassword") }, (await sessionToken()) ?? null);
     return { ok: true, message: "Password changed. Your other sessions were signed out." };
@@ -63,6 +66,7 @@ export async function changePasswordAction(_: ActionState, form: FormData): Prom
 export async function signOutOtherSessionsAction(_: ActionState): Promise<ActionState> {
   try {
     const user = await requireUser();
+    if (isDemoUser(user)) return { error: DEMO_LOCKED };
     const n = await signOutOtherSessions(user.id, (await sessionToken()) ?? null);
     return { ok: true, message: n ? `Signed out ${n} other session${n > 1 ? "s" : ""}.` : "No other sessions were active." };
   } catch (err) {
@@ -73,6 +77,7 @@ export async function signOutOtherSessionsAction(_: ActionState): Promise<Action
 export async function updateProfileAction(_: ActionState, form: FormData): Promise<ActionState> {
   try {
     const user = await requireUser();
+    if (isDemoUser(user)) return { error: DEMO_LOCKED };
     await updateProfile(user.id, { name: form.get("name") });
   } catch (err) {
     return toActionError(err);

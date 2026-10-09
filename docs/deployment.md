@@ -88,7 +88,7 @@ webhooks). It needs a schedule:
    - `INTEGRATIONS_ENCRYPTION_KEY` (`openssl rand -hex 32`, keep stable)
    - `ATTRIBUTION_IP_HASH_SECRET` (`openssl rand -base64 32`)
    - `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `LeanApp <no-reply@leanapp.io>`)
-   - Optional: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` ([billing](billing.md)); `EVENT_RETENTION` stays unset (deletion is off until paid plans are final).
+   - Optional: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` ([billing](billing.md)); `EVENT_RETENTION` stays unset (deletion is off until paid plans are final); `DEMO_ENABLED=1` turns on the public read-only demo (sample data, refreshed by the scheduled worker).
 6. **GitHub environments** (repository Settings → Environments): create
    `staging` and `production`; on `production` add yourself as a required
    reviewer and restrict it to the `main` branch. In each, add secrets

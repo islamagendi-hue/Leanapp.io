@@ -1,5 +1,6 @@
 "use server";
 
+import { DEMO_LOCKED, isDemoUser } from "@/modules/marketing/demo";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { acceptInvitation, changeMemberRole, createOrganization, inviteMember, removeMember, revokeInvitation, updateOrganization } from "@/modules/organizations/service";
@@ -10,6 +11,7 @@ export async function createOrganizationAction(_: ActionState, form: FormData): 
   let slug: string;
   try {
     const user = await requireUser();
+    if (isDemoUser(user)) return { error: DEMO_LOCKED };
     const org = await createOrganization(user.id, {
       name: form.get("name"),
       country: form.get("country") ?? "",

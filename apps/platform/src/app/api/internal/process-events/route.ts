@@ -5,6 +5,7 @@ import { sendUsageNotices } from "@/modules/billing/notices";
 import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
 import { runAttributionJobs } from "@/modules/attribution/delivery";
 import { runEngagement } from "@/modules/automation/worker";
+import { demoEnabled, ensureDemo } from "@/modules/marketing/demo";
 import { runDeletionJobs } from "@/modules/privacy/service";
 import { runReprocessJobs } from "@/modules/reprocess/jobs";
 import { processPendingEvents } from "@/modules/processing/processor";
@@ -38,8 +39,8 @@ function authorized(req: Request): boolean {
  * (rate-limit windows, expired tokens and logs, and plan retention, which only
  * deletes events when EVENT_RETENTION=enforce), then plan usage notices,
  * attribution postbacks, and engagement: audience recomputation, automation
- * triggers and steps, webhook deliveries. Each later step starts only while
- * its time budget lasts.
+ * triggers and steps, webhook deliveries, and (when DEMO_ENABLED=1) the public
+ * demo's sample data. Each later step starts only while its time budget lasts.
  */
 export async function GET(req: Request) {
   if (!authorized(req)) return new Response("Unauthorized", { status: 401 });
@@ -63,7 +64,15 @@ export async function GET(req: Request) {
   const attribution = Date.now() < started + ATTRIBUTION_BUDGET_MS ? await runAttributionJobs({ deadline: started + ATTRIBUTION_BUDGET_MS }) : null;
   // Engagement: audiences, automation triggers and steps, webhook deliveries, only while time is left.
   const engagement = Date.now() < started + ENGAGEMENT_BUDGET_MS ? await runEngagement({ deadline: started + ENGAGEMENT_BUDGET_MS }) : { skipped: "time budget" };
-  const summary = { processed, failed, deletions, reprocess, purged, retention: { mode: retention.mode, organizations: retention.organizations.length }, usage_notices: usageNotices, attribution, engagement };
+  // The public demo's sample data, re-sent a few times a day so its reports stay current.
+  let demo: string | null = null;
+  if (demoEnabled() && Date.now() < started + LATE_STEPS_BUDGET_MS) {
+    demo = await ensureDemo({ staleHours: 6, deadline: started + LATE_STEPS_BUDGET_MS + 5_000 }).then(
+      () => "ok",
+      (e) => (log.error("demo.refresh_failed", { error: e }), "failed"),
+    );
+  }
+  const summary = { processed, failed, deletions, reprocess, purged, retention: { mode: retention.mode, organizations: retention.organizations.length }, usage_notices: usageNotices, attribution, engagement, demo };
   log.info("cron.completed", summary);
-  return Response.json({ processed, failed, deletions, reprocess, purged, retention, usage_notices: usageNotices, attribution, engagement });
+  return Response.json({ processed, failed, deletions, reprocess, purged, retention, usage_notices: usageNotices, attribution, engagement, demo });
 }
