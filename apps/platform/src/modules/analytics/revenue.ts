@@ -27,7 +27,7 @@ import { channelSql, type Params } from "./sql";
 
 export const REVENUE_BREAKDOWNS = ["platform", "event", "channel"] as const;
 
-export { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "./sql";
+export { CHANNEL_KEY_LABELS, CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "./sql";
 export { loadRevenueRules, NO_CURRENCY, revenueCtes } from "./revenue-sql";
 
 export const revenueSchema = z.object({

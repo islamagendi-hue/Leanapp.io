@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildRequest, networkEventName } from "./networks";
 import {
-  backoffSeconds, clickSignals, isOrganicUtm, MATCH_TYPES, matchTypeFor, mergeCampaignRows, destinationFor, expandMacros, extractRevenue, isBot, isPrefetch, MAX_POSTBACK_ATTEMPTS, networkOfSource,
+  backoffSeconds, clickSignals, isOrganicUtm, MATCH_TYPES, organicReason, matchTypeFor, mergeCampaignRows, destinationFor, expandMacros, extractRevenue, isBot, isPrefetch, MAX_POSTBACK_ATTEMPTS, networkOfSource,
   parseQuery, parseUserAgent, retryable, unknownMacros, type LinkDestinations,
 } from "./pure";
 import { assertPostbackUrlShape, isPrivateAddress } from "./url-safety";
@@ -192,5 +192,14 @@ describe("mergeCampaignRows", () => {
       { source: "tiktok", campaign: "eid", conversions: 132, revenue: [{ currency: "SAR", amount: 3000 }, { currency: "AED", amount: 150 }] },
       { source: "meta", campaign: null, conversions: 5, revenue: [] },
     ]);
+  });
+});
+
+describe("organicReason", () => {
+  it("tells store organic, other organic and direct apart", () => {
+    expect(organicReason({ source: "google-play", medium: "organic" })).toBe("store_organic");
+    expect(organicReason({ source: "blog", medium: "organic" })).toBe("organic_other");
+    expect(organicReason({ source: "(direct)", medium: "(none)" })).toBe("direct");
+    expect(organicReason({ source: "tiktok", medium: "paid" })).toBeNull();
   });
 });

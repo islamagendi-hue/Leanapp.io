@@ -7,6 +7,7 @@ import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { CAPABILITY_STATUS_LABELS, deepLinkCapabilities, type CapabilityStatus } from "@/modules/deeplinks/capabilities";
 import { deepLinkReport } from "@/modules/deeplinks/report";
 import { can } from "@/modules/rbac/authorize";
+import { GROUP_LABELS } from "@/modules/channels/registry";
 import { CHANNEL_PRESETS, linkUrl } from "@/modules/deeplinks/pure";
 import { configLinkBase, getConfig } from "@/modules/deeplinks/service";
 import { envName, statusName } from "@/components/acquisition/rich";
@@ -111,14 +112,19 @@ export default async function DeepLinksPage(props: PageProps<"/o/[org]/apps/[app
             <input type="hidden" name="environmentId" value={env.id} />
             <fieldset className="space-y-2">
               <legend className="label">{t("Channel")}</legend>
-              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-                {CHANNEL_PRESETS.map((p, i) => (
-                  <label key={p.id} className="flex items-start gap-2 rounded-lg border border-line p-3 text-sm">
-                    <input type="radio" name="channel" value={p.id} defaultChecked={i === 0} className="mt-1" />
-                    <span><span className="font-medium">{t(p.label)}</span><span className="help block"><span dir="ltr">{p.source} / {p.medium}</span>. {t(p.hint)}</span></span>
-                  </label>
-                ))}
-              </div>
+              {(["owned", "referral", "organic", "paid"] as const).map((g) => (
+                <div key={g} className="space-y-2">
+                  <p className="text-sm font-medium text-ink-2">{t(GROUP_LABELS[g])}</p>
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    {CHANNEL_PRESETS.filter((p) => p.group === g).map((p) => (
+                      <label key={p.id} className="flex items-start gap-2 rounded-lg border border-line p-3 text-sm">
+                        <input type="radio" name="channel" value={p.id} defaultChecked={p.id === "email"} className="mt-1" />
+                        <span><span className="font-medium">{t(p.label)}</span><span className="help block"><span dir="ltr">{p.source} / {p.medium}</span>. {t(p.hint)}</span></span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
             </fieldset>
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="block"><span className="label">{t("Name")}</span><input name="name" className="input" required maxLength={120} placeholder={t("Eid newsletter – hero button")} /></label>

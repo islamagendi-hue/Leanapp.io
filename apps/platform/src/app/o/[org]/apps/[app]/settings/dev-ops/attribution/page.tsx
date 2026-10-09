@@ -2,6 +2,7 @@ import { updateSettingsAction } from "@/app/actions/attribution";
 import { ActionForm } from "@/components/ActionForm";
 import { can } from "@/modules/rbac/authorize";
 import { getSettings } from "@/modules/attribution/service";
+import { ChannelRulesSettings } from "@/components/acquisition/ChannelRulesSettings";
 import { rich } from "@/components/acquisition/rich";
 import { getT } from "@/i18n/server";
 import { loadApp, requirePermission } from "@/server/session";
@@ -35,6 +36,13 @@ export default async function AttributionSettingsPage(props: PageProps<"/o/[org]
               <input name="conversionWindowDays" type="number" min={1} max={730} defaultValue={s.conversion_window_days} className="input w-32" />
               <span className="help">{t("Conversions this long after the install or re-engagement are credited to its source. Default 90.")}</span>
             </label>
+            <label className="block"><span className="label">{t("Reports open with")}</span>
+              <select name="reportingModel" className="input w-48" defaultValue={s.reporting_model}>
+                <option value="last_touch">{t("Last touch")}</option>
+                <option value="first_touch">{t("First touch")}</option>
+              </select>
+              <span className="help">{t("Both models are always available on Sources & campaigns; this is the one it shows first. First touch is the person's earliest install or re-engagement within the conversion window.")}</span>
+            </label>
             <label className="flex items-start gap-2">
               <input type="checkbox" name="reengagementEnabled" defaultChecked={s.reengagement_enabled} className="mt-1" />
               <span><span className="font-medium">{t("Re-engagement")}</span><span className="help block">{t("A user who already has the app and opens it from a newer LeanApp link is credited to that link (last touch).")}</span></span>
@@ -61,6 +69,7 @@ export default async function AttributionSettingsPage(props: PageProps<"/o/[org]
       <p className="max-w-2xl text-sm text-ink-3">
         {t("View-through (impression) attribution isn't built: it needs ad-network impression data, which LeanApp doesn't receive. The stored view lookback ({hours}h) is not used yet and changes nothing.", { hours: s.view_lookback_hours })}
       </p>
+      <ChannelRulesSettings ctx={ctx} org={org} app={app} appId={a.id} manage={manage} />
     </div>
   );
 }

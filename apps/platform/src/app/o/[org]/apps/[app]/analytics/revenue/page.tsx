@@ -9,7 +9,7 @@ import { SaveReport } from "@/components/SaveReport";
 import { CountUp } from "@/components/CountUp";
 import { TrendChart } from "@/components/TrendChart";
 import { Stat as Tile } from "@/components/Stat";
-import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN, NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport, type BreakdownRow } from "@/modules/analytics/revenue";
+import { CHANNEL_KEY_LABELS, NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport, type BreakdownRow } from "@/modules/analytics/revenue";
 import { FALLBACK_PROPERTY } from "@/modules/analytics/revenue-rules";
 import { rangeLabel, rangePhrase } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
@@ -24,7 +24,7 @@ export async function generateMetadata() {
 }
 
 const BREAKDOWN_LABELS: Record<string, string> = { platform: msg("Platform"), event: msg("Event"), channel: msg("Channel") };
-const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic"), [CHANNEL_UNKNOWN]: msg("Unknown source"), [CHANNEL_NO_INSTALL]: msg("No install on record") };
+const CHANNEL_LABELS = CHANNEL_KEY_LABELS;
 const INTERVAL_NAMES: Record<string, string> = { day: msg("day"), week: msg("week"), month: msg("month") };
 const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cur = (t: T, c: string) => (c === NO_CURRENCY ? t("No currency") : c);

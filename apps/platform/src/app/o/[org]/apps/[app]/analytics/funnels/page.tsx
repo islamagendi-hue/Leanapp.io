@@ -1,8 +1,8 @@
 import Link from "next/link";
-import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "@/modules/analytics/sql";
+import { CHANNEL_KEY_LABELS } from "@/modules/analytics/sql";
 import { AnalyticsHeader, param, rich } from "@/components/AnalyticsHeader";
 import { getLang, getT } from "@/i18n/server";
-import { dateLocale, msg, type T } from "@/i18n/translate";
+import { dateLocale, type T } from "@/i18n/translate";
 import { EventName } from "@/components/EventName";
 import { AutoApply } from "@/components/AutoApply";
 import { CohortSelect } from "@/components/CohortSelect";
@@ -17,7 +17,7 @@ import { ReportFreshness } from "@/components/ReportFreshness";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic"), [CHANNEL_UNKNOWN]: msg("Unknown source"), [CHANNEL_NO_INSTALL]: msg("No install on record") };
+const CHANNEL_LABELS = CHANNEL_KEY_LABELS;
 
 export async function generateMetadata() {
   const t = await getT();

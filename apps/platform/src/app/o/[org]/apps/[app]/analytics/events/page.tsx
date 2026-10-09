@@ -14,7 +14,7 @@ import { eventLabels } from "@/modules/analytics/labels";
 import { rangeLabel, rangePhrase, spanLabel } from "@/modules/analytics/range";
 import { eventFiltersFromParams, rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { ANY_EVENT, BREAKDOWNS, eventTrend, kpi, MAX_EVENT_FILTERS, topEvents } from "@/modules/analytics/service";
-import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "@/modules/analytics/sql";
+import { CHANNEL_KEY_LABELS } from "@/modules/analytics/sql";
 import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
@@ -27,7 +27,7 @@ export async function generateMetadata() {
 }
 
 const BREAKDOWN_LABELS: Record<string, string> = { platform: msg("Platform"), app_version: msg("App version"), country: msg("Country"), channel: msg("Channel") };
-const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic"), [CHANNEL_UNKNOWN]: msg("Unknown source"), [CHANNEL_NO_INSTALL]: msg("No install on record") };
+const CHANNEL_LABELS = CHANNEL_KEY_LABELS;
 const INTERVAL_NAMES: Record<string, string> = { day: msg("day"), week: msg("week"), month: msg("month") };
 /** Series names the report makes up ("Other", "(none)"); values people sent stay as they are. */
 const seriesName = (t: T, key: string, by?: string | null) =>

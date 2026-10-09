@@ -8,11 +8,10 @@ import { RetentionTabs } from "@/components/RetentionTabs";
 import { Stat } from "@/components/Stat";
 import { TrendChart } from "@/components/TrendChart";
 import { getLang, getT } from "@/i18n/server";
-import { msg } from "@/i18n/translate";
 import { AT_RISK_LIST, churnReport } from "@/modules/analytics/churn";
 import { BUCKET_LABELS, CHURN_WINDOWS, churnInterval, churnWindow, type ChurnBucket } from "@/modules/analytics/churn-pure";
 import { localDate, shortDay } from "@/modules/analytics/range";
-import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "@/modules/analytics/sql";
+import { CHANNEL_KEY_LABELS, CHANNEL_ORGANIC } from "@/modules/analytics/sql";
 import { can } from "@/modules/rbac/authorize";
 import { reportRunner } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -21,7 +20,7 @@ export async function generateMetadata() {
   return { title: (await getT())("Churn") };
 }
 
-const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic"), [CHANNEL_UNKNOWN]: msg("Unknown source"), [CHANNEL_NO_INSTALL]: msg("No install on record") };
+const CHANNEL_LABELS = CHANNEL_KEY_LABELS;
 const num = (n: number) => n.toLocaleString("en-US");
 const pct = (x: number | null) => (x === null ? "–" : `${(x * 100).toFixed(1)}%`);
 

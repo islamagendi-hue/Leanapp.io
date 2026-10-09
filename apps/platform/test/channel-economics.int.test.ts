@@ -73,8 +73,8 @@ beforeAll(async () => {
     const env = (await db.one<{ organization_id: string; app_id: string }>("select organization_id, app_id from platform.environments where id = $1", [A.dev.id]))!;
     const install = (anon: string, at: string, matchType: string, source: string | null, kind = "install") =>
       db.query(
-        `insert into platform.attribution_events (organization_id, app_id, environment_id, kind, anonymous_id, occurred_at, match_type, source)
-         values ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        `insert into platform.attribution_events (organization_id, app_id, environment_id, kind, anonymous_id, occurred_at, match_type, source, match_key)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, case when $7 = 'organic' then 'store_organic' end)`, // organic = the store's organic referrer
         [env.organization_id, env.app_id, A.dev.id, kind, anon, at, matchType, source],
       );
     await install("a1", daysAgo(20, 10), "deterministic", "tiktok");

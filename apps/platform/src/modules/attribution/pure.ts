@@ -5,6 +5,8 @@
  * backoff. Unit-tested in pure.test.ts.
  */
 
+import { CLICK_ID_NETWORKS, networkOfSource as registryNetworkOfSource } from "@/modules/channels/registry";
+
 /** Events that mark an install (first open after install). */
 export const INSTALL_EVENTS: ReadonlySet<string> = new Set(["app_installed"]);
 /** Server-side context the ingestion API adds (clients can't set it; it is stripped from input). */
@@ -39,22 +41,13 @@ export function isPrefetch(headers: Headers): boolean {
   return /prefetch|preview|prerender/.test(purpose) || headers.has("next-router-prefetch");
 }
 
-/** Ad-network click id parameters and the network each belongs to. */
-export const NETWORK_CLICK_IDS: Record<string, string> = {
-  gclid: "google",
-  gbraid: "google",
-  wbraid: "google",
-  fbclid: "meta",
-  ttclid: "tiktok",
-  ScCid: "snapchat",
-  sccid: "snapchat",
-  twclid: "x",
-  msclkid: "microsoft",
-  li_fat_id: "linkedin",
-};
+/** Ad-network click id parameters and the network each belongs to (from the channel registry). */
+export const NETWORK_CLICK_IDS: Record<string, string> = CLICK_ID_NETWORKS;
 
-/** The ad network a source name refers to, for postback routing. */
+/** The ad network a source name refers to, for postback routing: the channel registry first, then loose spellings. */
 export function networkOfSource(source: string | null | undefined): string | null {
+  const known = registryNetworkOfSource(source);
+  if (known) return known;
   const s = (source ?? "").toLowerCase().replace(/[^a-z]/g, "");
   if (!s) return null;
   if (s.includes("tiktok")) return "tiktok";
@@ -206,6 +199,24 @@ export function isOrganicUtm(utm: { source?: string; medium?: string }): boolean
   const source = norm(utm.source);
   const medium = norm(utm.medium);
   return medium === "organic" || medium === "none" || source === "organic" || source === "direct" || source === "not set";
+}
+
+/**
+ * Why an organic-looking install is organic, stored as its match_key so
+ * reports can keep it apart from "nothing matched" (unattributed):
+ *   store_organic  the store's own referrer says organic (Play: utm_source=google-play&utm_medium=organic)
+ *   organic_other  organic per the parameters, from a source that isn't a store (reported as unknown)
+ *   direct         the parameters say direct / none
+ * Null when the parameters aren't organic.
+ */
+export function organicReason(utm: { source?: string; medium?: string }): "store_organic" | "organic_other" | "direct" | null {
+  if (!isOrganicUtm(utm)) return null;
+  const norm = (v: string | undefined) => v?.trim().toLowerCase().replace(/^\((.*)\)$/, "$1");
+  const source = (norm(utm.source) ?? "").replace(/[^a-z]/g, "");
+  if (norm(utm.medium) === "organic" || source === "organic") {
+    return ["googleplay", "playstore", "appstore", "apple", "organic", ""].includes(source) ? "store_organic" : "organic_other";
+  }
+  return "direct";
 }
 
 /**
