@@ -48,7 +48,7 @@ export interface EventRow {
   context: Record<string, unknown>;
 }
 
-const SYSTEM_NAMES = new Set(Object.values(SYSTEM_EVENT_NAMES).concat(["app_installed", "app_opened", "app_updated", "deep_link_opened", "push_opened"]));
+const SYSTEM_NAMES = new Set(Object.values(SYSTEM_EVENT_NAMES).concat(["app_installed", "app_opened", "app_updated", "deep_link_opened", "push_opened", "experiment_exposure"]));
 
 /** Events claimed per transaction: small enough that locks are held briefly and progress is committed often. */
 const BATCH_SIZE = 100;

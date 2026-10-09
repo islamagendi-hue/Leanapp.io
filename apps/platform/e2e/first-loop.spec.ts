@@ -504,6 +504,42 @@ test("campaigns: audience, channel, message, schedule; the audience must be acti
   await expect(page.getByRole("row").filter({ hasText: "Riyadh weekend" }).getByText("In-app")).toBeVisible();
 });
 
+test("experiments: create and start one, get a variant from the API, and see the exposure on the results page", async ({ page, request }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/engage/campaigns?env=development`);
+  await page.getByRole("link", { name: "Experiments" }).first().click();
+  await expect(page.getByRole("heading", { name: /Experiments/, level: 1 })).toBeVisible();
+  await expect(page.getByRole("region", { name: "What works today" })).toContainText("A/B tests of campaign messages");
+  await page.getByRole("link", { name: "New experiment" }).click();
+  await page.getByLabel("Experiment name").fill("Checkout button");
+  await page.getByLabel("Key used in your app's code").fill("checkout_button");
+  await page.getByLabel("Goal event").fill("order_completed");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByRole("heading", { name: /Checkout button/, level: 1 })).toBeVisible();
+  await expect(page.getByText("draft", { exact: true })).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Start experiment" }).click();
+  await expect(page.getByText(/^Running\. The assignment API now returns/)).toBeVisible();
+  await page.reload();
+  await expect(page.getByText(/No one has been exposed yet/)).toBeVisible();
+
+  const res = await request.post("/v1/experiments/assignments", { headers: { Authorization: `Bearer ${sdkKey}` }, data: { user_id: "u-exp-1", anonymous_id: "dev-exp-1" } });
+  expect(res.status()).toBe(200);
+  const a = (await res.json()).assignments.find((x: { experiment: string }) => x.experiment === "checkout_button");
+  expect(["control", "treatment"]).toContain(a.variant);
+  const sent = await request.post("/v1/events/batch", {
+    headers: { Authorization: `Bearer ${sdkKey}` },
+    data: { batch: [{ type: "track", event_name: "experiment_exposure", event_id: crypto.randomUUID(), anonymous_id: "dev-exp-1", user_id: "u-exp-1", properties: { experiment: "checkout_button", experiment_id: a.experiment_id, variant: a.variant } }] },
+  });
+  expect(await sent.json()).toMatchObject({ accepted: 1, rejected: [] });
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("region", { name: "Experiment summary" })).toContainText("People exposed1", { timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
+  await expect(page.getByText(/Not enough data yet\. Each variant needs 100 exposed people/)).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: a.variant === "control" ? "Control" : "Treatment" }).getByRole("cell").nth(1)).toHaveText("1");
+});
+
 test("channels & delivery: health, honest numbers, and a test send", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}/engage/channels?env=development`);

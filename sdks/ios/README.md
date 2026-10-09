@@ -47,6 +47,16 @@ Analytics.reset() // on logout
 
 Not built yet: SKAdNetwork / AdAttributionKit conversion values (see [roadmap](../../docs/roadmap.md)).
 
+## Experiments
+
+This SDK has no `getVariant` yet. Ask `GET /v1/experiments/assignments?user_id=…&anonymous_id=…` with the public key (the JavaScript SDK's `getVariant` does the same), then, when you show the variant, send the exposure once:
+
+```swift
+Analytics.track("experiment_exposure", properties: ["experiment": "checkout_button", "experiment_id": experimentId, "variant": variant])
+```
+
+See [docs/experiments.md](../../docs/experiments.md).
+
 ## Develop
 
 ```bash

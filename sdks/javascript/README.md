@@ -14,6 +14,8 @@ React Native: pass `storage: asyncStorageAdapter(AsyncStorage)` so the queue sur
 
 Consent: `Analytics.setConsent({ analytics, marketing, push, attribution })`; set `consentDefault: "pending"` to hold events until the user answers. See [docs/sdk.md](../../docs/sdk.md#consent).
 
+Experiments: `await Analytics.getVariant("checkout_button")` returns the variant or `null` and sends the exposure event once. See [docs/sdk.md](../../docs/sdk.md#experiments).
+
 Full guide: [docs/sdk.md](../../docs/sdk.md). Tests run from `apps/platform` (`npm run test:unit`).
 
 Status: not yet published to npm.

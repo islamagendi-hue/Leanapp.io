@@ -13,9 +13,9 @@ What each SDK does **not** do yet (the dashboard's SDK & API keys page shows the
 | SDK | Not built yet |
 | --- | --- |
 | JavaScript / React Native | Play install referrer on React Native (needs a native module), `deep_link_url` on opens, in-app message display, deferred / resolve deep link calls |
-| Android | consent per purpose (`optOut` / `optIn` only), in-app message display, deferred / resolve deep link calls |
-| iOS | consent per purpose (`optOut` / `optIn` only), SKAdNetwork / AdAttributionKit conversion values, in-app message display, deferred / resolve deep link calls |
-| Flutter | consent per purpose (`optOut` / `optIn` only), install referrer without a plugin, in-app message display, deferred / resolve deep link calls |
+| Android | consent per purpose (`optOut` / `optIn` only), in-app message display, deferred / resolve deep link calls, `getVariant` for experiments |
+| iOS | consent per purpose (`optOut` / `optIn` only), SKAdNetwork / AdAttributionKit conversion values, in-app message display, deferred / resolve deep link calls, `getVariant` for experiments |
+| Flutter | consent per purpose (`optOut` / `optIn` only), install referrer without a plugin, in-app message display, deferred / resolve deep link calls, `getVariant` for experiments |
 
 The dashboard's snippets (SDK & API keys, and the per-event snippets on the tracking plan) use only calls that exist in these SDKs; `sdks.test.ts` checks every call against the SDK sources, so a renamed method fails the unit tests.
 
@@ -62,6 +62,7 @@ Analytics.reset(); // on logout
 | `captureAttribution(url)` / `getAttribution()` | | First touch kept, latest touch attached to every event as `context.attribution` |
 | `setConsent({ analytics?, marketing?, push?, attribution? })` | `consent` | The user's answers; see [Consent](#consent) |
 | `getConsent()` | | `{ analytics, marketing, push, attribution }`, each `"granted" \| "pending" \| "denied"` |
+| `getVariant(experimentKey, { expose? })` | `track` (`experiment_exposure`, once) | Variant key of a running experiment or `null`; see [Experiments](#experiments) |
 | `flush()`, `optOut()`, `optIn()`, `reset()`, `getAnonymousId()`, `getUserId()` | | |
 
 ### Behaviour
@@ -104,6 +105,21 @@ Analytics.getConsent(); // { analytics: "granted", marketing: "denied", push: "g
 - **The answer itself** is stored on the device (survives restarts) and sent as a `consent` event with only `anonymous_id`, `user_id`, platform, SDK and app version: no session, properties or attribution. It is sent whatever the answer, because the platform needs the record to enforce it, and is never dropped to make room in a full queue. Purposes left out of `setConsent` keep their state.
 - **Identity.** Consent belongs to the device: it is kept by `reset()`, and the SDK records it again for the new anonymous id, and for the user on `identify` (new user id) and `alias`, so consent given before login follows the user. On the platform a decision under the user id and one under the install are compared and the most recent wins.
 - **Why a `consent` event and not a separate endpoint:** it rides the same offline queue, retries, idempotency (`event_id`) and keys as every other call, works from public keys, and the server applies it before the rest of the same batch. Servers send the same event with a secret key.
+
+## Experiments
+
+Variants of running [experiments](experiments.md) come from `GET` or `POST /v1/experiments/assignments` with the **public** key, for a `user_id`, an `anonymous_id` or both. The same person always gets the same variant; `variant: null` means show your default.
+
+```ts
+const variant = await Analytics.getVariant("checkout_button"); // "control", "treatment" … or null
+if (variant === "treatment") showPriceOnButton();
+```
+
+- `getVariant` fetches every assignment in one request, reuses it for `experimentsCacheMs` (default 5 minutes) and asks again when the user changes. It never throws: on a network error it returns `null`.
+- The first time it returns a variant for a user it queues an `experiment_exposure` event (`properties: { experiment, experiment_id, variant }`, a stable `event_id`), so results count only people who reached the code that shows the variant. Pass `{ expose: false }` and call `trackExposure(key, experimentId, variant)` where the variant is actually shown if you fetch earlier.
+- The exposure is a normal event: it waits for analytics consent and is dropped when consent is denied.
+- Call it after `identify()` for experiments on signed-in users: the variant follows the user id.
+- Android, iOS and Flutter don't have `getVariant` yet. Call the endpoint and send the same `experiment_exposure` event with `track()` when you show the variant.
 
 ## In-app messages
 

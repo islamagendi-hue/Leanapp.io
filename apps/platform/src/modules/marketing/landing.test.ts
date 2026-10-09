@@ -33,6 +33,18 @@ describe("landing content", () => {
     expect(COMPARE_EN.some((r) => r.cells[0] === "no")).toBe(true);
   });
 
+  it("offers A/B tests as beta, in both languages, and no longer lists them as not offered", () => {
+    const ab = COMPARE_EN.find((r) => /A\/B/.test(r.need))!;
+    expect(ab.cells[0]).toBe("beta");
+    expect(FLOW.flatMap((s) => s.items).find((i) => /A\/B/.test(i.name))?.state).toBe("beta");
+    expect(FLOW_AR.flatMap((s) => s.items).find((i) => /A\/B/.test(i.name))?.state).toBe("beta");
+    for (const lang of ["en", "ar"] as const) {
+      const copy = landingCopy(lang);
+      expect(copy.notOffered).not.toMatch(/A\/B/);
+      expect(copy.pricing.plans.flatMap((p) => p.features).join(" ")).not.toMatch(/coming soon|قريبًا/);
+    }
+  });
+
   it("picks Arabic unless asked for English or the browser prefers it", () => {
     expect(landingLang(undefined, null)).toBe("ar");
     expect(landingLang(undefined, "ar-SA,ar;q=0.9,en;q=0.8")).toBe("ar");

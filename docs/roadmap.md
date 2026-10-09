@@ -1,6 +1,6 @@
 # Roadmap, current state and gap analysis
 
-_Last updated 2026-10-07._
+_Last updated 2026-10-09._
 
 ## Starting point (before this work)
 
@@ -53,6 +53,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | SMS channel | 4+ | Not built. Twilio's Messages REST API would fit the WhatsApp pattern (customer's Account SID + auth token, signed status callbacks); needs a provider decision |
 | Email: open/click tracking, bounce and complaint webhooks into suppressions, HTML editor | 4+ | Plain text + generated HTML, templates, sending domain and one-click unsubscribe are built ([messaging](messaging.md)) |
 | Engagement extras | 4+ | Prayer-time quiet hours, Ramadan scheduling, holdout groups, conversion attribution to automations, per-user timezones, real-time audience evaluation, ad-network audience export |
+| Experiments beyond the MVP | 4+ | Built: product experiments ([experiments](experiments.md)). Not built: `getVariant` in the native SDKs, A/B tests of campaign messages with a holdout, sequential testing, variance reduction (CUPED), mutually exclusive layers, significance on revenue |
 | In-app message UI in the SDKs | 2–4 | The API contract is in [SDK](sdk.md#in-app-messages); `sdks/javascript` isn't changed yet |
 | OAuth, MFA, SSO | 2–4 | Schema ready |
 | Privacy: consent for native SDKs; a marketer-level permission for suppression lists; suppression of hashed ids that survives deletion | 2 | JS SDK consent, server enforcement and suppression lists are built ([API](api.md#consent-and-suppression)). Native SDKs must implement the same `setConsent` contract |
@@ -100,3 +101,4 @@ No MMP import or migration (AppsFlyer, Adjust, Branch) is planned; their live ca
 | SMS | ✗ (no provider chosen) |
 | Consent and suppression checked before every message (marketing + medium) | ✓ |
 | Prayer-time quiet hours, Ramadan scheduling, holdouts, conversion attribution | ✗ |
+| Experiments (A/B tests): variants with weights, traffic and audience targeting, deterministic assignment API, exposure events, results with uplift, 95% intervals, z-test and sample ratio check ([experiments](experiments.md)) | ◐ beta: `getVariant` in the JavaScript SDK only; A/B tests of campaign messages not built |

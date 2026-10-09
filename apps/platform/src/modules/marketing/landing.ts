@@ -77,6 +77,7 @@ export const FLOW: FlowStep[] = [
       { name: "In-app messages", state: "beta", note: "Delivered through the API for now; the SDKs don't display them yet." },
       { name: "Acquisition: sources, attribution, tracking links and QR codes", state: "beta", note: "Last-touch attribution built from your own event stream. Not a full mobile measurement partner (MMP)." },
       { name: "Deep links that open your app", state: "beta", note: "Deferred links after a fresh install work only through our API for now." },
+      { name: "A/B tests of screens and features", state: "beta", note: "Results with significance are built. Only the JavaScript SDK has getVariant; other apps call our API." },
     ],
   },
 ];
@@ -141,6 +142,7 @@ export const FLOW_AR: FlowStep[] = [
       { name: "رسائل داخل التطبيق", state: "beta", note: "تُرسل عبر الـ API، ولا تعرضها حزم الـ SDK بعد." },
       { name: "الاستحواذ: المصادر والإسناد وروابط التتبّع ورموز QR", state: "beta", note: "إسناد آخر نقرة من بيانات أحداثك. وهو ليس شريك قياس كاملًا (MMP)." },
       { name: "روابط عميقة تفتح تطبيقك", state: "beta", note: "الروابط المؤجّلة بعد التثبيت لأول مرة متاحة حاليًا عبر الـ API الخاص بنا فقط." },
+      { name: "اختبارات A/B للشاشات والميزات", state: "beta", note: "النتائج ودلالتها الإحصائية جاهزة. الدالة getVariant في حزمة JavaScript فقط، وتستدعي التطبيقات الأخرى الـ API." },
     ],
   },
 ];
@@ -159,9 +161,9 @@ const COMING_AR: string[] = [
 ];
 
 export const NOT_OFFERED =
-  "Not offered: SMS, web push, A/B tests, predictive scores, automatic ad cost import, fraud prevention, exports to a data warehouse, and single sign-on (SSO). If your team needs one of these, please tell us before you start.";
+  "Not offered: SMS, web push, predictive scores, automatic ad cost import, fraud prevention, exports to a data warehouse, and single sign-on (SSO). If your team needs one of these, please tell us before you start.";
 const NOT_OFFERED_AR =
-  "غير متوفر: الرسائل النصية SMS، إشعارات الويب، اختبارات A/B، التوقّعات الذكية، الاستيراد التلقائي لتكلفة الإعلانات، منع الاحتيال، التصدير لمستودع بيانات، والدخول الموحّد SSO. إذا كان فريقك يحتاج إلى إحداها، فأخبرنا قبل أن تبدأ.";
+  "غير متوفر: الرسائل النصية SMS، إشعارات الويب، التوقّعات الذكية، الاستيراد التلقائي لتكلفة الإعلانات، منع الاحتيال، التصدير لمستودع بيانات، والدخول الموحّد SSO. إذا كان فريقك يحتاج إلى إحداها، فأخبرنا قبل أن تبدأ.";
 
 /** A plan card. Starter and Growth are self-serve with a monthly price; Enterprise is priced on a call. */
 export interface Plan {
@@ -188,7 +190,7 @@ const PLANS_EN: Plan[] = [
     price: 199,
     from: true,
     tagline: "For growing apps",
-    features: ["Advanced analytics and cohorts", "Growth playbooks (experiments coming soon)", "More integrations and automation"],
+    features: ["Advanced analytics and cohorts", "Growth playbooks and A/B tests (beta)", "More integrations and automation"],
     limits: "From 20M events / month. The price follows your usage.",
     featured: true,
   },
@@ -213,7 +215,7 @@ const PLANS_AR: Plan[] = [
     price: 199,
     from: true,
     tagline: "للتطبيقات التي تنمو",
-    features: ["تحليلات متقدمة وشرائح المستخدمين", "خطط نمو جاهزة (التجارب قريبًا)", "تكاملات وأتمتة أكثر"],
+    features: ["تحليلات متقدمة وشرائح المستخدمين", "خطط نمو جاهزة واختبارات A/B (تجريبية)", "تكاملات وأتمتة أكثر"],
     limits: "من 20 مليون حدث شهريًا، ويتغيّر السعر حسب حجم استخدامك.",
     featured: true,
   },
@@ -246,6 +248,7 @@ const COMPARE_CELLS: CompareRow["cells"][] = [
   ["yes", "no", "no", "yes"], // push, email, WhatsApp
   ["beta", "no", "yes", "partial"], // install attribution
   ["yes", "no", "no", "no"], // tracking plan from your business
+  ["beta", "yes", "no", "yes"], // A/B tests (experiments)
   ["no", "no", "yes", "no"], // fraud prevention, automatic ad cost import
 ];
 const COMPARE_NEEDS_EN = [
@@ -253,6 +256,7 @@ const COMPARE_NEEDS_EN = [
   "Push, email and WhatsApp campaigns",
   "Install attribution (sources and campaigns)",
   "Tracking plan built from your business model",
+  "A/B tests with results and significance",
   "Fraud prevention and ad cost import",
 ];
 const COMPARE_NEEDS_AR = [
@@ -260,6 +264,7 @@ const COMPARE_NEEDS_AR = [
   "حملات إشعارات وبريد وواتساب",
   "إسناد التثبيتات (المصادر والحملات)",
   "خطة تتبّع مبنية على نموذج عملك",
+  "اختبارات A/B بنتائج ودلالة إحصائية",
   "منع الاحتيال واستيراد تكلفة الإعلانات",
 ];
 export const COMPARE_EN: CompareRow[] = COMPARE_CELLS.map((cells, i) => ({ need: COMPARE_NEEDS_EN[i], cells }));
