@@ -71,7 +71,7 @@ export async function AccountSections({ user, verified }: { user: AuthUser; veri
 
       <section className="card">
         <h2 className="h2">{t("Change password")}</h2>
-        <p className="mb-4 text-sm text-ink-3">{t("Your other sessions are signed out when the password changes.")}</p>
+        <p className="mb-4 text-sm text-ink-3">{t("Your other sessions are signed out when the password changes, on every device.")}</p>
         <ActionForm action={changePasswordAction} submitLabel={t("Change password")} pendingLabel={t("Saving…")}>
           <div>
             <label className="label" htmlFor="currentPassword">{t("Current password")}</label>

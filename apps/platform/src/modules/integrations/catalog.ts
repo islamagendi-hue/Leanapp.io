@@ -28,42 +28,42 @@ export const INTEGRATIONS: IntegrationGroup[] = [
   {
     title: msg("Ad networks"),
     items: [
-      { id: "meta", name: "Meta Ads", what: msg("Send installs and in-app events back to Meta (Facebook and Instagram) campaigns."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
+      { id: "meta", name: "Meta Ads", what: msg("Send installs and in-app events back to your Meta (Facebook and Instagram) campaigns."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
       { id: "snap", name: "Snapchat Ads", what: msg("Send installs and in-app events back to Snapchat campaigns."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
-      { id: "tiktok", name: "TikTok Ads", what: msg("Send installs and in-app events back to TikTok campaigns."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
-      { id: "google-ads", name: "Google Ads", what: msg("Send conversions back to Google Ads app campaigns."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
-      { id: "skan", name: "Apple SKAdNetwork", what: msg("Privacy-safe install measurement for iOS campaigns."), state: "beta", path: "settings/dev-ops/attribution/skan", perm: "attribution.read" },
+      { id: "tiktok", name: "TikTok Ads", what: msg("Send installs and in-app events back to TikTok to optimise your ad campaigns."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
+      { id: "google-ads", name: "Google Ads", what: msg("Send conversions back to Google Ads."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
+      { id: "skan", name: "Apple SKAdNetwork", what: msg("Privacy-safe install measurement from Apple for your iOS ad campaigns, in aggregate."), state: "beta", path: "settings/dev-ops/attribution/skan", perm: "attribution.read" },
     ],
   },
   {
     title: msg("Attribution and deep links"),
     items: [
-      { id: "links", name: msg("Tracking links & QR"), what: msg("One link per campaign or influencer, with QR codes, that counts clicks and installs."), state: "beta", path: "acquisition/links", perm: "attribution.read" },
-      { id: "deep-links", name: msg("Deep links"), what: msg("Open a specific screen in your app from a link, with app and universal link setup."), state: "beta", path: "settings/dev-ops/deep-links", perm: "deep_links.read" },
-      { id: "custom-postback", name: msg("Custom postback URL"), what: msg("Send attributed installs and events to any URL you choose."), state: "live", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
+      { id: "links", name: msg("Tracking links & QR"), what: msg("One link per campaign or influencer, with QR codes, that counts the clicks and installs it brings."), state: "beta", path: "acquisition/links", perm: "attribution.read" },
+      { id: "deep-links", name: msg("Deep links"), what: msg("Open a specific screen in your app from a link, with App Links and Universal Links setup."), state: "beta", path: "settings/dev-ops/deep-links", perm: "deep_links.read" },
+      { id: "custom-postback", name: msg("Custom postback URL"), what: msg("Send attributed installs and events to any URL you choose, as a server postback."), state: "live", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
     ],
   },
   {
     title: msg("Messaging"),
     items: [
       { id: "whatsapp", name: "WhatsApp Business", what: msg("Send WhatsApp template messages from campaigns and flows (Meta Cloud API)."), state: "beta", path: "settings/dev-ops/channels", perm: "integrations.read" },
-      { id: "push", name: msg("Push notifications"), what: msg("Firebase Cloud Messaging for Android and APNs for iOS."), state: "beta", path: "settings/dev-ops/channels", perm: "integrations.read" },
-      { id: "email", name: msg("Email (Resend)"), what: msg("Send email from your own domain."), state: "beta", path: "settings/dev-ops/channels", perm: "integrations.read" },
+      { id: "push", name: msg("Push notifications"), what: msg("Send push messages through Firebase Cloud Messaging on Android and APNs on iOS."), state: "beta", path: "settings/dev-ops/channels", perm: "integrations.read" },
+      { id: "email", name: msg("Email (Resend)"), what: msg("Send campaign and flow emails from your own domain, through your Resend account."), state: "beta", path: "settings/dev-ops/channels", perm: "integrations.read" },
     ],
   },
   {
     title: msg("Developers"),
     items: [
       { id: "api", name: msg("REST API and SDKs"), what: msg("Send events from your servers and apps, and read reports from your own tools."), state: "live", path: "settings/dev-ops/sdk", perm: "credentials.read" },
-      { id: "webhooks", name: "Webhooks", what: msg("Get a signed HTTP call when an event, audience change or conversion happens."), state: "live", path: "settings/dev-ops/webhooks", perm: "webhooks.manage" },
+      { id: "webhooks", name: "Webhooks", what: msg("Get a signed HTTP call whenever an event, audience change or conversion happens."), state: "live", path: "settings/dev-ops/webhooks", perm: "webhooks.manage" },
     ],
   },
   {
     title: msg("Coming next"),
     items: [
-      { id: "clarity", name: "Microsoft Clarity", what: msg("Open session recordings and heatmaps for the users in your reports."), state: "soon" },
-      { id: "ad-spend", name: msg("Ad spend import"), what: msg("Bring in cost from Meta, Google, TikTok and Snap to see CPI and ROAS."), state: "soon" },
-      { id: "ga4", name: "Google Analytics 4", what: msg("Send your events to GA4 as well."), state: "soon" },
+      { id: "clarity", name: "Microsoft Clarity", what: msg("Open session recordings and heatmaps for the same users you find in your reports."), state: "soon" },
+      { id: "ad-spend", name: msg("Ad spend import"), what: msg("Import ad cost from Meta, Google, TikTok and Snap to see CPI and ROAS per campaign."), state: "soon" },
+      { id: "ga4", name: "Google Analytics 4", what: msg("Send your events to Google Analytics 4 too, so both tools work from the same data."), state: "soon" },
       { id: "warehouse", name: msg("Data warehouse export"), what: msg("Copy your raw events to BigQuery or Snowflake."), state: "soon" },
     ],
   },

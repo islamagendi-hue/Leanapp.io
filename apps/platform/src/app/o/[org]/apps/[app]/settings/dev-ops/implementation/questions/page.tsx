@@ -54,7 +54,7 @@ export default async function QuestionsPage(props: PageProps<"/o/[org]/apps/[app
     <div className="space-y-6">
       <div>
         <h1 className="h1">{t("Let's understand your app")}</h1>
-        <p className="mt-1 text-ink-2">{t("Questions adapt to your answers. We turn them into your tracking plan: events, properties, attribution and activation.")}</p>
+        <p className="mt-1 text-ink-2">{t("Questions adapt to your answers. We turn them into your tracking plan of events and properties.")}</p>
       </div>
       <div className="flex flex-wrap gap-2 text-sm">
         {SECTIONS.map((s) => {

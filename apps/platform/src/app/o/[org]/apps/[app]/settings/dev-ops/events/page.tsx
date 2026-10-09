@@ -52,14 +52,14 @@ export default async function ValidationPage(props: PageProps<"/o/[org]/apps/[ap
         <div>
           <h1 className="h1">{t("Validation")}</h1>
           <p className="mt-1 text-ink-2">
-            {report.published ? t("Live events compared with tracking plan v{n}.", { n: report.versionNumber ?? "" }) : t("No published tracking plan yet, so nothing to validate against.")}
+            {report.published ? t("Live events compared with tracking plan v{n}.", { n: report.versionNumber ?? "" }) : t("No tracking plan has been published yet, so there is nothing to validate events against.")}
           </p>
         </div>
       </div>
 
       {!report.published && (
         <div className="card">
-          <p>{t("Publish a tracking plan to get an implementation score and per-event validation.")}</p>
+          <p>{t("Publish a tracking plan to get an implementation score and event checks.")}</p>
           <Link href={`${base}/settings/dev-ops/implementation/plan`} className="btn mt-4">{t("Open tracking plan")}</Link>
         </div>
       )}
@@ -132,7 +132,7 @@ export default async function ValidationPage(props: PageProps<"/o/[org]/apps/[ap
       <section className="grid gap-6 lg:grid-cols-2">
         <div className="card">
           <h2 className="h2">{t("Unplanned events")}</h2>
-          <p className="mb-3 text-sm text-ink-3">{t("Received but not in the published plan. Map them to a planned event if they mean the same thing.")}</p>
+          <p className="mb-3 max-w-md text-sm text-ink-3">{t("Received but not in the published plan. Map them to a planned event if they mean the same thing, so they count toward it in your reports.")}</p>
           {report.unplanned.length === 0 ? <p className="text-sm text-ink-3">{t("None.")}</p> : (
             <ul className="space-y-1 text-sm">
               {report.unplanned.map((u) => (
@@ -145,7 +145,7 @@ export default async function ValidationPage(props: PageProps<"/o/[org]/apps/[ap
         <div className="card space-y-4">
           <div>
             <h2 className="h2">{t("Event mappings")}</h2>
-            <p className="text-sm text-ink-3">{t("An accepted mapping counts an existing event name as the planned one, without changing your app. Suggestions are never applied until someone accepts them.")}</p>
+            <p className="max-w-md text-sm text-ink-3">{t("An accepted mapping counts an existing event name as the planned one, without any change to your app. Suggestions are never applied until someone on your team reviews and accepts them.")}</p>
           </div>
           {suggested.length > 0 && (
             <ul className="space-y-2">
@@ -191,7 +191,7 @@ export default async function ValidationPage(props: PageProps<"/o/[org]/apps/[ap
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h2 className="h2">{t("Mapping history")}</h2>
-            <p className="text-sm text-ink-3">{t("Every change to a mapping, with who made it. Any revision can be restored, and each change re-maps all past events, not only the last 30 days.")}</p>
+            <p className="max-w-xl text-sm text-ink-3">{t("Every change to a mapping, with who made it and when. Any revision can be restored, and each change re-maps all past events, not only the last 30 days.")}</p>
           </div>
           {can(ctx.role, "apps.update") && (
             <ActionForm action={setMappingHistoryAction.bind(null, org, app, a.id, !features.mapping_history)} submitLabel={features.mapping_history ? t("Turn off") : t("Turn on mapping history")} buttonClass="btn-secondary" className="contents" />

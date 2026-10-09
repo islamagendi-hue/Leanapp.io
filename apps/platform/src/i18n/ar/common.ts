@@ -14,7 +14,7 @@ const ar: Record<string, string> = {
   "API keys": "مفاتيح API",
   "Billing & plan": "الفوترة والباقة",
   "Please confirm your email address ({email}).": "يرجى تأكيد بريدك الإلكتروني ({email}).",
-  "Resend the link": "أعد إرسال الرابط",
+  "Resend the link": "أرسل رابط التأكيد مرة أخرى",
   "Workspace and project": "مساحة العمل والمشروع",
   "All projects": "كل المشاريع",
   "Create a workspace": "أنشئ مساحة عمل",
@@ -98,11 +98,12 @@ const ar: Record<string, string> = {
   Analyst: "محلل",
   Marketer: "مسوّق",
   Viewer: "مشاهد",
-  "Full access including billing, members and deletion.": "وصول كامل يشمل الفوترة والأعضاء والحذف.",
-  "Full operational access except billing changes and deleting the organization.": "وصول تشغيلي كامل عدا تغيير الفوترة وحذف المؤسسة.",
-  "Apps, environments, SDK, keys, events, integrations and webhooks.": "التطبيقات والبيئات و SDK والمفاتيح والأحداث والتكاملات و Webhooks.",
-  "Analytics, funnels, retention, audiences, attribution and users.": "التحليلات ومسارات التحويل والاحتفاظ والجماهير والإسناد والمستخدمون.",
-  "Audiences, automations, campaigns, analytics, users and attribution.": "الجماهير والأتمتة والحملات والتحليلات والمستخدمون والإسناد.",
-  "Read-only access to analytics, activation, audiences and users.": "عرض فقط للتحليلات والتفعيل والجماهير والمستخدمين.",
+  "Full access, including billing, members and deleting the organization.":
+    "وصول كامل يشمل الفوترة والأعضاء والحذف.",
+  "Full operational access except billing changes and deleting the organization.": "وصول تشغيلي كامل إلى المؤسسة، عدا تغيير الفوترة أو حذف المؤسسة نفسها.",
+  "Apps, environments, SDK, keys, events, integrations and webhooks.": "التطبيقات والبيئات و SDK والمفاتيح والأحداث والتكاملات وخطافات Webhooks.",
+  "Analytics, funnels, retention, audiences, attribution and user profiles.": "التحليلات ومسارات التحويل والاحتفاظ والجماهير والإسناد وملفات المستخدمين.",
+  "Audiences, automations, campaigns, analytics, users and attribution.": "الجماهير والأتمتة والحملات والتحليلات وملفات المستخدمين وتقارير الإسناد.",
+  "Read-only access to analytics, activation, audiences and user profiles.": "عرض فقط للتحليلات والتفعيل والجماهير والمستخدمين، دون أي تعديل.",
 };
 export default ar;

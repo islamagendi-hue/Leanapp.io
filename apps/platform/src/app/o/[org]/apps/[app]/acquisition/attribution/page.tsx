@@ -42,7 +42,7 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
       <section className="card overflow-x-auto p-0" aria-label={tr("How installs were matched")}>
         <h2 className="h2 px-5 pt-5">{tr("How installs were matched")}</h2>
         <table className="table mt-3">
-          <thead><tr><th>{tr("Match")}</th><th className="text-end">{tr("Installs")}</th><th className="text-end">{tr("Share")}</th><th>{tr("Meaning")}</th></tr></thead>
+          <thead><tr><th className="min-w-28">{tr("Match")}</th><th className="text-end">{tr("Installs")}</th><th className="text-end">{tr("Share")}</th><th className="min-w-64">{tr("Meaning")}</th></tr></thead>
           <tbody>
             {rows.map(([label, value, note]) => (
               <tr key={label}><td className="font-medium">{label}</td><td className="text-end tabular-nums">{num(value)}</td><td className="text-end tabular-nums">{pct(value, allInstalls)}</td><td className="text-sm text-ink-2">{note}</td></tr>
@@ -53,7 +53,7 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
           {tr("iOS: paid installs from ad networks can't be attributed deterministically without SKAdNetwork / AdAttributionKit or Apple Search Ads, and LeanApp never fingerprints iOS devices. Unless the install brings back a LeanApp click id, an iOS install counts as organic / unattributed ({n} in this range). Apple's aggregate postbacks are listed under SKAdNetwork postbacks below.", { n: num(t.organic_ios) })}
         </p>
         <p className="px-5 pb-5 pt-3 text-sm text-ink-3">
-          {tr("Also in this range: {reengagements} re-engagements (a returning user opening through a tracking link) and {conversions} conversions credited by last touch.", { reengagements: num(t.reengagements), conversions: num(t.conversions) })}
+          {tr("Also in this range: {reengagements} re-engagements (users back via a tracking link) and {conversions} last-touch conversions.", { reengagements: num(t.reengagements), conversions: num(t.conversions) })}
         </p>
       </section>
 
@@ -103,7 +103,7 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
           <li>{tr("Fraud prevention")}</li>
           <li>{tr("Multi-touch and view-through attribution")}</li>
           <li>{tr("Installs claimed by ad networks (self-attributing networks) and audience export to them")}</li>
-          <li>{tr("Importing history from another attribution provider")}</li>
+          <li>{tr("Importing history from other providers")}</li>
         </ul>
       </section>
     </div>

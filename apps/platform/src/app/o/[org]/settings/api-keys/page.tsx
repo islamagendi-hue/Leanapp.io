@@ -58,7 +58,7 @@ export default async function ApiKeysPage(props: PageProps<"/o/[org]/settings/ap
         <section key={app.id} className="card overflow-x-auto p-0" aria-label={app.name}>
           <h2 className="h2 px-5 pt-5">{app.name}</h2>
           <table className="table mt-3">
-            <thead><tr><th>{t("Environment")}</th><th>{t("Public SDK key")}</th><th className="text-end">{t("Secret API keys")}</th><th>{t("Last used")}</th><th /></tr></thead>
+            <thead><tr><th>{t("Environment")}</th><th>{t("Public SDK key")}</th><th className="min-w-40 text-end">{t("Secret API keys")}</th><th className="min-w-28">{t("Last used")}</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.env.id}>

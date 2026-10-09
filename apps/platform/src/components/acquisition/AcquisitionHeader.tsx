@@ -42,7 +42,7 @@ export async function AcquisitionHeader({ base, current, title, description, env
       <details className="max-w-3xl rounded-lg border border-line px-3 py-2 text-sm text-ink-2">
         <summary className="cursor-pointer font-medium">{t("What Acquisition (Beta) measures")}</summary>
         <p className="mt-2">
-          {t("Installs and re-engagements are matched from LeanApp's own event stream: clicks on LeanApp tracking links, the store install referrer and ad-network click ids your app sends. Each conversion is credited to the last touch before it. Apple's SKAdNetwork postbacks are shown separately, in aggregate.")}
+          {t("Installs and re-engagements are matched from LeanApp's own event stream: clicks on LeanApp tracking links, the store install referrer and the ad-network click ids your app sends. Each conversion is credited to the last touch before it. Apple's SKAdNetwork postbacks appear separately, in aggregate only, and are never tied to a user.")}
         </p>
         <p className="mt-2">
           {t("It is not a full mobile measurement partner: there is no ad cost import or ROAS, no fraud prevention, no multi-touch or view-through attribution, and no installs reported by ad networks themselves. Numbers can differ from what ad networks report.")}

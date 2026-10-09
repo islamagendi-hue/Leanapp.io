@@ -39,14 +39,14 @@ const ar: Record<string, string> = {
 
   // Acquisition header and tabs
   "What Acquisition (Beta) measures": "ما الذي يقيسه الاستحواذ (تجريبي)",
-  "Installs and re-engagements are matched from LeanApp's own event stream: clicks on LeanApp tracking links, the store install referrer and ad-network click ids your app sends. Each conversion is credited to the last touch before it. Apple's SKAdNetwork postbacks are shown separately, in aggregate.":
-    "تُطابَق عمليات التثبيت وإعادة التفاعل من تدفق أحداث LeanApp نفسه: النقرات على روابط تتبّع LeanApp، ومُحيل التثبيت من المتجر، ومعرّفات النقر من شبكات الإعلانات التي يرسلها تطبيقك. يُنسب كل تحويل إلى آخر نقطة تواصل قبله. تُعرض إشعارات Postback من SKAdNetwork الخاصة بـ Apple بشكل منفصل وإجمالي.",
+  "Installs and re-engagements are matched from LeanApp's own event stream: clicks on LeanApp tracking links, the store install referrer and the ad-network click ids your app sends. Each conversion is credited to the last touch before it. Apple's SKAdNetwork postbacks appear separately, in aggregate only, and are never tied to a user.":
+    "تُطابَق عمليات التثبيت وإعادة التفاعل من تدفق أحداث LeanApp نفسه: النقرات على روابط تتبّع LeanApp، ومُحيل التثبيت من المتجر، ومعرّفات النقر من شبكات الإعلانات التي يرسلها تطبيقك. يُنسب كل تحويل إلى آخر نقطة تواصل قبله ضمن نافذة التحويل. وتُعرض إشعارات Postback من SKAdNetwork الخاصة بـ Apple منفصلة وبأرقام إجمالية فقط، ولا تُربط بأي مستخدم من مستخدميك.",
   "It is not a full mobile measurement partner: there is no ad cost import or ROAS, no fraud prevention, no multi-touch or view-through attribution, and no installs reported by ad networks themselves. Numbers can differ from what ad networks report.":
-    "هذا ليس شريك قياس كاملًا للتطبيقات: لا يوجد استيراد لتكلفة الإعلانات ولا ROAS، ولا حماية من الاحتيال، ولا إسناد متعدد النقاط أو بالمشاهدة، ولا عمليات تثبيت تُبلغ عنها شبكات الإعلانات نفسها. قد تختلف الأرقام عمّا تُبلغ عنه شبكات الإعلانات.",
+    "هذا ليس شريك قياس كاملًا للتطبيقات: لا يوجد استيراد لتكلفة الإعلانات ولا ROAS، ولا حماية من الاحتيال، ولا إسناد متعدد النقاط أو بالمشاهدة، ولا عمليات تثبيت تُبلغ عنها شبكات الإعلانات. وقد تختلف الأرقام عمّا تُبلغ عنه الشبكات.",
   "Showing {env} data. Use production links in live campaigns.": "تُعرض بيانات {env}. استخدم روابط الإنتاج في الحملات الفعلية.",
 
   // Overview
-  "Where installs come from and what they lead to, for the selected environment.": "من أين تأتي عمليات التثبيت وإلامَ تؤدي، للبيئة المحددة.",
+  "Where your installs come from and what they lead to, for the selected environment.": "من أين تأتي عمليات التثبيت وإلامَ تؤدي، للبيئة المحددة.",
   "Acquisition numbers": "أرقام الاستحواذ",
   "Link clicks": "نقرات الروابط",
   "Bots and prefetches excluded": "باستثناء الروبوتات والتحميل المسبق",
@@ -60,9 +60,9 @@ const ar: Record<string, string> = {
   "Organic / unattributed": "عضوية / غير مُسنَدة",
   "{n} on iOS, where paid installs can't be matched without SKAdNetwork or Apple Search Ads": "{n} على iOS، حيث لا يمكن مطابقة عمليات التثبيت المدفوعة دون SKAdNetwork أو Apple Search Ads",
   "{n} re-engagements": "{n} إعادة تفاعل",
-  "No acquisition data in {env} for this range.": "لا توجد بيانات استحواذ في {env} لهذه الفترة.",
-  "Create a {link} for your campaigns, and make sure your app sends {event} with the install referrer or click id (see Settings → Dev Ops → SDK).":
-    "أنشئ {link} لحملاتك، وتأكد أن تطبيقك يرسل {event} مع مُحيل التثبيت أو معرّف النقر (راجع الإعدادات ← التطوير والتشغيل ← SDK).",
+  "No acquisition data in {env} for the selected range of dates.": "لا توجد بيانات استحواذ في {env} للفترة المحددة.",
+  "Create a {link} for your campaigns, then make sure your app sends {event} with the install referrer or click id when it is first opened (see Settings → Dev Ops → SDK).":
+    "أنشئ {link} لحملاتك، ثم تأكد أن تطبيقك يرسل الحدث {event} مع مُحيل التثبيت أو معرّف النقر عند أول فتح له بعد التثبيت (راجع الإعدادات ← التطوير والتشغيل ← SDK لمعرفة الطريقة).",
   "tracking link": "رابط تتبّع",
   "Installs per day": "عمليات التثبيت يوميًا",
   "Attributed and organic installs per day": "عمليات التثبيت المُسنَدة والعضوية يوميًا",
@@ -95,16 +95,16 @@ const ar: Record<string, string> = {
   Probabilistic: "احتمالي",
   "Matched on device signals within {hours} hours of a click.": "طوبق عبر إشارات الجهاز خلال {hours} ساعة من النقرة.",
   "Off for this app.": "متوقف لهذا التطبيق.",
-  "No matching touch within the click lookback.": "لا توجد نقطة تواصل مطابقة ضمن نافذة النقر.",
+  "No touch within the click lookback.": "لا توجد نقطة تواصل مطابقة ضمن نافذة النقر.",
   Reinstalls: "إعادة التثبيت",
   "A device that had installed before.": "جهاز ثبّت التطبيق من قبل.",
-  "How installs were matched to a touch, the rules used, and Apple's SKAdNetwork postbacks.": "كيف طوبقت عمليات التثبيت مع نقاط التواصل، والقواعد المستخدمة، وإشعارات Postback من SKAdNetwork الخاصة بـ Apple.",
+  "How installs were matched to a touch, the rules used, and Apple's SKAdNetwork postbacks.": "كيف طوبقت عمليات التثبيت مع نقاط التواصل، والقواعد المستخدمة، وإشعارات Postback من SKAdNetwork.",
   "How installs were matched": "كيف طوبقت عمليات التثبيت",
   Match: "المطابقة",
   Share: "النسبة",
   Meaning: "المعنى",
-  "Also in this range: {reengagements} re-engagements (a returning user opening through a tracking link) and {conversions} conversions credited by last touch.":
-    "وفي هذه الفترة أيضًا: {reengagements} إعادة تفاعل (مستخدم عائد يفتح التطبيق عبر رابط تتبّع) و{conversions} تحويل منسوب بآخر نقطة تواصل.",
+  "Also in this range: {reengagements} re-engagements (users back via a tracking link) and {conversions} last-touch conversions.":
+    "في هذه الفترة أيضًا: {reengagements} إعادة تفاعل (مستخدم عائد فتح التطبيق عبر رابط تتبّع) و{conversions} تحويل بآخر نقطة تواصل.",
   "Matching rules": "قواعد المطابقة",
   "Change in Settings → Dev Ops → Attribution": "غيّرها من الإعدادات ← التطوير والتشغيل ← الإسناد",
   "Click lookback": "نافذة النقر",
@@ -117,7 +117,7 @@ const ar: Record<string, string> = {
   "SKAdNetwork postbacks": "إشعارات Postback من SKAdNetwork",
   "SKAdNetwork setup": "إعداد SKAdNetwork",
   "Apple-verified iOS postbacks; aggregate only, never joined to users or counted in the installs above.":
-    "إشعارات Postback لنظام iOS موثّقة من Apple؛ إجمالية فقط، لا تُربط بالمستخدمين ولا تُحسب ضمن عمليات التثبيت أعلاه.",
+    "إشعارات iOS موثّقة من Apple؛ إجمالية فقط، لا تُربط بالمستخدمين ولا تُحسب ضمن عمليات التثبيت أعلاه.",
   "No postbacks in this range.": "لا توجد إشعارات Postback في هذه الفترة.",
   "Ad network": "الشبكة الإعلانية",
   "Source id": "معرّف المصدر",
@@ -130,7 +130,8 @@ const ar: Record<string, string> = {
   "Fraud prevention": "الحماية من الاحتيال",
   "Multi-touch and view-through attribution": "الإسناد متعدد النقاط والإسناد بالمشاهدة",
   "Installs claimed by ad networks (self-attributing networks) and audience export to them": "عمليات التثبيت التي تنسبها شبكات الإعلانات لنفسها (الشبكات ذاتية الإسناد) وتصدير الجماهير إليها",
-  "Importing history from another attribution provider": "استيراد السجل من مزوّد إسناد آخر",
+  "Importing history from other providers":
+    "استيراد السجل من مزوّدي إسناد آخرين",
 
   // Sources & campaigns
   "Installs, re-engagements, conversions and revenue per source and campaign, as labelled on your tracking links or sent by ad networks in their click ids and UTM parameters.":
@@ -147,8 +148,8 @@ const ar: Record<string, string> = {
   "Ad spend isn't imported, so there is no cost, CPI or ROAS here.": "لا يُستورد إنفاق الإعلانات، لذا لا توجد هنا تكلفة ولا CPI ولا ROAS.",
 
   // Tracking links & QR
-  "One link per campaign, ad or placement. It sends iPhone users to the App Store, Android users to Google Play with the click id in the install referrer, and everyone else to your web page. Clicks from crawlers, link previews and prefetches are not counted. Installs only match clicks of the same environment.":
-    "رابط واحد لكل حملة أو إعلان أو موضع. يرسل مستخدمي iPhone إلى App Store، ومستخدمي Android إلى Google Play مع معرّف النقر في مُحيل التثبيت، والجميع غيرهم إلى صفحتك على الويب. لا تُحسب نقرات برامج الزحف ومعاينات الروابط والتحميل المسبق. تُطابَق عمليات التثبيت فقط مع نقرات البيئة نفسها.",
+  "One link per campaign, ad or placement. It sends iPhone users to the App Store, Android users to Google Play with the click id in the install referrer, and everyone else to your web page. Crawler clicks, link previews and prefetches are not counted. Installs only match clicks of the same environment.":
+    "رابط واحد لكل حملة أو إعلان أو موضع. يرسل مستخدمي iPhone إلى App Store، ومستخدمي Android إلى Google Play مع معرّف النقر في مُحيل التثبيت، والجميع غيرهم إلى صفحتك على الويب. ولا تُحسب نقرات برامج الزحف ومعاينات الروابط والتحميل المسبق. تُطابَق عمليات التثبيت فقط مع نقرات البيئة نفسها التي أُنشئ فيها الرابط.",
   "No links in this environment yet.": "لا توجد روابط في هذه البيئة بعد.",
   "Source / campaign": "المصدر / الحملة",
   Destinations: "الوجهات",
@@ -167,8 +168,8 @@ const ar: Record<string, string> = {
   "Deep link (optional)": "الرابط العميق (اختياري)",
   "Where the app opens when it is installed and deep links are set up. On Android it also rides in the install referrer; opening it after a fresh install needs the deferred API (Beta, see Deep links).":
     "المكان الذي يُفتح فيه التطبيق عندما يكون مثبّتًا والروابط العميقة مُعدّة. على Android يُمرَّر أيضًا في مُحيل التثبيت؛ وفتحه بعد تثبيت جديد يحتاج إلى API الروابط المؤجلة (تجريبي، راجع الروابط العميقة).",
-  "Ad networks can fill campaign labels per ad: add {params} to the link, plus their click id ({ids}) when they append it.":
-    "يمكن لشبكات الإعلانات تعبئة تسميات الحملة لكل إعلان: أضف {params} إلى الرابط، إضافة إلى معرّف النقر الخاص بها ({ids}) عندما تُلحقه.",
+  "Ad networks can fill in campaign labels for each ad. Add {params} to the link; networks that append their own click id ({ids}) are recognised too.":
+    "يمكن لشبكات الإعلانات تعبئة تسميات الحملة لكل إعلان. أضف {params} إلى الرابط؛ ونتعرّف أيضًا على الشبكات التي تُلحق معرّف النقر الخاص بها ({ids}).",
   "QR code for {name}": "رمز QR لـ {name}",
   "URL and QR code": "الرابط ورمز QR",
   "Campaign (override)": "الحملة (تجاوز)",

@@ -31,7 +31,7 @@ export default async function MembersPage(props: PageProps<"/o/[org]/settings/me
 
       <div className="card overflow-x-auto p-0">
         <table className="table">
-          <thead><tr><th>{t("Name")}</th><th>{t("Email")}</th><th>{t("Role")}</th><th>{t("Joined")}</th><th /></tr></thead>
+          <thead><tr><th>{t("Name")}</th><th>{t("Email")}</th><th>{t("Role")}</th><th className="min-w-32">{t("Joined")}</th><th /></tr></thead>
           <tbody>
             {members.map((m) => {
               const self = m.user_id === ctx.userId;
@@ -68,7 +68,7 @@ export default async function MembersPage(props: PageProps<"/o/[org]/settings/me
         <div className="grid gap-6 lg:grid-cols-2">
           <div className="card">
             <h2 className="h2">{t("Invite someone")}</h2>
-            <p className="mb-4 text-sm text-ink-3">{t("We email the invitation link, and you'll also see it here to share yourself. Invitations expire after 7 days.")}</p>
+            <p className="mb-4 text-sm text-ink-3">{t("We email the invitation link; it expires after 7 days.")}</p>
             <ActionForm action={inviteMemberAction.bind(null, org)} submitLabel={t("Create invitation")}>
               <label className="block"><span className="label">{t("Email")}</span><input name="email" type="email" className="input" dir="ltr" required /></label>
               <label className="block">
@@ -99,7 +99,7 @@ export default async function MembersPage(props: PageProps<"/o/[org]/settings/me
 
       <div className="card">
         <h2 className="h2">{t("Roles")}</h2>
-        <ul className="mt-2 grid gap-2 text-sm md:grid-cols-2">
+        <ul className="mt-2 grid gap-2 text-sm">
           {ROLES.map((r) => <li key={r}><span className="font-medium">{t(ROLE_INFO[r].name)}.</span> <span className="text-ink-2">{t(ROLE_INFO[r].description)}</span></li>)}
         </ul>
       </div>

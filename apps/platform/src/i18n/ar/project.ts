@@ -2,12 +2,13 @@
 const ar: Record<string, string> = {
   // Settings home
   "Workspace and project settings, and everything developers need to connect and configure the app.":
-    "إعدادات مساحة العمل والمشروع، وكل ما يحتاجه المطوّرون لربط التطبيق وضبطه.",
+    "إعدادات مساحة العمل والمشروع، وكل ما يحتاج إليه المطوّرون لربط التطبيق وضبط إعداداته.",
 
   // Project: general and archive
   "Project settings": "إعدادات المشروع",
   "URL:": "الرابط:",
-  "Renaming keeps the URL and every SDK key as they are.": "تغيير الاسم يُبقي الرابط وكل مفاتيح SDK كما هي.",
+  "Renaming keeps the URL and every SDK key as they are.":
+    "تغيير الاسم يُبقي على الرابط وعلى كل مفاتيح SDK كما هي.",
   "Save changes": "احفظ التغييرات",
   "Saving…": "جارٍ الحفظ…",
   "Project name": "اسم المشروع",
@@ -21,8 +22,8 @@ const ar: Record<string, string> = {
   "Archive project": "أرشف المشروع",
   "This project is archived. Its SDK keys are refused, so it receives no events, and it doesn't count toward your plan. Its data and reports are kept.":
     "هذا المشروع مؤرشف. تُرفض مفاتيح SDK الخاصة به فلا يستقبل أي أحداث، ولا يُحتسب ضمن باقتك. تبقى بياناته وتقاريره محفوظة.",
-  "Archiving stops the project receiving events (its SDK keys are refused), hides it from the project list and frees its place on your plan. Data, reports and settings are kept, and an owner or admin can restore it.":
-    "الأرشفة توقف استقبال المشروع للأحداث (تُرفض مفاتيح SDK الخاصة به)، وتخفيه من قائمة المشاريع وتحرّر مكانه في باقتك. تبقى البيانات والتقارير والإعدادات محفوظة، ويمكن للمالك أو المسؤول استعادته.",
+  "Archiving stops the project receiving events (its SDK keys are refused), hides it from the list and frees its place on your plan. Data, reports and settings are kept, and an owner or admin can restore it.":
+    "الأرشفة توقف استقبال المشروع للأحداث (تُرفض مفاتيح SDK الخاصة به)، وتخفيه من قائمة المشاريع وتحرّر مكانه في باقتك. تبقى البيانات والتقارير والإعدادات محفوظة، ويمكن للمالك أو المسؤول استعادته لاحقًا.",
   "Restore project": "استعد المشروع",
   "Restoring…": "جارٍ الاستعادة…",
   "Archiving…": "جارٍ الأرشفة…",
@@ -64,22 +65,22 @@ const ar: Record<string, string> = {
   rejected: "مرفوض",
   failed: "فشل",
   retrying: "تجري إعادة المحاولة",
-  "Export or delete everything stored about one of your app's users in this environment. Use the user's ID, an install's anonymous ID, or both.":
-    "صدّر أو احذف كل ما هو مخزّن عن أحد مستخدمي تطبيقك في هذه البيئة. استخدم معرّف المستخدم أو المعرّف المجهول لعملية التثبيت أو كليهما.",
+  "Export or delete everything stored about one of your app's users, by user ID or anonymous ID.":
+    "صدّر أو احذف كل ما هو مخزّن عن أحد مستخدمي تطبيقك، بمعرّف المستخدم أو المعرّف المجهول.",
   "Export a user's data": "صدّر بيانات مستخدم",
-  "Downloads a JSON file with their events, sessions, profile, installs, push tokens and consent.":
-    "ينزّل ملف JSON يحتوي على أحداثه وجلساته وملفه الشخصي وعمليات التثبيت ورموز Push والموافقة.",
+  "Downloads one JSON file with their events, sessions, profile, installs, push tokens and consent records, ready to hand over to them.":
+    "ينزّل ملف JSON واحدًا يحتوي على أحداثه وجلساته وملفه الشخصي وعمليات التثبيت ورموز Push وسجلات الموافقة، جاهزًا لتسليمه إلى المستخدم نفسه.",
   "User ID": "معرّف المستخدم",
   "Anonymous ID": "المعرّف المجهول",
   "Download export": "نزّل التصدير",
   "Delete a user's data": "احذف بيانات مستخدم",
-  "Permanent. Removes their events, sessions, profile and push tokens in the {env} environment. Anonymous activity on a device shared with another user is kept, because it can't be attributed. Stop sending events for them first, or new data will arrive.":
-    "نهائي. يزيل أحداثه وجلساته وملفه الشخصي ورموز Push في بيئة {env}. يُحتفظ بالنشاط المجهول على جهاز يشاركه مع مستخدم آخر لأنه لا يمكن نسبته إليه. أوقف إرسال الأحداث الخاصة به أولًا، وإلا ستصل بيانات جديدة.",
+  "Permanent. Removes their events, sessions, profile and push tokens in the {env} environment. Anonymous activity on a device shared with another user is kept, because it can't be attributed to them. Stop sending events for them first, or new data about them will keep arriving.":
+    "نهائي. يزيل أحداثه وجلساته وملفه الشخصي ورموز Push في بيئة {env}. يُحتفظ بالنشاط المجهول على جهاز يشاركه مع مستخدم آخر لأنه لا يمكن نسبته إليه. أوقف إرسال الأحداث الخاصة به أولًا، وإلا ستصل عنه بيانات جديدة لاحقًا.",
   "Delete data": "احذف البيانات",
   'Type "delete" to confirm': "اكتب \"delete\" للتأكيد",
   "From your backend": "من الخادم الخلفي",
   'Use a secret API key of this environment with the "Export user data" or "Delete user data" permission (SDK & keys). Deletions run in the background; poll the returned ID for the result.':
-    "استخدم مفتاح API سريًا لهذه البيئة بصلاحية «تصدير بيانات المستخدم» أو «حذف بيانات المستخدم» (SDK والمفاتيح). يجري الحذف في الخلفية؛ استعلم عن المعرّف المُعاد لمعرفة النتيجة.",
+    "استخدم مفتاح API سريًا لهذه البيئة بصلاحية «تصدير بيانات المستخدم» أو «حذف بيانات المستخدم» (من صفحة SDK والمفاتيح). يجري الحذف في الخلفية؛ استعلم عن المعرّف المُعاد لمعرفة نتيجة الطلب.",
   Delete: "احذف",
   Export: "صدّر",
   History: "السجل",
@@ -177,7 +178,7 @@ const ar: Record<string, string> = {
   "Backend / server": "الخادم الخلفي",
   "Create an app": "أنشئ تطبيقًا",
   "We create Development, Staging and Production environments, each with its own SDK key. Production data never mixes with test data.":
-    "ننشئ بيئات التطوير والاختبار والإنتاج، لكل منها مفتاح SDK خاص. لا تختلط بيانات الإنتاج أبدًا ببيانات الاختبار.",
+    "ننشئ لك بيئات التطوير والاختبار والإنتاج، ولكل منها مفتاح SDK خاص بها. ولا تختلط بيانات الإنتاج أبدًا ببيانات التطوير أو الاختبار، فتجرّب بأمان قبل الإطلاق.",
   "Create app and continue": "أنشئ التطبيق وتابع",
   "App name": "اسم التطبيق",
   "Consumer App": "تطبيق المستهلك",

@@ -32,7 +32,7 @@ export default async function LinksPage(props: PageProps<"/o/[org]/apps/[app]/ac
   return (
     <div className="space-y-6">
       <AcquisitionHeader base={base} current="/links" env={env.type} title={t("Tracking links & QR")}
-        description={t("One link per campaign, ad or placement. It sends iPhone users to the App Store, Android users to Google Play with the click id in the install referrer, and everyone else to your web page. Clicks from crawlers, link previews and prefetches are not counted. Installs only match clicks of the same environment.")} />
+        description={t("One link per campaign, ad or placement. It sends iPhone users to the App Store, Android users to Google Play with the click id in the install referrer, and everyone else to your web page. Crawler clicks, link previews and prefetches are not counted. Installs only match clicks of the same environment.")} />
 
       {selected && <LinkShareCard link={selected} url={urlOf(selected.code)} env={env.type} sp={sp} />}
 
@@ -100,8 +100,8 @@ export default async function LinksPage(props: PageProps<"/o/[org]/apps/[app]/ac
               <label className="block"><span className="label">{t("Deep link (optional)")}</span><input name="deepLinkPath" className="input" maxLength={500} placeholder="/offers/ramadan" dir="ltr" />
                 <span className="help">{t("Where the app opens when it is installed and deep links are set up. On Android it also rides in the install referrer; opening it after a fresh install needs the deferred API (Beta, see Deep links).")}</span></label>
             </div>
-            <p className="text-xs text-ink-3">
-              {rich(t("Ad networks can fill campaign labels per ad: add {params} to the link, plus their click id ({ids}) when they append it."), {
+            <p className="max-w-2xl text-xs text-ink-3">
+              {rich(t("Ad networks can fill in campaign labels for each ad. Add {params} to the link; networks that append their own click id ({ids}) are recognised too."), {
                 params: <code className="font-mono" dir="ltr">?utm_campaign=…&amp;utm_term=…&amp;utm_content=…</code>,
                 ids: <span dir="ltr"><code className="font-mono">gclid</code>, <code className="font-mono">ttclid</code>, <code className="font-mono">ScCid</code>, <code className="font-mono">fbclid</code></span>,
               })}

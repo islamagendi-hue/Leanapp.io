@@ -73,12 +73,12 @@ function eventOptions(names: string[]): Option[] {
 export const QUESTIONS: Question[] = [
   // ── Business ──────────────────────────────────────────────────────────────
   { key: "business.description", section: "business", type: "longtext", required: true, prompt: msg("What does your company do?"), placeholder: msg("We are a food delivery app in Riyadh and Jeddah…"), help: msg("A sentence or two is enough. Arabic or English.") },
-  { key: "business.problem", section: "business", type: "longtext", required: false, prompt: msg("What problem does the app solve for its users?") },
+  { key: "business.problem", section: "business", type: "longtext", required: false, prompt: msg("What problem does the app solve?") },
   {
     key: "business.model", section: "business", type: "single", required: true, prompt: msg("Which business model fits best?"),
     options: BUSINESS_MODELS.map((m) => ({ value: m, label: MODEL_LABELS[m] })),
     suggest: (a) => (a["business.description"] ? classifyBusiness({ ...a, "business.model": null }).primary : null),
-    help: msg("We pre-selected one from your description. Change it if it's wrong."),
+    help: msg("We picked one from your description. Change it if it's wrong."),
   },
   { key: "business.customer_type", section: "business", type: "single", required: true, prompt: msg("Who is the customer?"), options: opts([["b2c", msg("Consumers (B2C)")], ["b2b", msg("Businesses (B2B)")], ["marketplace", msg("Both sides of a marketplace")], ["hybrid", msg("Hybrid")]]), suggest: (a) => (a["business.model"] === "marketplace" ? "marketplace" : a["business.model"] === "saas" ? "b2b" : "b2c") },
   { key: "business.countries", section: "business", type: "multi", required: true, prompt: msg("Which countries do you operate in?"), options: COUNTRIES },

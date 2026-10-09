@@ -118,20 +118,20 @@ export default async function BillingPage(props: PageProps<"/o/[org]/settings/bi
   const refused = aroundCode(u.eventsRefused === 1
     ? t("{n} event was refused this month because the allowance was used up (error {code}).", { n: num(u.eventsRefused) })
     : t("{n} events were refused this month because the allowance was used up (error {code}).", { n: num(u.eventsRefused) }));
-  const howCounted = aroundCode(t("Events count everything accepted by ingestion in all environments this month (UTC). Past the monthly allowance, events are still accepted for a 10% grace; after that ingestion refuses them with {code} until the month resets or you upgrade. Owners get an email at 80%, 100% and when events are refused. Apps and members (including pending invitations) can't be added beyond the plan."));
+  const howCounted = aroundCode(t("Events count everything ingestion accepted in all environments this month (UTC). Past the allowance, events get a 10% grace; then ingestion refuses them with {code} until the month resets or you upgrade. Owners get an email at 80%, 100% and when events are refused. Apps and members (pending invitations too) can't exceed the plan's limits."));
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="h1">{t("Plan & billing")}</h1>
         <p className="mt-1 text-ink-2">
-          {onPlanBefore}<strong>{u.plan.name}</strong>{onPlanAfter} {u.plan.retentionDays ? t("Event data is kept for {n} days.", { n: u.plan.retentionDays }) : t("Event data is kept for as long as you need.")}
+          {onPlanBefore}<strong>{u.plan.name}</strong>{onPlanAfter} {u.plan.retentionDays ? t("Event data is kept for {n} days under your current plan.", { n: u.plan.retentionDays }) : t("Event data is kept for as long as you need.")}
         </p>
       </div>
 
       {!b.paymentsConnected && (
         <p className="rounded-lg border border-warn/40 bg-warn-soft px-4 py-3 text-sm text-warn" role="status">
-          {t("Payments are not connected yet. Nothing is charged, and plans can't be bought online until LeanApp connects its payment provider.")}
+          {t("Payments aren't connected yet. Nothing is charged, and plans can't be bought online for now.")}
         </p>
       )}
       {sp.checkout === "success" && (
