@@ -1,8 +1,9 @@
-import Image from "next/image";
 import Link from "next/link";
 import { Suspense } from "react";
 import { startDemoAction } from "@/app/actions/demo";
 import { Logo } from "@/components/Logo";
+import { BuildingDashboard } from "@/components/marketing/BuildingDashboard";
+import { WorksWith } from "@/components/marketing/WorksWith";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
 import { getTheme } from "@/lib/theme";
 import { demoEnabled } from "@/modules/marketing/demo";
@@ -78,7 +79,7 @@ export default async function Home(props: PageProps<"/">) {
       </header>
 
       <main>
-        <section className="mx-auto max-w-6xl px-4 pb-14 pt-12 md:pt-20">
+        <section className="mx-auto max-w-6xl px-4 pb-6 pt-12 md:pt-20">
           <p className="font-mono text-xs uppercase tracking-widest text-accent-ink">{t.hero.eyebrow}</p>
           <h1 className="mt-4 max-w-4xl text-4xl font-bold leading-tight text-balance md:text-6xl">{t.hero.title}</h1>
           <p className="mt-5 max-w-2xl text-lg text-ink-2">{t.hero.lead}</p>
@@ -87,33 +88,22 @@ export default async function Home(props: PageProps<"/">) {
             <Link href={start} className="btn-secondary">{t.hero.start}</Link>
           </div>
           <p className="mt-3 text-sm text-ink-3">{t.hero.note}</p>
-          <ol className="mt-10 flex flex-wrap items-center gap-2 text-sm" aria-label={t.flowLabel}>
-            {t.flow.map((s, i) => (
-              <li key={s.step} className="flex items-center gap-2">
-                <a href={`#step-${i + 1}`} className="pill border-line hover:border-line-strong">{s.step}</a>
-                {i < t.flow.length - 1 && <span aria-hidden className="text-ink-3 rtl:-scale-x-100">→</span>}
-              </li>
-            ))}
-          </ol>
         </section>
 
-        <section id="demo" aria-labelledby="demo-title" className="scroll-mt-20 border-y border-line bg-card">
-          <div className="mx-auto max-w-6xl px-4 py-14">
-            <h2 id="demo-title" className="text-2xl font-bold md:text-3xl">{t.demo.title}</h2>
-            <p className="mt-3 max-w-2xl text-ink-2">{t.demo.lead}</p>
-            <div className="mt-8 grid gap-6 md:grid-cols-2">
-              {t.demo.shots.map((s) => (
-                <figure key={s.src} className="min-w-0">
-                  <div className="overflow-hidden rounded-xl border border-line bg-paper shadow-sm">
-                    <Image src={s.src} alt={s.caption} width={1440} height={900} className="h-auto w-full" sizes="(min-width: 768px) 560px, 100vw" />
-                  </div>
-                  <figcaption className="mt-2 text-sm text-ink-2">{s.caption}</figcaption>
-                </figure>
-              ))}
+        <section id="demo" aria-labelledby="demo-title" className="mx-auto max-w-6xl scroll-mt-20 px-4 pb-4 pt-8">
+          <div className="flex flex-wrap items-end justify-between gap-x-8 gap-y-3">
+            <div className="min-w-0 max-w-2xl">
+              <h2 id="demo-title" className="text-2xl font-bold md:text-3xl">{t.demo.title}</h2>
+              <p className="mt-2 text-ink-2">{t.demo.lead}</p>
             </div>
-            <div className="mt-8"><DemoButton label={t.demo.cta} /></div>
+            <DemoButton label={t.demo.cta} className="btn-secondary" />
+          </div>
+          <div className="mt-6">
+            <BuildingDashboard copy={t.demo} lang={lang} />
           </div>
         </section>
+
+        <WorksWith title={t.worksWith.title} note={t.worksWith.note} />
 
         <section id="how" aria-labelledby="how-title" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-14">
           <h2 id="how-title" className="text-2xl font-bold md:text-3xl">{t.how.title}</h2>
@@ -175,6 +165,14 @@ export default async function Home(props: PageProps<"/">) {
             <div>
               <h2 id="features-title" className="text-2xl font-bold md:text-3xl">{t.features.title}</h2>
               <p className="mt-3 max-w-2xl text-ink-2">{t.features.lead}</p>
+              <ol className="mt-6 flex flex-wrap items-center gap-2 text-sm" aria-label={t.flowLabel}>
+                {t.flow.map((s, i) => (
+                  <li key={s.step} className="flex items-center gap-2">
+                    <a href={`#step-${i + 1}`} className="pill border-line hover:border-line-strong">{s.step}</a>
+                    {i < t.flow.length - 1 && <span aria-hidden className="text-ink-3 rtl:-scale-x-100">→</span>}
+                  </li>
+                ))}
+              </ol>
             </div>
             {t.flow.map((s, i) => (
               <article key={s.step} id={`step-${i + 1}`} aria-labelledby={`step-${i + 1}-title`} className="grid scroll-mt-20 gap-4 md:grid-cols-[220px_1fr]">

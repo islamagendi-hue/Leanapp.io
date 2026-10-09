@@ -306,3 +306,13 @@ html[lang="ar"] .pill { font-size: 12px; }
 html[dir="rtl"] *:not(code):not(pre):not(.code) {
   letter-spacing: 0 !important;
 }
+
+/* Landing page dashboard (components/marketing/BuildingDashboard): the cursor's click ring. */
+@keyframes landing-click {
+  from { scale: 0.4; opacity: 0.7; }
+  to { scale: 1.8; opacity: 0; }
+}
+.landing-click { animation: landing-click 600ms ease-out forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .landing-click { animation: none; opacity: 0; }
+}

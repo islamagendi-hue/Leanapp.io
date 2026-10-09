@@ -270,6 +270,24 @@ const COMPARE_NEEDS_AR = [
 export const COMPARE_EN: CompareRow[] = COMPARE_CELLS.map((cells, i) => ({ need: COMPARE_NEEDS_EN[i], cells }));
 export const COMPARE_AR: CompareRow[] = COMPARE_CELLS.map((cells, i) => ({ need: COMPARE_NEEDS_AR[i], cells }));
 
+/**
+ * The "Works with" logo row: only services LeanApp really connects to today,
+ * each tied to its entry in the integrations catalog (modules/integrations/catalog.ts).
+ * landing.test.ts checks every one exists there and is not marked "soon".
+ * Planned ones (Microsoft Clarity, ad spend import) stay out of the row.
+ */
+export const WORKS_WITH = [
+  { id: "meta", name: "Meta", integration: "meta" },
+  { id: "snapchat", name: "Snapchat", integration: "snap" },
+  { id: "tiktok", name: "TikTok", integration: "tiktok" },
+  { id: "google-ads", name: "Google Ads", integration: "google-ads" },
+  { id: "apple", name: "Apple", integration: "skan" },
+  { id: "firebase", name: "Firebase", integration: "push" },
+  { id: "whatsapp", name: "WhatsApp", integration: "whatsapp" },
+  { id: "resend", name: "Resend", integration: "email" },
+] as const;
+export type WorksWithId = (typeof WORKS_WITH)[number]["id"];
+
 export const CONTACT_EMAIL = "hello@leanapp.io";
 
 const EN = {
@@ -278,22 +296,39 @@ const EN = {
   hero: {
     eyebrow: "Mobile app analytics for the Arab world",
     title: "Know your users. Grow your app.",
-    lead: "See who installs, where they drop off and who comes back, then reach them with push, email and WhatsApp. One SDK, support in Arabic and English, priced for growing teams.",
+    lead: "See who installs, where they drop off and who comes back. Then reach them with push, email and WhatsApp.",
     demo: "Try the live demo",
     start: "Start now",
-    note: "No card needed. The demo opens a sample food delivery app that you can explore but not change.",
+    note: "The demo is a sample food delivery app. Look around; nothing you do changes it.",
   },
   flowLabel: "Product flow",
   demo: {
-    title: "See it with real-looking data",
-    lead: "The demo is a food delivery app with 30 days of sample users. Click around as much as you like: it is read-only, so nothing you do there changes its data.",
-    shots: [
-      { src: "/landing/overview.png", caption: "Overview: active and new users and events versus last week." },
-      { src: "/landing/funnel.png", caption: "Funnels: where people drop off before ordering, and who." },
-      { src: "/landing/retention.png", caption: "Retention: how many return on day 1, 3 and 7 after install." },
-      { src: "/landing/revenue.png", caption: "Revenue: daily orders, paying people and revenue per user." },
-    ],
+    title: "From one event to a full dashboard",
+    lead: "Pick an event and the reports fill in: key numbers, a daily trend, the order funnel and where installs come from.",
+    note: "Sample data from the demo food delivery app.",
     cta: "Open the live demo",
+    alt: "Animation: a sample dashboard builds itself. An event is picked, four key numbers count up, orders per day draw in, then the order funnel and installs by source fill in.",
+    pause: "Pause animation",
+    play: "Play animation",
+    board: {
+      title: "Orders dashboard",
+      range: "Last 30 days",
+      add: "Add report",
+      pick: "Pick an event",
+      save: "Save",
+      saved: "Saved",
+      kpis: ["Installs", "Active users", "Orders", "Revenue"],
+      currency: "SAR",
+      chart: "Orders per day",
+      funnel: "Order funnel",
+      steps: ["Install", "Sign up", "Add to cart", "Order"],
+      sources: "Installs by source",
+      organic: "Organic",
+    },
+  },
+  worksWith: {
+    title: "Works with",
+    note: "Ad network and messaging connections are in beta. Microsoft Clarity is coming next. Names and logos belong to their owners.",
   },
   how: {
     title: "How we work",
@@ -376,22 +411,39 @@ const AR: typeof EN = {
   hero: {
     eyebrow: "تحليلات تطبيقات الجوال للعالم العربي",
     title: "اعرف مستخدميك، وطوّر تطبيقك.",
-    lead: "اعرف من يثبّت تطبيقك، وأين يتوقف، ومن يعود إليه، ثم تواصل معه عبر الإشعارات والبريد الإلكتروني وواتساب. SDK واحد، ودعم بالعربية والإنجليزية، وأسعار تناسب الفرق النامية.",
+    lead: "اعرف من يثبّت تطبيقك، وأين يتوقف، ومن يعود إليه. ثم تواصل معه بالإشعارات والبريد وواتساب.",
     demo: "جرّب العرض المباشر",
     start: "ابدأ الآن",
-    note: "لا حاجة إلى بطاقة. يفتح العرض تطبيقًا تجريبيًا لتوصيل الطعام، تستكشفه كما تشاء دون أن تغيّر شيئًا.",
+    note: "العرض تطبيق تجريبي لتوصيل الطعام. تجوّل فيه كما تشاء، فلن يتغيّر فيه شيء.",
   },
   flowLabel: "رحلة المنتج",
   demo: {
-    title: "شاهده ببيانات قريبة من الواقع",
-    lead: "العرض التجريبي تطبيق لتوصيل الطعام فيه مستخدمون تجريبيون لآخر 30 يومًا. تنقّل فيه كما تشاء بين التقارير، فهو للاطلاع فقط، ولن يغيّر أي شيء تفعله فيه بياناته أو تقاريره.",
-    shots: [
-      { src: "/landing/overview.png", caption: "النظرة العامة: النشطون والجدد والأحداث مقارنة بالأسبوع الماضي." },
-      { src: "/landing/funnel.png", caption: "مسارات التحويل: أين يتوقف المستخدمون قبل الطلب، ومن هم." },
-      { src: "/landing/retention.png", caption: "الاحتفاظ: كم مستخدمًا يعود بعد يوم و3 أيام و7 أيام من التثبيت." },
-      { src: "/landing/revenue.png", caption: "الإيرادات: الطلبات اليومية والدافعون والإيراد لكل مستخدم." },
-    ],
+    title: "من حدث واحد إلى لوحة كاملة",
+    lead: "اختر حدثًا فتمتلئ التقارير: الأرقام الأساسية، والاتجاه اليومي، ومسار الطلب، ومصادر التثبيت.",
+    note: "بيانات تجريبية من تطبيق توصيل الطعام في العرض.",
     cta: "افتح العرض المباشر",
+    alt: "رسم متحرك: لوحة متابعة تجريبية تبني نفسها. يُختار حدث، ثم تعدّ أربعة أرقام أساسية، ويُرسم خط الطلبات اليومية، ثم يمتلئ مسار الطلب والتثبيتات حسب المصدر.",
+    pause: "أوقف الحركة",
+    play: "شغّل الحركة",
+    board: {
+      title: "لوحة الطلبات",
+      range: "آخر 30 يومًا",
+      add: "أضف تقريرًا",
+      pick: "اختر حدثًا",
+      save: "احفظ",
+      saved: "حُفظت",
+      kpis: ["التثبيتات", "المستخدمون النشطون", "الطلبات", "الإيرادات"],
+      currency: "ر.س",
+      chart: "الطلبات يوميًا",
+      funnel: "مسار الطلب",
+      steps: ["تثبيت", "تسجيل", "إضافة للسلة", "طلب"],
+      sources: "التثبيتات حسب المصدر",
+      organic: "عضوي",
+    },
+  },
+  worksWith: {
+    title: "يعمل مع",
+    note: "الربط مع شبكات الإعلانات وقنوات الرسائل تجريبي. ويأتي Microsoft Clarity قريبًا. الأسماء والشعارات ملك لأصحابها.",
   },
   how: {
     title: "طريقة عملنا",
