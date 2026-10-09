@@ -358,6 +358,10 @@ export interface DeliveryRow {
   next_attempt_at: Date;
   delivered_at: Date | null;
   created_at: Date;
+  /** Why it was not sent (consent_denied, no_match_key, invalid_payload). */
+  skip_reason: string | null;
+  provider_error_code: string | null;
+  provider_trace_id: string | null;
 }
 
 export async function listPostbacks(ctx: TenantContext, appId: string, environmentId: string): Promise<{ postbacks: (PostbackRow & { pending: number; succeeded: number; failed: number })[]; deliveries: DeliveryRow[] }> {
@@ -375,7 +379,7 @@ export async function listPostbacks(ctx: TenantContext, appId: string, environme
     );
     const deliveries = await db.query<DeliveryRow>(
       `select d.id, d.postback_id, p.name as postback_name, d.event_name, d.status, d.attempts, d.last_status_code, d.last_error,
-              d.next_attempt_at, d.delivered_at, d.created_at
+              d.next_attempt_at, d.delivered_at, d.created_at, d.skip_reason, d.provider_error_code, d.provider_trace_id
          from platform.attribution_postback_deliveries d
          join platform.attribution_postbacks p on p.id = d.postback_id
         where p.app_id = $1 and d.environment_id = $2

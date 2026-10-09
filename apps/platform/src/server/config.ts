@@ -101,6 +101,13 @@ export function checkConfig(env: Env = process.env): ConfigReport {
     if (url && deployment === "production" && url.protocol !== "https:") err(name, "must use https in production");
   }
 
+  // "Connect with …" OAuth apps for ad reporting (docs/integrations.md): optional, all-or-nothing per provider.
+  for (const vars of [["META_APP_ID", "META_APP_SECRET"], ["GOOGLE_ADS_CLIENT_ID", "GOOGLE_ADS_CLIENT_SECRET", "GOOGLE_ADS_DEVELOPER_TOKEN"], ["TIKTOK_APP_ID", "TIKTOK_APP_SECRET"], ["SNAPCHAT_CLIENT_ID", "SNAPCHAT_CLIENT_SECRET"]]) {
+    const set = vars.filter((v) => env[v]);
+    if (set.length && set.length < vars.length) warn(vars.find((v) => !env[v])!, `set ${vars.join(", ")} together; "Connect with" stays off until then`);
+  }
+  if (env.GOOGLE_ADS_API_VERSION && !/^v\d{1,3}$/.test(env.GOOGLE_ADS_API_VERSION)) warn("GOOGLE_ADS_API_VERSION", "should look like v21");
+
   const encProblem = encryptionKeyProblem(env);
   if (encProblem) err("INTEGRATIONS_ENCRYPTION_KEY", encProblem);
   else if (deployed && !env.INTEGRATIONS_ENCRYPTION_KEY) warn("INTEGRATIONS_ENCRYPTION_KEY", "not set; ad-network, push, messaging and email credentials and webhooks can't be configured");

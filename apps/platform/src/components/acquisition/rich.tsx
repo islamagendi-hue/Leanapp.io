@@ -25,6 +25,7 @@ const STATUS_NAMES: Record<string, string> = {
   succeeded: msg("succeeded"),
   failed: msg("failed"),
   giving_up: msg("giving_up"),
+  skipped: msg("skipped"),
 };
 
 /** A link, postback or delivery status as stored ("paused"), in the reader's language. */

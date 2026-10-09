@@ -154,8 +154,8 @@ const ar: Record<string, string> = {
 
   // Ad spend
   "Ad spend": "إنفاق الإعلانات",
-  "Your ad spend per day, source and campaign, entered by hand or by CSV. Revenue by channel shows it next to revenue, with return and ROAS. Automatic import from ad networks is coming.":
-    "إنفاقك على الإعلانات لكل يوم ومصدر وحملة، تُدخله يدويًا أو بملف CSV. ويعرضه تقرير الإيرادات حسب القناة بجانب الإيرادات، مع العائد و ROAS. أما الاستيراد التلقائي من شبكات الإعلانات فلم يُبنَ بعد.",
+  "Your ad spend per day, source and campaign: entered by hand, by CSV, or imported from ad accounts connected in Integrations. Revenue by channel shows it next to revenue, with return and ROAS.":
+    "إنفاقك على الإعلانات لكل يوم ومصدر وحملة: تُدخله يدويًا أو بملف CSV، أو يُستورد من الحسابات الإعلانية المربوطة في صفحة التكاملات. ويعرضه تقرير الإيرادات حسب القناة بجانب الإيرادات، مع العائد و ROAS.",
   "Add a day's spend": "أضِف إنفاق يوم",
   "Save spend": "حفظ الإنفاق",
   Date: "التاريخ",

@@ -57,8 +57,8 @@ const ar: Record<string, string> = {
   "Ad spend import": "استيراد تكلفة الإعلانات",
   "Import ad cost from Meta, Google, TikTok and Snap to see CPI and ROAS per campaign.": "استورد تكلفة الإعلانات من Meta وGoogle وTikTok وSnap لترى CPI و ROAS لكل حملة لديك.",
   "Send your events to Google Analytics 4 too, so both tools work from the same data.": "أرسل أحداثك نفسها إلى Google Analytics 4 أيضًا، ليرى فريقك البيانات ذاتها في الأداتين.",
-  "Automatic import from Meta, Google, TikTok and Snap is coming. Until then, enter spend by hand or by CSV on the Ad spend page in Acquisition.":
-    "استيراد التكلفة تلقائيًا من Meta وGoogle وTikTok وSnap قادم. وإلى ذلك الحين، أدخِل الإنفاق يدويًا أو بملف CSV في صفحة إنفاق الإعلانات ضمن الاستحواذ.",
+  "Import daily cost, impressions and clicks per campaign from Meta, Google Ads, TikTok and Snapchat into Ad spend.":
+    "استورد التكلفة اليومية ومرات الظهور والنقرات لكل حملة من Meta وGoogle Ads وTikTok وSnapchat إلى صفحة إنفاق الإعلانات.",
   "Send your events to GA4 as well.": "أرسل أحداثك إلى GA4 أيضًا.",
   "Data warehouse export": "التصدير إلى مستودع بيانات",
   "Copy your raw events to BigQuery or Snowflake.": "انسخ أحداثك الخام إلى BigQuery أو Snowflake.",

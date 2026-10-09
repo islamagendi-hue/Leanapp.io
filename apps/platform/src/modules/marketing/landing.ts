@@ -274,7 +274,7 @@ export const COMPARE_AR: CompareRow[] = COMPARE_CELLS.map((cells, i) => ({ need:
  * The "Works with" logo row: only services LeanApp really connects to today,
  * each tied to its entry in the integrations catalog (modules/integrations/catalog.ts).
  * landing.test.ts checks every one exists there and is not marked "soon".
- * Planned ones (Microsoft Clarity, ad spend import) stay out of the row.
+ * Planned ones (Microsoft Clarity) stay out of the row.
  */
 export const WORKS_WITH = [
   { id: "meta", name: "Meta", integration: "meta" },

@@ -7,6 +7,7 @@ import { sendUsageNotices } from "@/modules/billing/notices";
 import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
 import { purgeDeletedMedia } from "@/modules/media/service";
 import { runAttributionJobs } from "@/modules/attribution/delivery";
+import { runAdSyncJobs } from "@/modules/integrations/sync";
 import { runEngagement } from "@/modules/automation/worker";
 import { demoEnabled, ensureDemo } from "@/modules/marketing/demo";
 import { runDeletionJobs } from "@/modules/privacy/service";
@@ -26,6 +27,8 @@ const REPROCESS_BUDGET_MS = 42_000;
 const LATE_STEPS_BUDGET_MS = 50_000;
 /** Postback delivery stops starting new requests after this much wall time. */
 const ATTRIBUTION_BUDGET_MS = 48_000;
+/** Ad-reporting imports start only before this much wall time, and stop starting requests at the attribution budget. */
+const AD_SYNC_START_MS = 40_000;
 /** Engagement work (audiences, automations, webhooks) stops starting new items after this much wall time. */
 const ENGAGEMENT_BUDGET_MS = 52_000;
 
@@ -103,6 +106,10 @@ export async function GET(req: Request) {
   const usageNotices = Date.now() - started < LATE_STEPS_BUDGET_MS ? await step(errors, "usage_notices", () => sendUsageNotices({ limit: 100 })) : { notices: 0, emails: 0, skipped: true };
   // Attribution postbacks and click fingerprint cleanup, only while time is left.
   const attribution = Date.now() < started + ATTRIBUTION_BUDGET_MS ? await step(errors, "attribution", () => runAttributionJobs({ deadline: started + ATTRIBUTION_BUDGET_MS })) : null;
+  // Ad reporting and cost import from connected ad accounts (Integrations Center), only while time is left.
+  const adSync = Date.now() < started + AD_SYNC_START_MS
+    ? await step(errors, "ad_sync", () => runAdSyncJobs({ deadline: started + ATTRIBUTION_BUDGET_MS, limit: 5, http: { timeoutMs: 8_000 } }))
+    : null;
   // Engagement: audiences, automation triggers and steps, webhook deliveries, only while time is left.
   const engagement = Date.now() < started + ENGAGEMENT_BUDGET_MS ? await step(errors, "engagement", () => runEngagement({ deadline: started + ENGAGEMENT_BUDGET_MS })) : { skipped: "time budget" };
   // The public demo's sample data, re-sent a few times a day so its reports stay current.
@@ -127,6 +134,7 @@ export async function GET(req: Request) {
     retention: retention ? { mode: retention.mode, organizations: retention.organizations.length } : null,
     usage_notices: usageNotices,
     attribution,
+    ad_sync: adSync,
     engagement,
     demo,
     errors,
