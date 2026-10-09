@@ -15,6 +15,7 @@
 import "server-only";
 import { Pool, types, type PoolClient, type QueryResultRow } from "pg";
 import { envNumber } from "@/lib/env-number";
+import { previewDatabaseBlock } from "@/lib/db-guard";
 
 // `date` (OID 1082) is a calendar day, not an instant: node-pg would turn it
 // into local midnight, which shifts the day on servers not running in UTC.
@@ -34,6 +35,9 @@ export interface TenantScope {
 let pool: Pool | null = null;
 
 export function databaseUrl(): string {
+  // Feature-branch previews never get a connection, even if a DATABASE_URL leaks into their scope.
+  const blocked = previewDatabaseBlock(process.env);
+  if (blocked) throw new Error(blocked);
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL is not set. Copy .env.example to .env.local and point it at Postgres.");
   return url;
