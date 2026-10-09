@@ -1,6 +1,7 @@
 import { getT } from "@/i18n/server";
 import { dateLocale, msg, type Lang } from "@/i18n/translate";
 import { topEvents } from "@/modules/analytics/service";
+import { readPlan } from "@/modules/implementation/editor";
 import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { can } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
@@ -45,6 +46,13 @@ export async function StatusPill({ status }: { status: string }) {
 export async function knownEvents(ctx: TenantContext, environmentId: string): Promise<string[]> {
   if (!can(ctx.role, "analytics.read")) return [];
   return (await topEvents(ctx, { environmentId, days: 90 })).map((e) => e.name);
+}
+
+/** Event names in the app's published tracking plan (null when there's none, or the member can't read it). */
+export async function plannedEvents(ctx: TenantContext, appId: string): Promise<string[] | null> {
+  if (!can(ctx.role, "implementation.read")) return null;
+  const plan = await readPlan({ kind: "user", ctx }, appId, "published");
+  return plan ? plan.events.map((e) => e.event_name) : null;
 }
 
 /**

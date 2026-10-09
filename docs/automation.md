@@ -48,6 +48,42 @@ Engage → Flows draws a flow top to bottom (`components/engage/AutomationEditor
 - Inserting, removing and moving steps renumber branch jumps so they keep pointing at the same step (`automation/flow.ts`). A jump that no longer points forward is flagged.
 - The flow's page shows the same drawing read-only (`FlowView`).
 
+### Flows library
+
+Engage → Flows → "Start from a template" (`automation/library.ts`, `components/engage/FlowLibrary.tsx`). Each template is a definition the engine already runs: event or audience-entered triggers, waits, branch conditions, push, email, in-app and WhatsApp steps, a goal and an exit event. Nothing new runs in the engine.
+
+| Category | Template | Goal | Starts on | Channels |
+| --- | --- | --- | --- | --- |
+| Onboarding | Welcome series | Activation (key action, measured only) | sign-up | push, email, in-app |
+| Onboarding | Onboarding nudge | Activation | sign-up | push, email |
+| Onboarding | Finish identity verification | Activation (`kyc_completed`) | `kyc_started` | push, email |
+| Onboarding | Feature discovery | Activation (`feature_used`) | key action | in-app, push |
+| Conversion | First purchase nudge | First purchase | sign-up | push, email |
+| Conversion | Browse abandonment | First purchase (exits on add to cart) | `product_viewed` | push, in-app |
+| Conversion | Wishlist reminder | First purchase | `wishlist_added` | push, email |
+| Conversion | Abandoned cart | Recover lost sales (exits on checkout) | add to cart | push, email |
+| Conversion | Cart reminder on push and WhatsApp | Recover lost sales | add to cart | push, WhatsApp |
+| Conversion | Checkout without an order | Recover lost sales | `checkout_started` | push, email |
+| Subscriptions | Trial to paid (timed for 7 days) | Paid subscriptions | `trial_started` | in-app, push, email |
+| Subscriptions | Paywall follow-up | Paid subscriptions | `paywall_viewed` | push |
+| Subscriptions | Failed payment recovery | Recover lost sales (`subscription_renewed`) | `payment_failed` | push, email, in-app |
+| Subscriptions | Expired subscription win-back | Paid subscriptions | `subscription_expired` | push, email |
+| Post-purchase | Thank-you and review request | Reviews and referrals | purchase | push |
+| Post-purchase | Rating after delivery | Reviews and referrals | `order_delivered` | in-app |
+| Post-purchase | Second order nudge | Repeat purchases | audience: bought once in 60 days, not in the last 7 | push, in-app |
+| Post-purchase | Referral ask for loyal customers | Reviews and referrals (`referral_link_shared`) | audience: 3+ purchases in 90 days | in-app, push |
+| Retention | Win back inactive users (7, 14 and 30 days) | Bring users back | audience: last seen over 7 days ago | push, email |
+| Retention | Re-engage lapsed buyers | Repeat purchases | audience: bought in the last year, not in 30 days | push, email |
+
+- **Events:** each template names event slots (sign-up, purchase, …). A slot is filled with the first of its default or alias names that the environment has received in the last 90 days, else the first in the app's published tracking plan, else its first default. Defaults come from the event library, except `payment_failed`, which the library doesn't have. Each slot shows "sent by your app", "planned, not received" or "not tracked yet", and every slot can be changed before creating the flow.
+- **Copy:** every message has English and Modern Standard Arabic copy (`src/i18n/ar/flows.ts`). The person picks the message language, which defaults to the dashboard's. The copy uses no `{{user.x}}` tokens, because a missing property renders as nothing.
+- **What's missing:** each card lists what stops the flow from working in the environment, with a link to fix it: an event that isn't tracked (tracking plan) or hasn't arrived (event debugger), a channel that isn't connected, or no approved WhatsApp template (Settings → Dev Ops → Channels).
+- **Creating:** "Use this flow" creates a draft and opens it. Nothing is sent until someone activates it. It needs `automations.manage`.
+  - **Audiences:** a template that starts from an audience also creates that audience as a draft, in the same transaction. This needs `audiences.manage`. Activating the flow asks for the audience to be activated first. People already in the audience when it's activated don't enter the flow; only people who enter it later do. Inactivity and "bought before, not lately" can't be event triggers, because nothing happens when someone stops.
+  - **WhatsApp:** the WhatsApp template needs an approved, synced template without a header variable, and a value for each body variable, one per line. Without one, the card can't create the flow and says why.
+- **Search and filters:** by category, by goal, and by words in the name, description, channels or event names, in English or Arabic. They're a plain GET form, and creating a flow is a form that posts to a server action, so the library works without client JavaScript.
+- **Left out on purpose:** birthdays (no condition can match "today is the birthday"), anniversaries and Ramadan or seasonal sends (the goal window counts from the trigger, and seasonal sends are [campaigns](#campaigns) with a date), and price-drop or back-in-stock alerts (they need a per-person event from the app's backend, which the event library doesn't define).
+
 ## Engine
 
 The scheduled worker (`/api/internal/process-events`) runs every 5 minutes with a budget of about 50 s. It runs these stages in order: audience recompute, trigger intake, run stepping, webhook delivery, then the purge.

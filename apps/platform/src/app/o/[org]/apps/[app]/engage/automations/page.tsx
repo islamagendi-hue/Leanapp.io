@@ -1,33 +1,45 @@
 import Link from "next/link";
 import { FlowLibrary } from "@/components/engage/FlowLibrary";
-import { knownEvents, StatusPill } from "@/components/engage/shared";
-import { getT } from "@/i18n/server";
+import { knownEvents, plannedEvents, StatusPill } from "@/components/engage/shared";
+import { getLang, getT } from "@/i18n/server";
+import type { Lang } from "@/i18n/translate";
 import { describeTrigger } from "@/modules/automation/definition";
+import type { ChannelState } from "@/modules/automation/library";
 import { listAutomations } from "@/modules/automation/service";
 import { listAudiences } from "@/modules/audiences/service";
+import { listIntegrations } from "@/modules/messaging/integrations";
 import { can } from "@/modules/rbac/authorize";
+import { listTemplates } from "@/modules/whatsapp/service";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export async function generateMetadata() {
   return { title: (await getT())("Flows") };
 }
 
+const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? "";
+
 export default async function AutomationsPage(props: PageProps<"/o/[org]/apps/[app]/engage/automations">) {
   const { org, app } = await props.params;
   const sp = await props.searchParams;
-  const { ctx, environments } = await loadApp(org, app);
+  const { ctx, app: project, environments } = await loadApp(org, app);
   requirePermission(ctx, "automations.read");
   const env = await pickEnvironment(environments, sp.env);
   const automations = await listAutomations(ctx, env.id);
-  const [audiences, events] = await Promise.all([
+  const [audiences, events, planned, integrations, whatsappTemplates] = await Promise.all([
     can(ctx.role, "audiences.read") ? listAudiences(ctx, env.id, { includeArchived: true }) : Promise.resolve([]),
-    // The library marks the events this environment hasn't seen (unknown when the member can't read analytics).
+    // The library maps its events to the ones this environment receives, else to the tracking plan (unknown without the permission).
     can(ctx.role, "analytics.read") ? knownEvents(ctx, env.id) : Promise.resolve(null),
+    plannedEvents(ctx, project.id),
+    can(ctx.role, "integrations.read") ? listIntegrations(ctx, env.id) : Promise.resolve(null),
+    listTemplates(ctx, env.id),
   ]);
   const manage = can(ctx.role, "automations.manage");
-  const t = await getT();
+  const [t, lang] = await Promise.all([getT(), getLang()]);
   const audienceName = (id: string) => audiences.find((a) => a.id === id)?.name ?? t("an audience");
   const base = `/o/${org}/apps/${app}/engage/automations`;
+  const connected = (...providers: string[]) => (integrations ? integrations.some((i) => providers.includes(i.provider) && i.status !== "disabled") : null);
+  const channels: ChannelState = { push: connected("fcm", "apns"), email: connected("resend"), whatsapp: connected("whatsapp"), in_app: true };
+  const copy = one(sp.copy);
 
   return (
     <div className="space-y-6">
@@ -63,7 +75,16 @@ export default async function AutomationsPage(props: PageProps<"/o/[org]/apps/[a
           </div>
         )}
       </section>
-      <FlowLibrary org={org} app={app} environmentId={env.id} envLabel={t(env.type)} knownEvents={events} canCreate={manage} />
+      <FlowLibrary
+        org={org} app={app} environmentId={env.id} envType={env.type} envLabel={t(env.type)}
+        known={{ seen: events ? new Set(events) : null, planned: planned ? new Set(planned) : null }}
+        eventNames={[...new Set([...(events ?? []), ...(planned ?? [])])]}
+        channels={channels}
+        whatsappTemplates={whatsappTemplates.filter((w) => w.status === "APPROVED" && w.header_params === 0)}
+        canCreate={manage} canManageAudiences={can(ctx.role, "audiences.manage")}
+        filters={{ q: one(sp.q), category: one(sp.category), goal: one(sp.goal) }}
+        copyLang={(copy === "ar" || copy === "en" ? copy : lang) as Lang}
+      />
     </div>
   );
 }
