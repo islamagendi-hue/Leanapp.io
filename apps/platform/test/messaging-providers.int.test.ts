@@ -19,6 +19,8 @@ import { activateAutomation, createAutomation, getAutomation } from "@/modules/a
 import { checkCampaign, sendCampaignTest } from "@/modules/campaigns/service";
 import { authenticateIngestionKey, type IngestionPrincipal } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
+import { jpeg, mp4 } from "@/modules/media/fixtures.test-helper";
+import { uploadMedia } from "@/modules/media/service";
 import { verifyConnection } from "@/modules/messaging/connections";
 import { configureTwilio, configureWhatsApp, listIntegrations } from "@/modules/messaging/integrations";
 import { deleteDraft, deleteSyncedTemplate, listDrafts, saveDraft, submitDraft, syncAllTemplates } from "@/modules/messaging/templates";
@@ -343,16 +345,50 @@ describe("WhatsApp session messages", () => {
     expect(callsTo("POST", "/v23.0/1110001/messages")).toHaveLength(1);
   });
 
-  it("fails media steps clearly while the media library isn't available", async () => {
+  it("attaches media library files to WhatsApp headers and MMS, and refuses files that don't fit", async () => {
     // A media-header template needs a media file even in a draft…
     await expect(createAutomation(t.ctx, t.dev.id, {
       name: "Photo", definition: { ...NO_GUARDS, trigger: { type: "event", event: "photo" }, steps: [{ type: "whatsapp", template: "photo_offer", language: "ar", bodyParams: ["20%"] }] },
     })).rejects.toThrow(/media header \(IMAGE\)/);
-    // …and one that can't be resolved saves as a draft (warning) but doesn't activate.
-    const { id } = await createAutomation(t.ctx, t.dev.id, {
+    // …and the file must be in this app's library.
+    await expect(createAutomation(t.ctx, t.dev.id, {
       name: "Photo 2", definition: { ...NO_GUARDS, trigger: { type: "event", event: "photo" }, steps: [{ type: "whatsapp", template: "photo_offer", language: "ar", bodyParams: ["20%"], mediaAssetId: crypto.randomUUID() }] },
+    })).rejects.toThrow(/not in this app's library/);
+    // A video can't go in an IMAGE header.
+    const video = (await uploadMedia(t.ctx, t.app.id, { bytes: mp4(), declaredType: "video/mp4", filename: "clip.mp4" })).asset;
+    const { id: wrong } = await createAutomation(t.ctx, t.dev.id, {
+      name: "Photo 3", definition: { ...NO_GUARDS, trigger: { type: "event", event: "photo" }, steps: [{ type: "whatsapp", template: "photo_offer", language: "ar", bodyParams: ["20%"], mediaAssetId: video.id }] },
     });
-    await expect(activateAutomation(t.ctx, id)).rejects.toThrow(/media library isn't available/); // …but not activated
+    await expect(activateAutomation(t.ctx, wrong)).rejects.toThrow();
+
+    const photo = (await uploadMedia(t.ctx, t.app.id, { bytes: jpeg(800, 600), declaredType: "image/jpeg", filename: "offer.jpg" })).asset;
+    const { id } = await createAutomation(t.ctx, t.dev.id, {
+      name: "Photo 4", definition: { ...NO_GUARDS, trigger: { type: "event", event: "photo" }, steps: [{ type: "whatsapp", template: "photo_offer", language: "ar", bodyParams: ["20%"], mediaAssetId: photo.id }] },
+    });
+    await activateAutomation(t.ctx, id);
+    const before = callsTo("POST", "/v23.0/1110001/messages").length;
+    await send([{ event_name: "photo", user_id: "w1" }]);
+    await cycle();
+    const sent = callsTo("POST", "/v23.0/1110001/messages").slice(before);
+    expect(sent).toHaveLength(1);
+    const header = JSON.parse(sent[0].body).template.components.find((c: { type: string }) => c.type === "header");
+    expect(header.parameters[0]).toEqual({ type: "image", image: { link: expect.stringMatching(/\/m\/[^/]+\.jpg$/) } });
+    // Saving turned the file's public link on and recorded where it is used.
+    const usage = await withSystem((db) => db.one<{ public_access: boolean; uses: string }>(
+      "select m.public_access, (select count(*) from platform.media_usages u where u.asset_id = m.id) as uses from platform.media_assets m where m.id = $1", [photo.id]));
+    expect(usage).toEqual({ public_access: true, uses: "1" });
+
+    // MMS: Twilio's declared image limits apply, and the image goes as MediaUrl.
+    const { id: mms } = await createAutomation(t.ctx, t.dev.id, {
+      name: "MMS", definition: { ...NO_GUARDS, trigger: { type: "event", event: "mms" }, steps: [{ type: "sms", text: "Look", mediaAssetId: photo.id }] },
+    });
+    await activateAutomation(t.ctx, mms);
+    await send([{ event_name: "mms", user_id: "s1" }]);
+    await cycle();
+    expect(lastSms()).toMatchObject({ To: "+14155550101", Body: "Look", MediaUrl: expect.stringMatching(/\/m\/[^/]+\.jpg$/) });
+    await expect(createAutomation(t.ctx, t.dev.id, {
+      name: "MMS video", definition: { ...NO_GUARDS, trigger: { type: "event", event: "mms" }, steps: [{ type: "sms", text: "Look", mediaAssetId: video.id }] },
+    })).rejects.toThrow();
   });
 });
 
@@ -366,7 +402,7 @@ describe("campaign composer", () => {
     expect(photo.issues.map((i) => i.level)).toContain("error");
     expect(photo.issues.map((i) => i.message).join(" ")).toMatch(/has a media header \(IMAGE\): choose a media file/);
     const withMedia = await checkCampaign(t.ctx, t.dev.id, { audienceId, channel: "whatsapp", whatsappTemplate: "photo_offer|ar", whatsappParams: "20%", mediaAssetId: crypto.randomUUID() }, "UTC");
-    expect(withMedia.issues).toEqual([{ level: "error", message: expect.stringMatching(/media library isn't available/) }]);
+    expect(withMedia.issues).toEqual([{ level: "error", message: expect.stringMatching(/media file was not found/) }]);
     const twilioWa = await checkCampaign(t.ctx, t.dev.id, { audienceId, channel: "whatsapp", whatsappProvider: "twilio", whatsappTemplate: "order_ready|en", whatsappParams: "" }, "UTC");
     expect(twilioWa.issues.some((i) => i.level === "error")).toBe(true);
     const otherCheck = await checkCampaign(other.ctx, other.dev.id, { audienceId: crypto.randomUUID(), channel: "sms", body: "x" }, "UTC");

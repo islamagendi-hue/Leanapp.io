@@ -48,7 +48,6 @@ const ar: Record<string, string> = {
   "{provider} doesn't accept media on this channel.": "لا يقبل {provider} الوسائط على هذه القناة.",
   "{provider} doesn't accept {mime} here. Allowed: {allowed}.": "لا يقبل {provider} النوع {mime} هنا. المسموح: {allowed}.",
   "The file is {size} MB; {provider} accepts at most {max} MB for {kind}.": "حجم الملف {size} ميغابايت؛ ويقبل {provider} بحدٍّ أقصى {max} ميغابايت لـ{kind}.",
-  "The media library isn't available on this server, so media can't be attached yet.": "مكتبة الوسائط غير متاحة على هذا الخادم، لذا لا يمكن إرفاق الوسائط بعد.",
   "Choose a media file.": "اختر ملف وسائط.",
 
   // ── Step and campaign checks ──────────────────────────────────────────────
@@ -172,11 +171,11 @@ const ar: Record<string, string> = {
     "يحتسب رسائل الإشعارات والبريد وWhatsApp والرسائل القصيرة والرسائل داخل التطبيق المرسلة للشخص من كل الأتمتات هنا؛ وعند تجاوز الحد تُتخطّى الرسالة.",
   "Push, email, WhatsApp and SMS wait until quiet hours end ({timezone}, the organization's timezone).":
     "تنتظر الإشعارات والبريد وWhatsApp والرسائل القصيرة حتى تنتهي ساعات الهدوء ({timezone}، المنطقة الزمنية للمؤسسة).",
-  "Header media asset ID": "معرّف وسائط الترويسة",
+  "Header media": "وسائط الترويسة",
   "Sent through Twilio.": "تُرسَل عبر Twilio.",
   "{n} SMS segment(s)": "{n} جزء رسالة قصيرة",
-  "Image asset ID (MMS, US and Canada numbers only)": "معرّف الصورة (MMS، لأرقام الولايات المتحدة وكندا فقط)",
-  "Media asset ID (optional)": "معرّف الوسائط (اختياري)",
+  "Image (MMS, US and Canada numbers only)": "صورة (MMS، لأرقام الولايات المتحدة وكندا فقط)",
+  "Media (optional)": "وسائط (اختياري)",
   "Skipped for people without a valid number, who denied marketing consent, or who replied STOP.": "تُتخطّى لمن ليس لديه رقم صالح أو رفض الموافقة التسويقية أو رد بـSTOP.",
   "Free-form WhatsApp messages are only allowed within 24 hours of the person's last message to you; outside that window the step is skipped. Use a template to start a conversation.":
     "رسائل WhatsApp الحرة مسموحة فقط خلال 24 ساعة من آخر رسالة أرسلها إليك الشخص؛ وخارج هذه النافذة تُتخطّى الخطوة. استخدم قالبًا لبدء محادثة.",
@@ -215,7 +214,6 @@ const ar: Record<string, string> = {
   "User attribute": "خاصية المستخدم",
   "Fixed text": "نص ثابت",
   "Media file ({kind})": "ملف وسائط ({kind})",
-  "Media library asset ID": "معرّف الملف في مكتبة الوسائط",
   "Accepted: {types}, up to {mb} MB.": "المقبول: {types}، حتى {mb} ميغابايت.",
   "This provider doesn't accept media here.": "لا يقبل هذا المزوّد الوسائط هنا.",
   "Choose an attribute": "اختر خاصية",

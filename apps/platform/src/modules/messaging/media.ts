@@ -1,22 +1,17 @@
 import "server-only";
 import type { Db } from "@/lib/db";
-import { msg } from "@/i18n/translate";
-import type { MessagingChannel } from "./providers/registry";
+import type { WhatsAppHeader } from "@/modules/media/channel-rules";
+import { MediaUnavailableError, resolveMediaForSend } from "@/modules/media/service";
+import { providerMediaSupport } from "./providers/registry";
 
 /**
- * The one seam between messaging and the media library (src/modules/media,
- * built in a separate workstream). Steps and campaigns store media asset ids
- * (`mediaAssetId`); at validation and send time this resolves an id to the
- * asset's metadata and a durable public URL that the provider fetches
- * (WhatsApp `link`, Twilio `MediaUrl`).
- *
- * Until the media library is merged, nothing resolves: callers get
- * `available: false` and the send is logged as failed with that reason. It is
- * never treated as sent.
- *
- * MERGE: replace the body of `resolveMedia` with a call to the media module's
- * `resolveMediaForSend(organizationId, appId, assetId, channel)`, which returns
- * { url, mime, size }.
+ * The one seam between messaging and the media library (src/modules/media).
+ * Steps and campaigns store media asset ids (`mediaAssetId`); at validation
+ * and send time this resolves an id to the asset's metadata and a durable
+ * public URL that the provider fetches (WhatsApp `link`, Twilio `MediaUrl`).
+ * The file is checked against the channel, the WhatsApp template's header
+ * type and the provider's declared media limits. When it can't be attached,
+ * callers get `available: false` with the reason; it is never treated as sent.
  */
 export interface ResolvedMedia {
   url: string;
@@ -26,11 +21,21 @@ export interface ResolvedMedia {
 
 export type MediaResolution = { available: true; media: ResolvedMedia } | { available: false; reason: string };
 
-export const MEDIA_LIBRARY_MISSING = msg("The media library isn't available on this server, so media can't be attached yet.");
-
 export async function resolveMedia(
   _db: Db,
-  _ref: { organizationId: string; appId: string; assetId: string; channel: MessagingChannel },
+  ref: { organizationId: string; appId: string; assetId: string; channel: "whatsapp" | "sms"; provider: string; whatsappHeader?: string | null },
 ): Promise<MediaResolution> {
-  return { available: false, reason: MEDIA_LIBRARY_MISSING };
+  const header = ref.whatsappHeader?.toUpperCase();
+  try {
+    const m = await resolveMediaForSend(ref.organizationId, ref.appId, ref.assetId, {
+      channel: ref.channel,
+      provider: ref.provider,
+      whatsappHeader: ref.channel === "whatsapp" && header ? (header as WhatsAppHeader) : undefined,
+      providerMedia: providerMediaSupport(ref.provider, ref.channel),
+    });
+    return { available: true, media: { url: m.url, mime: m.mime, size: m.sizeBytes } };
+  } catch (err) {
+    if (err instanceof MediaUnavailableError) return { available: false, reason: err.message };
+    throw err;
+  }
 }

@@ -538,9 +538,9 @@ async function appOf(db: Db, environmentId: string): Promise<string> {
 }
 
 /** The media file's public URL, or why it can't be attached (the step then fails with that reason). */
-async function mediaFor(env: RunEnv, assetId: string, channel: "whatsapp" | "sms"): Promise<{ link: string } | { error: string }> {
-  const r = await resolveMedia(env.db, { organizationId: env.run.organization_id, appId: await appOf(env.db, env.run.environment_id), assetId, channel });
-  return r.available ? { link: r.media.url } : { error: fill(RUN_LOG.mediaUnavailable, { message: r.reason }) };
+async function mediaFor(env: RunEnv, assetId: string, channel: "whatsapp" | "sms", provider: string, whatsappHeader?: string | null): Promise<{ link: string; mime: string } | { error: string }> {
+  const r = await resolveMedia(env.db, { organizationId: env.run.organization_id, appId: await appOf(env.db, env.run.environment_id), assetId, channel, provider, whatsappHeader });
+  return r.available ? { link: r.media.url, mime: r.media.mime } : { error: fill(RUN_LOG.mediaUnavailable, { message: r.reason }) };
 }
 
 async function sendWhatsAppStep(env: RunEnv, s: Extract<Step, { type: "whatsapp" }>, index: number, vars: Parameters<typeof renderTemplate>[1]): Promise<StepResult> {
@@ -556,7 +556,7 @@ async function sendWhatsAppStep(env: RunEnv, s: Extract<Step, { type: "whatsapp"
   const kind = template.header_format ? (HEADER_MEDIA[template.header_format] as "image" | "video" | "document" | undefined) : undefined;
   let headerMedia: { kind: "image" | "video" | "document"; link: string } | undefined;
   if (kind) {
-    const m = s.mediaAssetId ? await mediaFor(env, s.mediaAssetId, "whatsapp") : { error: fill(RUN_LOG.mediaUnavailable, { message: "no media file chosen" }) };
+    const m = s.mediaAssetId ? await mediaFor(env, s.mediaAssetId, "whatsapp", s.provider, template.header_format) : { error: fill(RUN_LOG.mediaUnavailable, { message: "no media file chosen" }) };
     if ("error" in m) return { next: "continue", entry: { type: "whatsapp", outcome: "failed", detail: m.error } };
     headerMedia = { kind, link: m.link };
   }
@@ -589,9 +589,10 @@ async function sendTextStep(env: RunEnv, s: Extract<Step, { type: "whatsapp_sess
   let media: { kind: "image" | "video" | "audio" | "document"; link: string } | undefined;
   if (s.mediaAssetId) {
     if (channel === "sms" && !mmsAllowed(s.provider, to)) return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: RUN_LOG.mmsNotAllowed } };
-    const m = await mediaFor(env, s.mediaAssetId, channel);
+    const m = await mediaFor(env, s.mediaAssetId, channel, s.provider);
     if ("error" in m) return { next: "continue", entry: { type: s.type, outcome: "failed", detail: m.error } };
-    media = { kind: "image", link: m.link };
+    const top = m.mime.split("/")[0];
+    media = { kind: top === "image" || top === "video" || top === "audio" ? top : "document", link: m.link };
   }
   const r = await deliverMessage(db, creds, target(run, index), s.provider, { kind: "text", channel, to, text: renderTemplate(s.text, vars), media });
   if (!r.attempted) return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: RUN_LOG.alreadyAttempted } };

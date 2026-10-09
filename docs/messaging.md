@@ -137,13 +137,7 @@ Frequency caps and quiet hours apply to every channel, as for push.
 
 Media steps reference a media library asset by id (`mediaAssetId`). Each file is checked against the provider's declared rules (`providers/media.ts`: kind, MIME type, size) and against the template header kind.
 
-The media library belongs to another workstream and isn't in this branch. Until it lands, `modules/messaging/media.ts#resolveMedia` reports it unavailable, with no fallback and no fake URLs:
-
-- a step with media **fails** with "Media not attached: the media library isn't available on this server";
-- saving a flow or campaign with a media file **warns**;
-- activating it, or the campaign Check, is **refused** with an error.
-
-At merge, `resolveMedia` calls the media library's `resolveMediaForSend`, and the asset id fields become its `MediaPicker`.
+`modules/messaging/media.ts#resolveMedia` calls the media library's `resolveMediaForSend` with the channel, the provider's declared media and, for a template, its header type. A file that is missing, deleted, has no public link or doesn't fit makes the step **fail** with the reason (a draft saves with a warning, activation is refused); there is no fallback URL. The composer and the flow editor choose files with the media library's `MediaPicker`, which only offers files that fit.
 
 ## Inbound messages and flows
 
@@ -231,7 +225,7 @@ Engage → Channels & delivery shows each channel's health and what happened to 
 | Twilio Messages, Accounts and Content API calls, callback signatures | Simulated: same tests. Not live-verified. |
 | Webhook signature checks (Meta HMAC-SHA256, Twilio HMAC-SHA1) | Implemented per the providers' documented algorithms; tested with locally computed signatures. |
 | 360dialog, Infobip, Gupshup, WATI, Unifonic, respond.io | Descriptors only. Nothing is called. |
-| Media attachments | Blocked until the media library is merged (see "Media"). |
+| Media attachments | WhatsApp headers and session media, and Twilio MMS (US and Canadian numbers), from the media library (see "Media"). |
 
 ## Owner actions (live use)
 

@@ -21,9 +21,9 @@ interface PickerItem {
   warnings: MediaIssue[];
 }
 
-async function fetchPicker(base: string, channel: MediaChannel, query: string): Promise<{ items: PickerItem[]; error: string | null }> {
+async function fetchPicker(base: string, channel: MediaChannel, query: string, extra: string): Promise<{ items: PickerItem[]; error: string | null }> {
   try {
-    const res = await fetch(`${base}/engage/media/picker?channel=${encodeURIComponent(channel)}&q=${encodeURIComponent(query)}`, { cache: "no-store" });
+    const res = await fetch(`${base}/engage/media/picker?channel=${encodeURIComponent(channel)}&q=${encodeURIComponent(query)}${extra}`, { cache: "no-store" });
     const body = await res.json().catch(() => null);
     if (!res.ok) return { items: [], error: body?.message ?? msg("The media library could not be loaded.") };
     return { items: body.items as PickerItem[], error: null };
@@ -38,10 +38,25 @@ async function fetchPicker(base: string, channel: MediaChannel, query: string): 
  * (same app, not deleted, fits the channel) when the message is saved and
  * when it is sent. Files that don't fit the channel can't be chosen.
  */
-export function MediaPicker({ name, channel, defaultValue, label }: { name: string; channel: MediaChannel; defaultValue?: string; label?: string }) {
+export function MediaPicker({ name, channel, defaultValue, label, provider, whatsappHeader, onChange }: {
+  name: string;
+  channel: MediaChannel;
+  defaultValue?: string;
+  label?: string;
+  /** WhatsApp/SMS: check files against this messaging provider's declared media. */
+  provider?: string;
+  /** WhatsApp template: the approved header type (IMAGE, VIDEO, DOCUMENT). */
+  whatsappHeader?: string;
+  onChange?: (assetId: string) => void;
+}) {
   const t = useT();
   const base = projectBase(usePathname() ?? "");
-  const [value, setValue] = useState(defaultValue ?? "");
+  const [value, setValueState] = useState(defaultValue ?? "");
+  const setValue = (v: string) => {
+    setValueState(v);
+    onChange?.(v);
+  };
+  const extra = `${provider ? `&provider=${encodeURIComponent(provider)}` : ""}${whatsappHeader ? `&header=${encodeURIComponent(whatsappHeader)}` : ""}`;
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState("");
   const [items, setItems] = useState<PickerItem[] | null>(null);
@@ -49,16 +64,16 @@ export function MediaPicker({ name, channel, defaultValue, label }: { name: stri
 
   const load = useCallback(async (query: string) => {
     if (!base) return;
-    const r = await fetchPicker(base, channel, query);
+    const r = await fetchPicker(base, channel, query, extra);
     setItems(r.items);
     setError(r.error);
-  }, [base, channel]);
+  }, [base, channel, extra]);
 
   // Show the chosen file (and its checks) on an edit form.
   useEffect(() => {
     if (!base || !value || items !== null) return;
     let live = true;
-    fetchPicker(base, channel, "").then((r) => {
+    fetchPicker(base, channel, "", extra).then((r) => {
       if (!live) return;
       setItems(r.items);
       setError(r.error);
@@ -66,7 +81,7 @@ export function MediaPicker({ name, channel, defaultValue, label }: { name: stri
     return () => {
       live = false;
     };
-  }, [base, channel, value, items]);
+  }, [base, channel, value, items, extra]);
 
   const tr = (i: MediaIssue) => t(i.message, i.params);
   const selected = items?.find((i) => i.id === value) ?? null;

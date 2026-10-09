@@ -3,6 +3,7 @@
 import { useActionState, useMemo, useState, useTransition } from "react";
 import type { FormState } from "@/components/ActionForm";
 import { useT } from "@/i18n/client";
+import { MediaPicker } from "./MediaPicker";
 import { msg } from "@/i18n/translate";
 import { HEADER_MEDIA } from "@/modules/messaging/providers/media";
 import { messagingProvider } from "@/modules/messaging/providers/registry";
@@ -43,20 +44,19 @@ function lines(v: string | undefined): string[] {
 }
 
 /**
- * Media library integration point: the field carries one asset id. The media
- * library's picker (worker D) replaces the text input with
- * <MediaPicker name="mediaAssetId" kinds={…} />; the server validates the
- * asset against the provider's declared media types and size limits.
+ * A file from the app's media library for a WhatsApp header or an MMS. The
+ * picker only offers files that fit the provider's declared media and the
+ * template's header type; the server checks the asset again on save and send.
  */
 export function MediaField({ name = "mediaAssetId", value, kind, providerId, channel }: { name?: string; value?: string; kind: string; providerId: string; channel: "whatsapp" | "sms" }) {
   const t = useT();
   const rules = messagingProvider(providerId)?.media.filter((r) => r.channel === channel && (!HEADER_MEDIA[kind.toUpperCase()] || r.kind === kind)) ?? [];
   return (
-    <label className="block">
-      <span className="label">{t("Media file ({kind})", { kind })}</span>
-      <input name={name} className="input font-mono" defaultValue={value} placeholder={t("Media library asset ID")} dir="ltr" pattern="[0-9a-fA-F-]{36}" />
+    <div className="space-y-1">
+      <MediaPicker key={`${providerId}:${kind}`} name={name} channel={channel} defaultValue={value} label={t("Media file ({kind})", { kind })}
+        provider={providerId} whatsappHeader={channel === "whatsapp" ? kind.toUpperCase() : undefined} />
       <span className="help">{rules.length ? t("Accepted: {types}, up to {mb} MB.", { types: rules.flatMap((r) => r.mimeTypes).join(", "), mb: Math.max(...rules.map((r) => r.maxBytes)) / 1048576 }) : t("This provider doesn't accept media here.")}</span>
-    </label>
+    </div>
   );
 }
 

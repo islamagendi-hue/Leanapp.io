@@ -7,6 +7,7 @@ import { log } from "@/lib/log";
 import { audit } from "@/modules/audit/service";
 import { assertCan } from "@/modules/rbac/authorize";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
+import { providerMediaSupport } from "@/modules/messaging/providers/registry";
 import { publicBaseUrl } from "@/server/env";
 import { acceptedMimes, isMediaChannel, issueText, validateMediaForChannel, type ChannelCapability, type MediaChannel, type MediaCheck } from "./channel-rules";
 import { checkFile, cleanFolder, cleanName, cleanTags, MediaValidationError } from "./policy";
@@ -372,17 +373,19 @@ export async function resolveMediaForSend(organizationId: string, appId: string,
 /** Step fields that hold a media asset id (push/in-app image, WhatsApp/MMS media). */
 const MEDIA_FIELDS = ["imageAssetId", "mediaAssetId"] as const;
 
-/** The media asset ids in an automation definition, with the step's channel. */
-export function mediaRefsOf(definition: unknown): { assetId: string; channel: MediaChannel }[] {
+/** The media asset ids in an automation definition, with the step's channel and messaging provider. */
+export function mediaRefsOf(definition: unknown): { assetId: string; channel: MediaChannel; provider?: string }[] {
   const steps = (definition as { steps?: unknown[] } | null)?.steps;
   if (!Array.isArray(steps)) return [];
-  const out: { assetId: string; channel: MediaChannel }[] = [];
+  const out: { assetId: string; channel: MediaChannel; provider?: string }[] = [];
   for (const s of steps) {
     if (!s || typeof s !== "object") continue;
-    const type = (s as { type?: unknown }).type;
+    const step = s as Record<string, unknown>;
+    const type = step.type === "whatsapp_session" ? "whatsapp" : step.type;
+    const provider = typeof step.provider === "string" ? step.provider : type === "sms" ? "twilio" : undefined;
     for (const f of MEDIA_FIELDS) {
-      const v = (s as Record<string, unknown>)[f];
-      if (typeof v === "string" && v && isMediaChannel(type)) out.push({ assetId: v, channel: type });
+      const v = step[f];
+      if (typeof v === "string" && v && isMediaChannel(type)) out.push({ assetId: v, channel: type, ...(provider && (type === "sms" || type === "whatsapp") ? { provider } : {}) });
     }
   }
   return out;
@@ -404,7 +407,7 @@ export async function syncAutomationMedia(db: Db, ctx: TenantContext, automation
     if (!UUID.test(r.assetId)) throw new ValidationError(msg("Choose a file from the media library."));
     const row = await db.one<Row>("select * from platform.media_assets where id = $1 and app_id = $2 and deleted_at is null for update", [r.assetId, auto.app_id]);
     if (!row) throw new ValidationError(msg("The chosen media file is not in this app's library."));
-    const check = validateMediaForChannel({ mime: row.mime_type, kind: row.kind, sizeBytes: Number(row.size_bytes), width: row.width, height: row.height }, { channel: r.channel });
+    const check = validateMediaForChannel({ mime: row.mime_type, kind: row.kind, sizeBytes: Number(row.size_bytes), width: row.width, height: row.height }, { channel: r.channel, provider: r.provider, providerMedia: r.provider && (r.channel === "sms" || r.channel === "whatsapp") ? providerMediaSupport(r.provider, r.channel) : undefined });
     if (!check.ok) throw new ValidationError(issueText(check.errors[0]));
     if (check.requiresPublicUrl && !row.public_access) await db.query("update platform.media_assets set public_access = true where id = $1", [row.id]);
     await db.query(

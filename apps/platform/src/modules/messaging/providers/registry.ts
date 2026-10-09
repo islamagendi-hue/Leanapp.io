@@ -225,6 +225,17 @@ export function messagingProvider(id: string): ProviderDescriptor | null {
   return MESSAGING_PROVIDERS.find((p) => p.id === id) ?? null;
 }
 
+/**
+ * The media a provider accepts on a channel, in the media library's
+ * capability shape (`ProviderMediaSupport`), so its channel check uses the
+ * provider's own limits. Stickers are WhatsApp-only and not offered.
+ */
+export function providerMediaSupport(providerId: string, channel: MessagingChannel): { kind: "image" | "video" | "document" | "audio"; mimeTypes: string[]; maxBytes: number }[] {
+  return (messagingProvider(providerId)?.media ?? [])
+    .filter((r) => r.channel === channel && r.kind !== "sticker")
+    .map((r) => ({ kind: r.kind as "image" | "video" | "document" | "audio", mimeTypes: [...r.mimeTypes], maxBytes: r.maxBytes }));
+}
+
 export function providersForChannel(channel: MessagingChannel): ProviderDescriptor[] {
   return MESSAGING_PROVIDERS.filter((p) => p.channels.includes(channel));
 }

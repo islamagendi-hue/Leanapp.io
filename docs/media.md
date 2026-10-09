@@ -15,7 +15,7 @@ Code: `apps/platform/src/modules/media`, page **Engage Lab → Media library**
 | Channel rules: `validateMediaForChannel(asset, capability)` | **Built** (limits from provider docs, see below) |
 | `MediaPicker` in the campaign composer (push and in-app image) | **Built**: the chosen file is saved on the campaign step (`imageAssetId`), checked, and recorded as a usage |
 | Attaching the image to the FCM / APNs / in-app payload when sending | **Not built**: the senders (messaging provider adapters) call `resolveMediaForSend` for that; until then a push or in-app message goes out without its image |
-| WhatsApp media headers, MMS | **Not built here**: the messaging workstream adds `mediaAssetId` to those steps and validates it against its provider capabilities |
+| WhatsApp media headers and session media, MMS | Built: steps carry `mediaAssetId` chosen with the `MediaPicker`; the file is checked against the template's header type and the provider's declared media (`providerMediaSupport`) on save, activation and send, and sent as its durable public link |
 | Provider-side upload (e.g. WhatsApp `POST /{phone-number-id}/media`) | **Interface only** (`provider-hooks.ts`); nothing calls a provider |
 
 ## Files and checks

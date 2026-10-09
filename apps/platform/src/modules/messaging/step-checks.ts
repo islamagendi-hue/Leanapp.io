@@ -47,6 +47,7 @@ export async function checkMessagingStep(
   }
 
   let mediaKind: "image" | "video" | "document" | undefined;
+  let whatsappHeader: string | null = null;
   if (s.type === "whatsapp") {
     const t = await db.one<{ status: string; body_params: number; header_params: number; header_format: string | null }>(
       "select status, body_params, header_params, header_format from platform.whatsapp_templates where environment_id = $1 and provider = $2 and name = $3 and language = $4",
@@ -60,6 +61,7 @@ export async function checkMessagingStep(
       error(fill(msg('The WhatsApp template "{template}" needs {body} body and {header} header variables.'), { template: s.template, body: t.body_params, header: t.header_params }));
     }
     if (opts.requireActive && t.status !== "APPROVED") error(fill(msg('The WhatsApp template "{template}" is {status}, not approved by WhatsApp yet.'), { template: s.template, status: t.status.toLowerCase() }));
+    whatsappHeader = t.header_format;
     mediaKind = t.header_format ? (HEADER_MEDIA[t.header_format] as typeof mediaKind) : undefined;
     if (mediaKind && !s.mediaAssetId) error(fill(msg('The WhatsApp template "{template}" has a media header ({kind}): choose a media file.'), { template: s.template, kind: t.header_format ?? "" }));
     if (!mediaKind && s.mediaAssetId) error(fill(msg('The WhatsApp template "{template}" has no media header, so it can\'t carry a file.'), { template: s.template }));
@@ -69,7 +71,7 @@ export async function checkMessagingStep(
   }
   if (s.mediaAssetId && !issues.some((i) => i.level === "error")) {
     const channel = s.type === "sms" ? "sms" : "whatsapp";
-    const r = await resolveMedia(db, { organizationId: ref.organizationId, appId: ref.appId, assetId: s.mediaAssetId, channel });
+    const r = await resolveMedia(db, { organizationId: ref.organizationId, appId: ref.appId, assetId: s.mediaAssetId, channel, provider: s.provider, whatsappHeader });
     if (!r.available) {
       if (opts.requireActive) error(r.reason);
       else issues.push({ level: "warning", message: r.reason });

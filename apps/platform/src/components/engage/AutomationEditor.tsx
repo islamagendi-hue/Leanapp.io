@@ -8,6 +8,7 @@ import { OUTCOME_LABELS, OUTCOMES } from "@/modules/automation/definition";
 import { flowNodes, insertStep, moveStep, removeStep } from "@/modules/automation/flow";
 import { messagingProvider, WHATSAPP_PROVIDERS } from "@/modules/messaging/providers/registry";
 import { smsSegments } from "@/modules/messaging/variables";
+import { MediaPicker } from "./MediaPicker";
 import { ConditionBuilder, ParsedInput, parseValue, type Json, type PropertyLists } from "./ConditionBuilder";
 
 type Step = Json & { type: string };
@@ -292,11 +293,11 @@ function StepFields({ step: s, index, total, onChange, events, properties, webho
       </select>
     </label>
   );
-  // MERGE: replace with <MediaPicker name="mediaAssetId" channel=… /> from the media library (workstream D).
-  const mediaField = (label: string) => (
-    <label className="block text-sm"><span className="label">{t(label)}</span>
-      <input className="input font-mono" dir="ltr" maxLength={36} placeholder="00000000-0000-0000-0000-000000000000" value={String(s.mediaAssetId ?? "")} onChange={(e) => onChange({ ...s, mediaAssetId: e.target.value.trim() || undefined })} />
-    </label>
+  // The picker's hidden input is named per step; the saved value is the step's mediaAssetId in the definition JSON.
+  const mediaField = (label: string, channel: "whatsapp" | "sms", header?: string | null) => (
+    <MediaPicker key={`${s.type}:${String(s.provider ?? "")}:${header ?? ""}`} name={`step-${index}-media`} channel={channel} label={t(label)}
+      provider={String(s.provider ?? (channel === "sms" ? "twilio" : "whatsapp_cloud"))} whatsappHeader={header ?? undefined}
+      defaultValue={String(s.mediaAssetId ?? "")} onChange={(id) => onChange({ ...s, mediaAssetId: id || undefined })} />
   );
   switch (s.type) {
     case "exit":
@@ -381,7 +382,7 @@ function StepFields({ step: s, index, total, onChange, events, properties, webho
             </label>
           </div>
           {tpl?.body_text && <p className="whitespace-pre-wrap rounded-lg bg-paper-2 p-2 text-ink-2">{tpl.body_text}</p>}
-          {mediaHeader && mediaField(msg("Header media asset ID"))}
+          {mediaHeader && mediaField(msg("Header media"), "whatsapp", tpl?.header_format)}
           {params("headerParams").map((v, j) => (
             <label key={`h${j}`} className="block"><span className="label">{t("Header {variable}", { variable: `{{${j + 1}}}` })}</span><input className="input" maxLength={60} value={v} onChange={(e) => setParam("headerParams", j, e.target.value)} /></label>
           ))}
@@ -406,7 +407,7 @@ function StepFields({ step: s, index, total, onChange, events, properties, webho
           </div>
           {text("text", msg("Message"), s.type === "sms" ? 1600 : 4096, true)}
           {s.type === "sms" && <p className="help">{t("{n} SMS segment(s)", { n: smsSegments(String(s.text ?? "")).segments })}</p>}
-          {mediaField(s.type === "sms" ? msg("Image asset ID (MMS, US and Canada numbers only)") : msg("Media asset ID (optional)"))}
+          {mediaField(s.type === "sms" ? msg("Image (MMS, US and Canada numbers only)") : msg("Media (optional)"), s.type === "sms" ? "sms" : "whatsapp")}
           <p className="help">{s.type === "sms"
             ? t("Skipped for people without a valid number, who denied marketing consent, or who replied STOP.")
             : t("Free-form WhatsApp messages are only allowed within 24 hours of the person's last message to you; outside that window the step is skipped. Use a template to start a conversation.")}</p>
