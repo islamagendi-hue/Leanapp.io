@@ -61,6 +61,8 @@ export interface AnalyticsOptions {
    * events when the app goes to the background. The SDK never imports react-native itself.
    */
   appState?: AppStateLike;
+  /** How long getVariant() reuses the assignments it fetched for the same user. Default 5 minutes. */
+  experimentsCacheMs?: number;
   debug?: boolean;
   fetch?: typeof fetch;
   now?: () => number;
@@ -109,6 +111,17 @@ export type FlushResult =
   | { status: "sent"; accepted: number; duplicates: number; rejected: number }
   | { status: "retry"; retryInMs: number; reason: string }
   | { status: "unauthorized" };
+
+/** One running experiment's answer for a user, from /v1/experiments/assignments. */
+export interface ExperimentAssignment {
+  experiment: string;
+  experiment_id: string;
+  /** Null when the user isn't in the experiment: show your default. */
+  variant: string | null;
+}
+
+/** The event that records a user saw a variant; experiment results count people from it. */
+export const EXPOSURE_EVENT = "experiment_exposure";
 
 const KEY_PATTERN = /^la_(pk|sk)_(dev|stg|live)_[A-Za-z0-9_-]{20,}$/;
 // Browsers cap the bodies of all in-flight keepalive requests at 64 KiB; stay under it with headroom.
@@ -246,6 +259,10 @@ export class LeanAppClient {
   private skipIdempotencyKey = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private persistChain: Promise<void> = Promise.resolve();
+  /** Assignments fetched for one user (user id + anonymous id), reused for experimentsCacheMs. */
+  private assignments: { identity: string; at: number; promise: Promise<Map<string, ExperimentAssignment>> } | null = null;
+  /** Exposures already queued by this client: experiment id, variant and user. */
+  private readonly exposed = new Set<string>();
 
   constructor(options: AnalyticsOptions) {
     if (!options || typeof options.apiKey !== "string" || !KEY_PATTERN.test(options.apiKey)) {
@@ -268,6 +285,7 @@ export class LeanAppClient {
       eventTtlMs: options.eventTtlMs ?? 7 * 86_400_000,
       sessionTimeoutMs: options.sessionTimeoutMs ?? 30 * 60_000,
       context: options.context ?? {},
+      experimentsCacheMs: Math.max(0, options.experimentsCacheMs ?? 5 * 60_000),
       debug: options.debug ?? false,
       fetch: options.fetch ?? ((...a: Parameters<typeof fetch>) => fetch(...a)),
       now: options.now ?? Date.now,
@@ -397,6 +415,51 @@ export class LeanAppClient {
 
   getUserId(): string | null {
     return this.state.userId ?? null;
+  }
+
+  /**
+   * The variant of a running experiment for the current user, or null when they aren't in it
+   * (outside its traffic or audience, stopped, unknown key) or the request fails: then show your
+   * default. The first time a variant is returned for this user, an `experiment_exposure` event is
+   * queued (once; pass `{ expose: false }` and call trackExposure() where the variant is shown).
+   * Assignments are fetched together from POST /v1/experiments/assignments and reused for
+   * `experimentsCacheMs`. Call it after identify() for experiments on signed-in users, since the
+   * variant follows the user id.
+   */
+  async getVariant(experimentKey: string, options: { expose?: boolean } = {}): Promise<string | null> {
+    try {
+      await this.readyPromise;
+      const identity = `${this.state.userId ?? ""}\n${this.state.anonymousId}`;
+      const now = this.o.now();
+      if (!this.assignments || this.assignments.identity !== identity || now - this.assignments.at > this.o.experimentsCacheMs) {
+        this.assignments = { identity, at: now, promise: this.fetchAssignments() };
+      }
+      const current = this.assignments;
+      const map = await current.promise.catch((err: unknown) => {
+        if (this.assignments === current) this.assignments = null; // ask again on the next call
+        throw err;
+      });
+      const a = map.get(experimentKey);
+      if (!a?.variant) return null;
+      if (options.expose !== false) this.trackExposure(experimentKey, a.experiment_id, a.variant);
+      return a.variant;
+    } catch (err) {
+      this.warn("getVariant failed; show the default", err);
+      return null;
+    }
+  }
+
+  /** Queues the `experiment_exposure` event for a variant you showed (getVariant does this unless `expose: false`). Once per user. */
+  trackExposure(experimentKey: string, experimentId: string, variant: string): void {
+    this.whenLoaded(() => {
+      const user = this.state.userId ?? "";
+      const seen = `${experimentId}\n${variant}\n${user}\n${this.state.anonymousId}`;
+      if (this.exposed.has(seen)) return;
+      this.exposed.add(seen);
+      // A stable id, so a repeat after a restart is de-duplicated by the server.
+      const eventId = `exp:${experimentId}:${eventIdsHash([variant, user, this.state.anonymousId])}`;
+      this.track(EXPOSURE_EVENT, { experiment: experimentKey, experiment_id: experimentId, variant }, { eventId });
+    });
   }
 
   /**
@@ -575,6 +638,19 @@ export class LeanAppClient {
         this.warn("failed to queue event", err);
       }
     });
+  }
+
+  private async fetchAssignments(): Promise<Map<string, ExperimentAssignment>> {
+    const body: Record<string, string> = { anonymous_id: this.state.anonymousId };
+    if (this.state.userId) body.user_id = this.state.userId;
+    const res = await this.o.fetch(`${this.o.endpoint}/v1/experiments/assignments`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.o.apiKey}` },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`assignments request failed with ${res.status}`);
+    const json = (await res.json()) as { assignments?: ExperimentAssignment[] };
+    return new Map((json.assignments ?? []).map((a) => [a.experiment, a]));
   }
 
   private touchSession(at: number): string {

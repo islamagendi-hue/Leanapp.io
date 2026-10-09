@@ -118,6 +118,6 @@ Engage → Campaigns (PR 10, migration 0027). A campaign is one message to an [a
 ## Not built yet
 
 - Prayer-time-aware quiet hours and Ramadan scheduling.
-- Holdout groups and attributing conversions to an automation.
+- Holdout groups and attributing conversions to an automation. A/B tests of campaign messages are not built either; product experiments are ([experiments](experiments.md)).
 - A per-user timezone. Quiet hours and schedules use the organization's timezone.
 - An in-app message UI in the SDKs.

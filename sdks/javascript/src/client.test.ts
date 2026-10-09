@@ -605,3 +605,81 @@ describe("consent", () => {
     expect(Analytics.getConsent()).toMatchObject({ analytics: "granted", marketing: "pending" });
   });
 });
+
+describe("experiments", () => {
+  /** A server that answers assignments with `variants` (experiment key → variant) and accepts event batches. */
+  function experimentServer(variants: Record<string, string | null>, fail = 0) {
+    const assignmentCalls: { url: string; body: Record<string, string> }[] = [];
+    const batches: WireEvent[][] = [];
+    let failures = fail;
+    const fetchFn = vi.fn(async (url: string, init: RequestInit) => {
+      const body = JSON.parse(init.body as string);
+      if (url.endsWith("/v1/experiments/assignments")) {
+        assignmentCalls.push({ url, body });
+        if (failures-- > 0) return new Response("{}", { status: 503 });
+        const assignments = Object.entries(variants).map(([experiment, variant]) => ({ experiment, experiment_id: `id-${experiment}`, variant }));
+        return new Response(JSON.stringify({ assignments }), { status: 200 });
+      }
+      batches.push(body.batch);
+      return new Response(JSON.stringify({ accepted: body.batch.length, duplicates: 0, rejected: [] }), { status: 200 });
+    });
+    return { assignmentCalls, batches, fetch: fetchFn as unknown as typeof fetch };
+  }
+
+  it("returns the variant, sends the exposure once, and reuses the assignments", async () => {
+    const s = experimentServer({ checkout_button: "treatment", onboarding: null });
+    const { client } = make({ fetch: s.fetch, endpoint: "https://api.example.test" });
+    client.identify("u-42");
+    expect(await client.getVariant("checkout_button")).toBe("treatment");
+    expect(await client.getVariant("checkout_button")).toBe("treatment");
+    expect(await client.getVariant("onboarding")).toBeNull(); // not in it: no exposure
+    expect(await client.getVariant("unknown")).toBeNull();
+    expect(s.assignmentCalls).toHaveLength(1);
+    expect(s.assignmentCalls[0].url).toBe("https://api.example.test/v1/experiments/assignments");
+    expect(s.assignmentCalls[0].body).toEqual({ anonymous_id: client.getAnonymousId(), user_id: "u-42" });
+    await client.flush();
+    const exposures = s.batches.flat().filter((e) => e.event_name === "experiment_exposure");
+    expect(exposures).toHaveLength(1);
+    expect(exposures[0]).toMatchObject({ user_id: "u-42", properties: { experiment: "checkout_button", experiment_id: "id-checkout_button", variant: "treatment" } });
+    expect(exposures[0].event_id).toMatch(/^exp:id-checkout_button:[0-9a-f]{8}$/);
+  });
+
+  it("asks again after the cache time or when the user changes", async () => {
+    const s = experimentServer({ checkout_button: "control" });
+    const { client, clock } = make({ fetch: s.fetch, experimentsCacheMs: 60_000 });
+    await client.getVariant("checkout_button");
+    clock.advance(61_000);
+    await client.getVariant("checkout_button");
+    expect(s.assignmentCalls).toHaveLength(2);
+    client.identify("u-7");
+    await client.getVariant("checkout_button");
+    expect(s.assignmentCalls).toHaveLength(3);
+    expect(s.assignmentCalls[2].body.user_id).toBe("u-7");
+  });
+
+  it("returns null when the request fails, then retries; expose: false sends nothing", async () => {
+    const s = experimentServer({ checkout_button: "treatment" }, 1);
+    const { client } = make({ fetch: s.fetch });
+    expect(await client.getVariant("checkout_button")).toBeNull();
+    expect(await client.getVariant("checkout_button", { expose: false })).toBe("treatment");
+    expect(s.assignmentCalls).toHaveLength(2);
+    await client.flush();
+    expect(s.batches.flat().filter((e) => e.event_name === "experiment_exposure")).toHaveLength(0);
+    client.trackExposure("checkout_button", "id-checkout_button", "treatment");
+    client.trackExposure("checkout_button", "id-checkout_button", "treatment");
+    await client.flush();
+    expect(s.batches.flat().filter((e) => e.event_name === "experiment_exposure")).toHaveLength(1);
+  });
+
+  it("respects analytics consent for the exposure, and is on the singleton", async () => {
+    const s = experimentServer({ checkout_button: "treatment" });
+    const { client } = make({ fetch: s.fetch, consentDefault: "denied" });
+    expect(await client.getVariant("checkout_button")).toBe("treatment");
+    await client.flush();
+    expect(s.batches.flat().filter((e) => e.event_name === "experiment_exposure")).toHaveLength(0);
+
+    expect(await Analytics.getVariant("checkout_button")).toBeNull(); // not initialized
+    Analytics.initialize({ apiKey: KEY, platform: "react_native", storage: memoryStorage(), fetch: s.fetch });
+    expect(await Analytics.getVariant("checkout_button")).toBe("treatment");
+  });
+});

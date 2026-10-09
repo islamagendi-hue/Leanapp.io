@@ -55,6 +55,16 @@ if (await Analytics.installReferrerPending()) {
 - **Context**: `platform: flutter`, `os`, `os_version`, `locale`, `language`, `screen`, `sdk {name: leanapp-flutter}`, plus your `context`. Device model and IANA timezone need plugins, so pass them in `context`.
 - **Lifecycle**: `app_installed`, `app_updated` (from `appVersion`/`appBuild`), `app_opened` (`from_background`).
 
+## Experiments
+
+This SDK has no `getVariant` yet. Ask `GET /v1/experiments/assignments?user_id=…&anonymous_id=…` with the public key (the JavaScript SDK's `getVariant` does the same), then, when you show the variant, send the exposure once:
+
+```dart
+Analytics.track('experiment_exposure', {'experiment': 'checkout_button', 'experiment_id': experimentId, 'variant': variant});
+```
+
+See [docs/experiments.md](../../docs/experiments.md).
+
 ## Develop
 
 ```bash

@@ -9,8 +9,8 @@
 import { LeanAppClient, type AnalyticsOptions, type ConsentInput, type ConsentState, type FlushResult, type Properties } from "./client.js";
 import type { Attribution } from "./attribution.js";
 
-export { LeanAppClient, CONSENT_PURPOSES, DEFAULT_ENDPOINT, SDK_NAME, SDK_VERSION, storagePrefix } from "./client.js";
-export type { AnalyticsOptions, AppStateLike, ConsentInput, ConsentPurpose, ConsentState, ConsentStatus, FlushResult, Platform, Properties, WireEvent } from "./client.js";
+export { LeanAppClient, CONSENT_PURPOSES, DEFAULT_ENDPOINT, EXPOSURE_EVENT, SDK_NAME, SDK_VERSION, storagePrefix } from "./client.js";
+export type { AnalyticsOptions, AppStateLike, ConsentInput, ExperimentAssignment, ConsentPurpose, ConsentState, ConsentStatus, FlushResult, Platform, Properties, WireEvent } from "./client.js";
 export { ATTRIBUTION_PARAMS, parseAttribution, type Attribution } from "./attribution.js";
 export { asyncStorageAdapter, localStorageAdapter, memoryStorage, type StorageAdapter } from "./storage.js";
 
@@ -48,6 +48,9 @@ export const Analytics = {
   optIn: () => client()?.optIn(),
   setConsent: (consent: ConsentInput) => client()?.setConsent(consent),
   getConsent: (): ConsentState | null => client()?.getConsent() ?? null,
+  /** The variant of a running experiment for the current user, or null (show your default). Sends the exposure event once. */
+  getVariant: (experimentKey: string, options?: { expose?: boolean }): Promise<string | null> => client()?.getVariant(experimentKey, options) ?? Promise.resolve(null),
+  trackExposure: (experimentKey: string, experimentId: string, variant: string) => client()?.trackExposure(experimentKey, experimentId, variant),
   flush: (): Promise<FlushResult> => client()?.flush() ?? Promise.resolve({ status: "empty" as const }),
   /** For tests: drops the singleton. */
   async _reset(): Promise<void> {

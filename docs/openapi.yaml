@@ -27,6 +27,8 @@ tags:
     description: Public tracking-link redirect.
   - name: In-app
     description: In-app messages queued by automations, polled by the app with its public key.
+  - name: Experiments
+    description: Variants of running experiments (A/B tests) for one person, with the public key (docs/experiments.md).
   - name: Messaging
     description: Callbacks for WhatsApp and email unsubscribe links (docs/messaging.md).
   - name: System
@@ -824,6 +826,64 @@ paths:
       security: []
       responses:
         "204": { description: Preflight accepted }
+  /v1/experiments/assignments:
+    get:
+      operationId: getExperimentAssignments
+      tags: [Experiments]
+      summary: Variants of every running experiment for one person
+      description: |
+        Every running experiment of the key's environment, with this person's variant, or null when they
+        are outside its traffic or audience (show your default). The person is the user_id, else the one
+        user the install is linked to, else the install. Assignment is a hash of the experiment's salt and
+        the person: the same person always gets the same variant, and nothing is stored. Calling this is
+        not an exposure; the app sends an `experiment_exposure` track event when it shows the variant.
+        A public key can't prove who the user is, so don't target experiments on sensitive audiences.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: user_id, in: query, required: false, schema: { type: string, maxLength: 200 } }
+        - { name: anonymous_id, in: query, required: false, schema: { type: string, maxLength: 200 } }
+      responses:
+        "200":
+          description: Assignments
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExperimentAssignments" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    post:
+      operationId: postExperimentAssignments
+      tags: [Experiments]
+      summary: Variants of every running experiment for one person (ids in the body)
+      description: The same answer as GET, for ids you'd rather not put in a URL. The JavaScript SDK's getVariant uses this.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: string, maxLength: 200 }
+                anonymous_id: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: Assignments
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExperimentAssignments" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    options:
+      operationId: experimentAssignmentsPreflight
+      tags: [Experiments]
+      summary: CORS preflight
+      security: []
+      responses:
+        "204": { description: Preflight accepted }
   /v1/whatsapp/webhook/{id}:
     parameters:
       - { name: id, in: path, required: true, description: The environment's WhatsApp integration id (shown on Engage → Integrations)., schema: { type: string, format: uuid } }
@@ -1288,6 +1348,19 @@ components:
           type: array
           description: The subject's installs another user is linked to as well; their anonymous activity was kept.
           items: { type: string }
+    ExperimentAssignments:
+      type: object
+      required: [assignments]
+      properties:
+        assignments:
+          type: array
+          items:
+            type: object
+            required: [experiment, experiment_id, variant]
+            properties:
+              experiment: { type: string, description: The experiment's key, as used in the app's code }
+              experiment_id: { type: string, format: uuid, description: Send it as `experiment_id` on the experiment_exposure event }
+              variant: { type: [string, "null"], description: The variant's key; null when the person isn't in the experiment }
     InAppMessage:
       type: object
       required: [id, title, body, button_text, deep_link, data, created_at, expires_at]

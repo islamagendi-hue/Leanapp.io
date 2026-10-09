@@ -43,6 +43,8 @@ A key without the scope an endpoint needs gets `403 forbidden`; a public SDK key
 | GET | `/v1/in-app?user_id=&anonymous_id=` | key | Pending in-app messages for an end user ([SDK](sdk.md#in-app-messages)) |
 | POST | `/v1/in-app/{id}/events` | key | Record `impression`, `click` or `dismiss` for an in-app message |
 | OPTIONS | `/v1/in-app`, `/v1/in-app/{id}/events` | none | CORS preflight |
+| GET, POST | `/v1/experiments/assignments?user_id=&anonymous_id=` (POST: same fields as JSON) | key | The variant of every running experiment for one person: `{ assignments: [{ experiment, experiment_id, variant \| null }] }`. Deterministic per person, nothing stored; exposure is the app's `experiment_exposure` event ([experiments](experiments.md)) |
+| OPTIONS | `/v1/experiments/assignments` | none | CORS preflight |
 | GET | `/v1/privacy/consent?user_id=&anonymous_id=` | secret key, `privacy:read` | Current consent per purpose, consent history and suppressions of an end user |
 | GET | `/v1/privacy/suppressions?channel=&user_id=&limit=&cursor=` | secret key, `privacy:read` | Suppression list, newest first, paged by `next_cursor` |
 | POST | `/v1/privacy/suppressions` | secret key, `privacy:write` | Suppress a user: `{ user_id \| anonymous_id, channel \| channels, reason? }` → `201` |

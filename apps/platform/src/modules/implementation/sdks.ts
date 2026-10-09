@@ -35,17 +35,17 @@ export const SDK_RELEASES: SdkRelease[] = [
   {
     key: "kotlin", label: "Android (Kotlin)", path: "sdks/android", pkg: "io.leanapp:leanapp-android", registry: "Maven Central", published: false,
     verified: msg("29 JVM unit tests and the Android library build in CI"),
-    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("in-app message display"), msg("deferred and resolve deep link calls")],
+    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("in-app message display"), msg("deferred and resolve deep link calls"), msg("getVariant for experiments (call the assignments API)")],
   },
   {
     key: "swift", label: "iOS (Swift)", path: "sdks/ios", pkg: "LeanApp (Swift Package)", registry: "Swift Package Manager (Git tag)", published: false,
     verified: msg("24 XCTest tests and device and simulator builds on macOS in CI"),
-    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("SKAdNetwork / AdAttributionKit conversion values"), msg("in-app message display"), msg("deferred and resolve deep link calls")],
+    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("SKAdNetwork / AdAttributionKit conversion values"), msg("in-app message display"), msg("deferred and resolve deep link calls"), msg("getVariant for experiments (call the assignments API)")],
   },
   {
     key: "flutter", label: "Flutter (Dart)", path: "sdks/flutter", pkg: "leanapp_analytics", registry: "pub.dev", published: false,
     verified: msg("25 tests and flutter analyze in CI"),
-    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("install referrer without a plugin"), msg("in-app message display"), msg("deferred and resolve deep link calls")],
+    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("install referrer without a plugin"), msg("in-app message display"), msg("deferred and resolve deep link calls"), msg("getVariant for experiments (call the assignments API)")],
   },
 ];
 

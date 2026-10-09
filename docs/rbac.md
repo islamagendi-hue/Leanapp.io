@@ -43,7 +43,7 @@ A member can assign roles up to their own rank and can only manage members of a 
 | deep_links.manage (link domains, iOS / Android app association) | ✓ | ✓ | ✓ | | |
 | audiences.read | ✓ | ✓ | | ✓ | ✓ |
 | audiences.manage | ✓ | ✓ | | ✓ | ✓ |
-| automations.read / manage | ✓ | ✓ | | | ✓ |
+| automations.read / manage (also experiments: read to see results, manage to create, start and stop) | ✓ | ✓ | | | ✓ |
 | integrations.read | ✓ | ✓ | ✓ | | ✓ |
 | integrations.manage, webhooks.manage | ✓ | ✓ | ✓ | | |
 | privacy.manage, audit.read | ✓ | ✓ | | | |

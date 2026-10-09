@@ -52,6 +52,16 @@ Analytics.reset() // on logout
 - **Deep links**: utm_* and click ids in the launching activity's Intent data become `context.attribution` (latest touch, with `deep_link_url`).
 - **Install referrer**: read once per install with the Play Install Referrer library and sent on every event as `context.campaign = { install_referrer, referrer_click_timestamp_seconds, install_begin_timestamp_seconds, google_play_instant }`; utm_* / `click_id` in it become the first touch. `app_installed` waits up to 10 s for it.
 
+## Experiments
+
+This SDK has no `getVariant` yet. Ask `GET /v1/experiments/assignments?user_id=…&anonymous_id=…` with the public key (the JavaScript SDK's `getVariant` does the same), then, when you show the variant, send the exposure once:
+
+```kotlin
+Analytics.track("experiment_exposure", mapOf("experiment" to "checkout_button", "experiment_id" to experimentId, "variant" to variant))
+```
+
+See [docs/experiments.md](../../docs/experiments.md).
+
 ## Develop
 
 ```bash

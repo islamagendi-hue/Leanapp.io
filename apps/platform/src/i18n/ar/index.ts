@@ -10,8 +10,9 @@ import common from "./common";
 import dashboards from "./dashboards";
 import devops from "./devops";
 import engage from "./engage";
+import experiments from "./experiments";
 import project from "./project";
 import support from "./support";
 
 // Later files win; common comes last so the shared glossary is never overridden.
-export const AR: Record<string, string> = { ...account, ...acquisition, ...analytics, ...dashboards, ...devops, ...engage, ...project, ...support, ...common };
+export const AR: Record<string, string> = { ...account, ...acquisition, ...analytics, ...dashboards, ...devops, ...engage, ...experiments, ...project, ...support, ...common };
