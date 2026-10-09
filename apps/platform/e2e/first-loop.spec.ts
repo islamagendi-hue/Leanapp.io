@@ -631,7 +631,14 @@ test("acquisition (beta): overview, sources, attribution, and a tracking link wi
   await page.goto(`${appBase}/acquisition?env=development`);
   await expect(page.getByRole("heading", { name: "Acquisition Beta", level: 1 })).toBeVisible();
   await expect(page.getByText("What Acquisition (Beta) measures")).toBeVisible();
-  await expect(page.getByRole("region", { name: "Acquisition numbers" }).getByText("Installs", { exact: true })).toBeVisible();
+  const numbers = page.getByRole("region", { name: "Acquisition numbers" });
+  await expect(numbers.getByText("Installs", { exact: true })).toBeVisible();
+  // Every key number says where it comes from; CAC and ROAS are never shown as plain numbers without a label.
+  for (const label of ["New users", "Sign-ups", "Activated", "Purchases", "Revenue", "Spend", "CAC", "ROAS"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
+  await expect(numbers.locator('[data-provenance="observed"]').first()).toBeVisible();
+  await expect(numbers.locator("[data-provenance]")).toHaveCount(9);
+  await expect(page.getByRole("region", { name: "Data coverage" }).getByRole("heading", { name: "Data coverage" })).toBeVisible();
+  await expect(page.getByText("What observed, imported, modeled and unavailable mean")).toBeVisible();
   const tabs = page.getByRole("navigation", { name: "Acquisition" });
   await tabs.getByRole("link", { name: "Sources & campaigns" }).click();
   await expect(page.getByRole("heading", { name: "Sources & campaigns Beta", level: 1 })).toBeVisible();
