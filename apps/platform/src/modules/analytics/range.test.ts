@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inputFromParams, paramsFromConfig, rangeFromParams } from "./report-params";
-import { addDays, bucketKeys, bucketSql, change, defaultInterval, comparisonRange, previousRange, rangeDays, resolveRange, startOfDay } from "./range";
+import { addDays, bucketKeys, bucketSql, change, defaultInterval, comparisonRange, previousRange, rangeDays, resolveRange, shortDay, startOfDay } from "./range";
 import { measurable } from "./retention-rule";
 
 const now = new Date("2026-10-08T12:00:00Z");
@@ -112,5 +112,13 @@ describe("retention rule", () => {
   it("measures day N only once it is over", () => {
     expect(measurable("2026-10-01", 7, "2026-10-08")).toBe(false); // day 7 is today
     expect(measurable("2026-10-01", 6, "2026-10-08")).toBe(true);
+  });
+});
+
+describe("short days", () => {
+  it("reads as day and month in the reader's language, with Latin digits in Arabic", () => {
+    expect(shortDay("2026-10-02", "en")).toBe("2 Oct");
+    expect(shortDay("2026-10-02", "ar")).toBe("2 أكتوبر");
+    expect(shortDay("week 3")).toBe("week 3");
   });
 });

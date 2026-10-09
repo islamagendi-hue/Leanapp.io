@@ -59,7 +59,7 @@ export default async function SuppressionsPage(props: PageProps<"/o/[org]/apps/[
       <div className="grid gap-4 md:grid-cols-3">
         {CHANNELS.map((c) => (
           <Link key={c} href={filterHref(channel === c ? undefined : c)} className={`card block ${channel === c ? "ring-2 ring-ink" : ""}`}>
-            <p className="font-mono text-[11px] uppercase tracking-wide text-ink-3">{t(CHANNEL_LABEL[c])}</p>
+            <p className="eyebrow">{t(CHANNEL_LABEL[c])}</p>
             <p className="mt-1 text-lg font-bold tabular-nums">{counts[c].toLocaleString("en-US")}</p>
             <p className="text-xs text-ink-3">{t(CHANNEL_INFO[c])}</p>
           </Link>

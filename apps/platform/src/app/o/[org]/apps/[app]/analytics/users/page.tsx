@@ -63,47 +63,47 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
 
       {audience.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the list isn't limited to it.")}</p>}
 
-      <section className="card overflow-x-auto p-0">
-        <h2 className="h2 px-5 pt-4">{q || filtering ? t("Users") : t("Recently seen users")}</h2>
+      <section className="card-table">
+        <div className="card-header"><h2 className="card-title">{q || filtering ? t("Users") : t("Recently seen users")}</h2></div>
         {res.users.length === 0 ? (
           <p className="px-5 py-4 text-sm text-ink-3">
             {filtering ? t("No user matches these filters.") : q ? t("No user ID starts with that.") : t("No identified users in this environment yet. Users appear once your app calls identify().")}
           </p>
         ) : (
-          <table className="table">
+          <div className="table-scroll"><table className="table">
             <thead>
               <tr>
                 <th className="text-start">{t("User ID")}</th>
                 {cols.map((c) => <th key={c} className="text-start font-mono text-xs">{c}</th>)}
-                <th className="text-start">{t("First seen")}</th><th className="text-start">{t("Last seen")}</th>
+                <th className="hidden text-start sm:table-cell">{t("First seen")}</th><th className="text-start">{t("Last seen")}</th>
               </tr>
             </thead>
             <tbody>
               {res.users.map((u) => (
                 <tr key={u.userId}>
-                  <td className="font-mono text-sm"><Link className="underline" href={profile("user", u.userId)}>{u.userId}</Link></td>
+                  <td className="whitespace-nowrap font-mono text-sm"><Link className="underline" href={profile("user", u.userId)}>{u.userId}</Link></td>
                   {cols.map((c) => <td key={c} className="max-w-48 truncate text-sm">{show(u.properties[c])}</td>)}
-                  <td className="whitespace-nowrap">{when(u.firstSeen)}</td>
+                  <td className="hidden whitespace-nowrap sm:table-cell">{when(u.firstSeen)}</td>
                   <td className="whitespace-nowrap">{when(u.lastSeen)}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
       </section>
 
       {q && !filtering && (
-        <section className="card overflow-x-auto p-0">
-          <h2 className="h2 px-5 pt-4">{t("Installs")}</h2>
+        <section className="card-table">
+          <div className="card-header"><h2 className="card-title">{t("Installs")}</h2></div>
           {res.installs.length === 0 ? (
             <p className="px-5 py-4 text-sm text-ink-3">{t("No anonymous ID starts with that.")}</p>
           ) : (
-            <table className="table">
+            <div className="table-scroll"><table className="table">
               <thead><tr><th className="text-start">{t("Anonymous ID")}</th><th className="text-start">{t("Platform")}</th><th className="text-start">{t("Linked users")}</th><th className="text-start">{t("Last seen")}</th></tr></thead>
               <tbody>
                 {res.installs.map((i) => (
                   <tr key={i.anonymousId}>
-                    <td className="font-mono text-sm">
+                    <td className="whitespace-nowrap font-mono text-sm">
                       <Link className="underline" href={i.linkedUsers.length === 1 ? profile("user", i.linkedUsers[0]) : profile("anon", i.anonymousId)}>{i.anonymousId}</Link>
                     </td>
                     <td>{i.platform ?? "–"}</td>
@@ -116,7 +116,7 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
                   </tr>
                 ))}
               </tbody>
-            </table>
+            </table></div>
           )}
         </section>
       )}

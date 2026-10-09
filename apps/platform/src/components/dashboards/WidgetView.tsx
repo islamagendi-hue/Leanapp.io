@@ -47,7 +47,7 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
     case "trend":
       return (
         <div className="space-y-2">
-          <p className="text-2xl font-bold tabular-nums"><CountUp value={num(d.trend.total.count)} /> <span className="text-sm font-normal text-ink-3">{t("events · {people} people", { people: num(d.trend.total.people) })}</span></p>
+          <p className="stat-value"><CountUp value={num(d.trend.total.count)} /> <span className="text-sm font-normal text-ink-3">{t("events · {people} people", { people: num(d.trend.total.people) })}</span></p>
           <Delta value={d.trend.total.count} previous={d.trend.previous?.count} range={d.trend.range} />
           <TrendChart days={d.trend.days} series={d.trend.series} label={t("{event} per {interval}", { event: d.trend.event, interval: t(INTERVALS[d.trend.interval] ?? d.trend.interval) })} />
         </div>
@@ -55,7 +55,7 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
     case "kpi":
       return (
         <div>
-          <p className="text-3xl font-bold tabular-nums"><CountUp value={num(d.kpi.value)} /></p>
+          <p className="stat-value"><CountUp value={num(d.kpi.value)} /></p>
           <Delta value={d.kpi.value} previous={d.kpi.previous} range={d.kpi.range} />
         </div>
       );
@@ -88,7 +88,7 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
         <ul className="space-y-1">
           {d.revenue.currencies.map((c) => (
             <li key={c.currency} className="flex items-baseline justify-between gap-2">
-              <span className="text-2xl font-bold tabular-nums"><CountUp value={money(c.net)} /> <span className="text-sm font-normal">{c.currency}</span></span>
+              <span className="stat-value"><CountUp value={money(c.net)} /> <span className="text-sm font-normal">{c.currency}</span></span>
               <span className="text-xs text-ink-3">{t("{n} paying · ARPU {arpu}", { n: num(c.payingUsers), arpu: money(c.arpu) })}</span>
             </li>
           ))}
@@ -96,8 +96,8 @@ export async function WidgetView({ result }: { result: WidgetResult }) {
       );
     case "growth":
       if (!d.enabled) return <p className="text-sm text-ink-3">{t("Activation isn't turned on for this project.")}</p>;
-      return <p className="text-3xl font-bold tabular-nums"><CountUp value={d.value === null ? "–" : d.rate ? pct(d.value) : num(d.value)} /></p>;
+      return <p className="stat-value"><CountUp value={d.value === null ? "–" : d.rate ? pct(d.value) : num(d.value)} /></p>;
     case "audience_size":
-      return <p className="text-3xl font-bold tabular-nums"><CountUp value={num(d.size)} /> <span className="text-sm font-normal text-ink-3">{t("people now")}</span></p>;
+      return <p className="stat-value"><CountUp value={num(d.size)} /> <span className="text-sm font-normal text-ink-3">{t("people now")}</span></p>;
   }
 }

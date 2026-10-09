@@ -105,6 +105,13 @@ export function datesBetween(from: string, to: string): string[] {
 
 const fmtDay = (d: string, lang: Lang = "en") => new Date(`${d}T00:00:00Z`).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
+/** "2 Oct" (or "2 أكتوبر") for a chart axis or a table row; anything that isn't a YYYY-MM-DD day as it is. */
+export function shortDay(d: string, lang: Lang = "en"): string {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const date = new Date(`${d}T00:00:00Z`);
+  return Number.isNaN(date.getTime()) ? d : date.toLocaleDateString(dateLocale(lang), { day: "numeric", month: "short", timeZone: "UTC" });
+}
+
 /** "1 Sept 2026 – 10 Sept 2026" (one day alone when both are the same), in the reader's language. */
 export function spanLabel(from: string, to: string, lang: Lang = "en"): string {
   return from === to ? fmtDay(from, lang) : `${fmtDay(from, lang)} – ${fmtDay(to, lang)}`;

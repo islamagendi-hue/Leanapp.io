@@ -33,6 +33,7 @@ const ar: Record<string, string> = {
 
   // Side menu
   Menu: "القائمة",
+  "Close menu": "أغلق القائمة",
   Beta: "تجريبي",
   Soon: "قريبًا",
   "Not available yet": "غير متاح بعد",

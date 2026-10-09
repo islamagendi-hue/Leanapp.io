@@ -1,11 +1,11 @@
 import Link from "next/link";
 import { AutoApply } from "@/components/AutoApply";
-import { CountUp } from "@/components/CountUp";
 import { envName, rich } from "@/components/AnalyticsHeader";
 import { WidgetView } from "@/components/dashboards/WidgetView";
 import { EventName } from "@/components/EventName";
 import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { ReportFreshness } from "@/components/ReportFreshness";
+import { Stat } from "@/components/Stat";
 import { TrendChart } from "@/components/TrendChart";
 import { getLang, getT } from "@/i18n/server";
 import { msg } from "@/i18n/translate";
@@ -75,14 +75,14 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
   const span = metrics && (metrics.range.preset ? t("last {n} days", { n: metrics.range.preset }) : spanLabel(metrics.range.from, metrics.range.to, lang));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5 sm:space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="h1">{t("Overview")}</h1>
           <p className="mt-1 text-ink-2">{a.name}{a.description ? `: ${a.description}` : ""}</p>
         </div>
         {metrics && (
-          <form method="get" className="flex flex-wrap items-end gap-3" aria-label={t("Range")}>
+          <form method="get" className="filters filters-bare max-sm:w-full" aria-label={t("Range")}>
             <input type="hidden" name="env" value={env.type} />
             <AutoApply />
             <ReportRangeFields range={metrics.range} />
@@ -117,90 +117,107 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
               ? rich(t("Showing {env}, {range}, compared with {previous}."), { env: envText, range: span, previous: spanLabel(metrics.range.previous.from, metrics.range.previous.to, lang) })
               : rich(t("Showing {env}, {range}."), { env: envText, range: span })}
           </p>
-          <section className="grid gap-3 sm:grid-cols-3" aria-label={t("Key numbers")}>
+          <section className="stat-grid sm:grid-cols-3" aria-label={t("Key numbers")}>
             <Tile label={t("Active users")} k={metrics.active} />
             <Tile label={t("New users")} k={metrics.fresh} />
             <Tile label={t("Events")} k={metrics.events} />
           </section>
 
-          <section className="card space-y-2">
-            <h2 className="h2">{t("Active users per day")}</h2>
+          <section className="card">
+            <div className="card-header"><h2 className="card-title">{t("Active users per day")}</h2></div>
             <TrendChart days={metrics.trend.days} series={[{ key: t("Active users"), counts: metrics.trend.series[0]?.people ?? metrics.trend.days.map(() => 0) }]} label={t("Active users per day")} />
           </section>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="card space-y-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="h2">{t("Activation")}</h2>
-                {can(ctx.role, "growth.read") && <Link className="text-sm underline" href={`${base}/growth?env=${env.type}`}>{t("Open")}</Link>}
-              </div>
-              {metrics.activation === undefined ? <p className="text-sm text-ink-3">{t("You don't have access to Activation.")}</p>
-                : metrics.activation === null ? <p className="text-sm text-ink-3">{t("Activation isn't turned on. Define what an activated user does to see the rate here.")}</p>
-                : (
-                  <div className="grid grid-cols-2 gap-3">
-                    <div><p className="text-3xl font-bold tabular-nums"><CountUp value={pct(metrics.activation.rate)} /></p><p className="text-xs text-ink-3">{t("activation rate (all time)")}</p></div>
-                    <div><p className="text-3xl font-bold tabular-nums"><CountUp value={num(metrics.activation.activated)} /></p><p className="text-xs text-ink-3">{t("activated people")}</p></div>
-                  </div>
+          {(() => {
+            const activation = (
+              <section className="card" key="activation">
+                <div className="card-header">
+                  <h2 className="card-title">{t("Activation")}</h2>
+                  {can(ctx.role, "growth.read") && <OpenLink href={`${base}/growth?env=${env.type}`} text={t("Open")} />}
+                </div>
+                {metrics.activation === undefined ? <p className="text-sm text-ink-3">{t("You don't have access to Activation.")}</p>
+                  : metrics.activation === null ? <p className="text-sm text-ink-3">{t("Activation isn't turned on. Define what an activated user does to see the rate here.")}</p>
+                  : (
+                    <div className="grid grid-cols-2 gap-3">
+                      <Stat bare value={pct(metrics.activation.rate)} note={t("activation rate (all time)")} />
+                      <Stat bare value={num(metrics.activation.activated)} note={t("activated people")} />
+                    </div>
+                  )}
+              </section>
+            );
+            const keyFunnel = (
+              <section className="card" key="funnel">
+                <div className="card-header">
+                  <h2 className="card-title">{t("Key funnel")}</h2>
+                  {metrics.funnelSteps && <OpenLink href={withRange(`${base}/analytics/funnels`, metrics.funnelSteps.map((s) => ["step", s]))} text={t("Open")} />}
+                </div>
+                {metrics.funnel ? <WidgetView result={{ ok: true, data: { type: "funnel", funnel: metrics.funnel } }} /> : (
+                  <p className="text-sm text-ink-3">
+                    {t("The key funnel follows your Activation steps.")} {can(ctx.role, "growth.read") ? rich(t("Define them in {activation}, or build any funnel in {funnels}."), {
+                      activation: <Link className="underline" href={`${base}/growth?env=${env.type}`}>{t("Activation")}</Link>,
+                      funnels: <Link className="underline" href={`${base}/analytics/funnels?env=${env.type}`}>{t("Funnels")}</Link>,
+                    }) : null}
+                  </p>
                 )}
-            </section>
-
-            <section className="card space-y-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="h2">{t("Retention")}</h2>
-                <Link className="text-sm underline" href={`${base}/analytics/retention?${new URLSearchParams({ env: env.type, days: "30" })}`}>{t("Open")}</Link>
-              </div>
-              <div className="grid grid-cols-3 gap-3 text-center">
-                {(["D1", "D7", "D30"] as const).map((label, i) => (
-                  <div key={label}><p className="text-xs text-ink-3">{label}</p><p className="text-2xl font-bold tabular-nums"><CountUp value={pct(metrics.retention.overall[[0, 2, 4][i]])} /></p></div>
-                ))}
-              </div>
-              <p className="text-xs text-ink-3">{t("People active on a day in the last 30 days who came back exactly 1, 7 or 30 days later. Days that aren't over yet aren't counted.")}</p>
-            </section>
-
-            <section className="card space-y-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="h2">{t("Key funnel")}</h2>
-                {metrics.funnelSteps && <Link className="text-sm underline" href={withRange(`${base}/analytics/funnels`, metrics.funnelSteps.map((s) => ["step", s]))}>{t("Open")}</Link>}
-              </div>
-              {metrics.funnel ? <WidgetView result={{ ok: true, data: { type: "funnel", funnel: metrics.funnel } }} /> : (
-                <p className="text-sm text-ink-3">
-                  {t("The key funnel follows your Activation steps.")} {can(ctx.role, "growth.read") ? rich(t("Define them in {activation}, or build any funnel in {funnels}."), {
-                    activation: <Link className="underline" href={`${base}/growth?env=${env.type}`}>{t("Activation")}</Link>,
-                    funnels: <Link className="underline" href={`${base}/analytics/funnels?env=${env.type}`}>{t("Funnels")}</Link>,
-                  }) : null}
-                </p>
-              )}
-            </section>
-
-            <section className="card space-y-2">
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="h2">{t("Top events")}</h2>
-                <Link className="text-sm underline" href={withRange(`${base}/analytics/events`)}>{t("Open")}</Link>
-              </div>
-              <table className="table">
-                <thead><tr><th className="text-start">{t("Event")}</th><th className="text-end">{t("Count")}</th><th className="text-end">{t("People")}</th></tr></thead>
-                <tbody>
-                  {metrics.top.slice(0, 6).map((e) => (
-                    <tr key={e.name}><td className="text-sm"><Link className="hover:underline" href={withRange(`${base}/analytics/events`, [["event", e.name]])}><EventName name={e.name} labels={label} /></Link></td><td className="text-end tabular-nums">{num(e.count)}</td><td className="text-end tabular-nums">{num(e.people)}</td></tr>
+              </section>
+            );
+            const retentionCard = (
+              <section className="card" key="retention">
+                <div className="card-header">
+                  <h2 className="card-title">{t("Retention")}</h2>
+                  <OpenLink href={`${base}/analytics/retention?${new URLSearchParams({ env: env.type, days: "30" })}`} text={t("Open")} />
+                </div>
+                <div className="grid grid-cols-3 gap-3">
+                  {(["D1", "D7", "D30"] as const).map((l, i) => (
+                    <Stat key={l} bare small label={l} value={pct(metrics.retention.overall[[0, 2, 4][i]])} />
                   ))}
-                </tbody>
-              </table>
-            </section>
-          </div>
+                </div>
+                <p className="mt-3 text-xs text-ink-3">{t("People active on a day in the last 30 days who came back exactly 1, 7 or 30 days later. Days that aren't over yet aren't counted.")}</p>
+              </section>
+            );
+            const topEventsCard = (
+              <section className="card" key="top">
+                <div className="card-header">
+                  <h2 className="card-title">{t("Top events")}</h2>
+                  <OpenLink href={withRange(`${base}/analytics/events`)} text={t("Open")} />
+                </div>
+                <table className="table">
+                  <thead><tr><th className="text-start">{t("Event")}</th><th className="num">{t("Count")}</th><th className="num">{t("People")}</th></tr></thead>
+                  <tbody>
+                    {metrics.top.slice(0, 6).map((e) => (
+                      <tr key={e.name}><td className="text-sm"><Link className="hover:underline" href={withRange(`${base}/analytics/events`, [["event", e.name]])}><EventName name={e.name} labels={label} /></Link></td><td className="num">{num(e.count)}</td><td className="num">{num(e.people)}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+              </section>
+            );
+            // Modules that aren't set up yet say so in short cards side by side, instead of
+            // stretching next to a full report; the reports with data follow, top aligned.
+            const idle = !metrics.funnel && metrics.activation === null;
+            return idle ? (
+              <>
+                <div className="grid items-start gap-4 lg:grid-cols-2">{activation}{keyFunnel}</div>
+                <div className="grid items-start gap-4 lg:grid-cols-2">{retentionCard}{topEventsCard}</div>
+              </>
+            ) : (
+              <div className="grid items-start gap-4 lg:grid-cols-2">
+                <div className="grid gap-4">{activation}{retentionCard}</div>
+                <div className="grid gap-4">{topEventsCard}{keyFunnel}</div>
+              </div>
+            );
+          })()}
 
           {metrics.revenue && metrics.revenue.currencies.length > 0 && (
-            <section className="card space-y-3">
-              <div className="flex items-baseline justify-between gap-2">
-                <h2 className="h2">{t("Revenue")}</h2>
-                <Link className="text-sm underline" href={withRange(`${base}/analytics/revenue`)}>{t("Open")}</Link>
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t("Revenue")}</h2>
+                <OpenLink href={withRange(`${base}/analytics/revenue`)} text={t("Open")} />
               </div>
-              <div className="grid gap-3 sm:grid-cols-3">
+              <div className="stat-grid sm:grid-cols-3">
                 {metrics.revenue.currencies.slice(0, 3).map((c) => (
-                  <div key={c.currency}>
-                    <p className="text-2xl font-bold tabular-nums"><CountUp value={c.net.toLocaleString("en-US", { maximumFractionDigits: 2 })} /> <span className="text-sm font-normal">{c.currency}</span></p>
-                    <Delta value={c.net} previous={metrics.revenue!.previous?.find((p) => p.currency === c.currency)?.net ?? 0} range={metrics.revenue!.range} />
-                    <p className="text-xs text-ink-3">{t("{paying} paying · ARPU {arpu}", { paying: num(c.payingUsers), arpu: c.arpu.toLocaleString("en-US", { maximumFractionDigits: 2 }) })}</p>
-                  </div>
+                  <Stat key={c.currency} bare label={t("Net revenue")} value={c.net.toLocaleString("en-US", { maximumFractionDigits: 2 })} unit={c.currency}
+                    delta={<Delta value={c.net} previous={metrics.revenue!.previous?.find((p) => p.currency === c.currency)?.net ?? 0} range={metrics.revenue!.range} />}
+                    note={t("{paying} paying · ARPU {arpu}", { paying: num(c.payingUsers), arpu: c.arpu.toLocaleString("en-US", { maximumFractionDigits: 2 }) })} />
                 ))}
               </div>
             </section>
@@ -210,27 +227,25 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
       ))}
 
       {visible.length > 0 && (
-        <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <nav aria-label={t("More reports")} className="flex flex-wrap gap-x-5 gap-y-1 border-t border-line pt-4">
           {visible.map((s) => (
-            <Link key={s.href} href={s.href} className="card block hover:border-line-strong">
-              <p className="font-medium">{t(s.label)}</p>
-              <p className="mt-1 text-sm text-ink-3">{t(s.text)}</p>
+            <Link key={s.href} href={s.href} title={t(s.text)} className="link-action text-ink-2">
+              {t(s.label)} <span aria-hidden className="inline-block rtl:-scale-x-100">→</span>
             </Link>
           ))}
-        </section>
+        </nav>
       )}
     </div>
   );
 }
 
+/** "Open →" at the end of a card's title row. */
+function OpenLink({ href, text }: { href: string; text: string }) {
+  return <Link className="link-action" href={href}>{text} <span aria-hidden className="inline-block rtl:-scale-x-100">→</span></Link>;
+}
+
 function Tile({ label, k }: { label: string; k: Kpi }) {
-  return (
-    <div className="card">
-      <p className="label">{label}</p>
-      <p className="text-3xl font-bold tabular-nums"><CountUp value={num(k.value)} /></p>
-      <Delta value={k.value} previous={k.previous} range={k.range} />
-    </div>
-  );
+  return <Stat label={label} value={num(k.value)} delta={<Delta value={k.value} previous={k.previous} range={k.range} />} />;
 }
 
 type Ctx = Awaited<ReturnType<typeof loadApp>>["ctx"];

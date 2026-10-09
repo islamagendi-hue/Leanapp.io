@@ -2,10 +2,10 @@ import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
 import { getLang, getT } from "@/i18n/server";
 import { AutoApply } from "@/components/AutoApply";
 import { CohortSelect } from "@/components/CohortSelect";
-import { RateDelta, ReportRangeFields } from "@/components/ReportRange";
+import { CompareFields, MoreFilters, RateDelta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { eventLabels } from "@/modules/analytics/labels";
-import { rangePhrase, resolveRange, spanLabel } from "@/modules/analytics/range";
+import { rangePhrase, resolveRange, shortDay, spanLabel } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { ANY_EVENT, RETENTION_DAYS, retention, topEvents } from "@/modules/analytics/service";
 import { ReportFreshness } from "@/components/ReportFreshness";
@@ -19,10 +19,11 @@ export async function generateMetadata() {
 
 const pct = (x: number) => `${Math.round(x * 100)}%`;
 
-/** Green with opacity by rate, so the table reads as a heat map. */
+/** The accent color, stronger with the rate, so the table reads as a heat map (in either theme). */
 function cell(rate: number | null) {
   if (rate === null) return { className: "text-ink-3", style: undefined };
-  return { className: rate >= 0.5 ? "text-paper" : "text-ink", style: { background: `rgba(15, 107, 79, ${0.08 + rate * 0.82})` } };
+  // Paper-colored text only where the cell is strong enough for it in both themes (about 4:1).
+  return { className: rate >= 0.7 ? "text-paper" : "text-ink", style: { background: `color-mix(in oklab, var(--color-accent) ${Math.round(10 + rate * 85)}%, transparent)` } };
 }
 
 export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app]/analytics/retention">) {
@@ -49,49 +50,52 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
   return (
     <div className="space-y-6">
       <AnalyticsHeader title={t("Retention")} description={t("Of the people who did a start event on a given day, how many came back and did the return event N days later.")} env={env.type} />
-      <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/retention`} sp={sp} />
-
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the report shows everyone.")}</p>}
       {!r ? (
-        <div className="card"><p>{t("No events in this environment in {range}.", { range: rangePhrase(resolveRange(range, a.timezone), t, lang) })}</p></div>
+        <div className="card"><p>{t("No events in this environment in {range}.", { range: rangePhrase(resolveRange(range, a.timezone), t, lang) })}</p><ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/retention`} sp={sp} className="mt-3" /></div>
       ) : (
         <>
-          <form method="get" className="card flex flex-wrap items-end gap-3">
+          <form method="get" className="filters">
             <input type="hidden" name="env" value={env.type} />
             <AutoApply />
-            <label className="min-w-48 flex-1"><span className="label">{t("Start event")}</span>
+            <label className="wide"><span className="label">{t("Start event")}</span>
               <select name="start" className="input" defaultValue={startEvent}>{names.map((n) => <option key={n} value={n}>{label(n)}</option>)}</select>
             </label>
-            <label className="min-w-48 flex-1"><span className="label">{t("Return event")}</span>
+            <label className="wide"><span className="label">{t("Return event")}</span>
               <select name="return" className="input" defaultValue={returnEvent}><option value={ANY_EVENT}>{t("Any event")}</option>{names.map((n) => <option key={n} value={n}>{label(n)}</option>)}</select>
             </label>
-            <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
-            <ReportRangeFields label={t("Cohorts from")} range={r.range} />
+            <ReportRangeFields label={t("Cohorts from")} range={r.range} compare={false} />
+            <MoreFilters open={Boolean(param(sp.compare) || cf.cohortId)}>
+              <CompareFields range={r.range} />
+              <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
+            </MoreFilters>
             <button className="btn" type="submit" data-apply>{t("Show")}</button>
+            <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/retention`} sp={sp} className="filters-end" />
           </form>
 
-          <section className="card overflow-x-auto p-0">
+          <section className="card-table">
+            <div className="table-scroll">
             <table className="table">
               <thead>
-                <tr><th>{t("Start day")}</th><th className="text-end">{t("People")}</th>{RETENTION_DAYS.map((d) => <th key={d} className="text-center">{t("Day {n}", { n: d })}</th>)}</tr>
+                <tr><th className="whitespace-nowrap">{t("Start day")}</th><th className="num">{t("People")}</th>{RETENTION_DAYS.map((d) => <th key={d} className="whitespace-nowrap text-center">{t("Day {n}", { n: d })}</th>)}</tr>
               </thead>
               <tbody>
                 <tr className="font-medium">
-                  <td>{t("All cohorts")}</td>
+                  <td className="whitespace-nowrap">{t("All cohorts")}</td>
                   <td className="text-end tabular-nums">{r.people.toLocaleString("en-US")}</td>
                   {r.overall.map((rate, i) => {
                     const c = cell(rate);
                     return (
                       <td key={i} className={`text-center tabular-nums ${c.className}`} style={c.style}>
                         {rate === null ? "–" : pct(rate)}
-                        {r.previous && <span className="block rounded bg-card px-1"><RateDelta value={rate} previous={r.previous[i]} range={r.range} /></span>}
+                        {r.previous && <span className="mt-1 block"><RateDelta value={rate} previous={r.previous[i]} range={r.range} /></span>}
                       </td>
                     );
                   })}
                 </tr>
                 {r.cohorts.map((co) => (
                   <tr key={co.day}>
-                    <td className="whitespace-nowrap">{co.day}</td>
+                    <td className="whitespace-nowrap">{shortDay(co.day, lang)}</td>
                     <td className="text-end tabular-nums">{co.size.toLocaleString("en-US")}</td>
                     {co.returned.map((n, i) => {
                       const rate = n === null ? null : n / co.size;
@@ -102,6 +106,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
                 ))}
               </tbody>
             </table>
+            </div>
           </section>
           <p className="text-xs text-ink-3">{t("People are grouped by the day of their first start event in the range ({timezone}). Day N counts people who did the return event on that calendar day; Activation uses the same rule for its D1, D7 and D30. Empty cells are days that aren't over yet.", { timezone: a.timezone })}{r.range.previous && <> {t("Changes are against cohorts from {period}.", { period: spanLabel(r.range.previous.from, r.range.previous.to, lang) })}</>}{cf.cohortName && <> {t("Only people in the audience {audience}.", { audience: cf.cohortName })}</>}</p>
           {cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="retention" query={{ ...sp, start: startEvent, return: returnEvent }} />}

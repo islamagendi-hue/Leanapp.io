@@ -4,7 +4,7 @@ import { AnalyticsHeader, param, rich } from "@/components/AnalyticsHeader";
 import { getLang, getT } from "@/i18n/server";
 import { msg, type T } from "@/i18n/translate";
 import { CohortSelect } from "@/components/CohortSelect";
-import { Delta, ReportRangeFields } from "@/components/ReportRange";
+import { CompareFields, Delta, MoreFilters, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { CountUp } from "@/components/CountUp";
 import { TrendChart } from "@/components/TrendChart";
@@ -65,9 +65,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
         title={t("Revenue")}
         description={t("Revenue from your revenue events, per currency, with refunds subtracted. Days are in the app's timezone.")} env={env.type}
       />
-      <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/revenue`} sp={sp} />
-
-      <form method="get" className="card flex flex-wrap items-end gap-3">
+      <form method="get" className="filters">
         <input type="hidden" name="env" value={env.type} />
         <AutoApply />
         <label><span className="label">{t("Break down by")}</span>
@@ -80,9 +78,13 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
             </optgroup>
           </select>
         </label>
-        <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
-        <ReportRangeFields range={r.range} interval={r.interval} />
+        <ReportRangeFields range={r.range} interval={r.interval} compare={false} />
+        <MoreFilters open={Boolean(param(sp.compare) || cf.cohortId)}>
+          <CompareFields range={r.range} />
+          <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
+        </MoreFilters>
         <button className="btn" type="submit" data-apply>{t("Show")}</button>
+        <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/revenue`} sp={sp} className="filters-end" />
       </form>
 
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the report shows everyone.")}</p>}
@@ -199,8 +201,8 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
 function Stat({ label, value, hint, strong, delta }: { label: string; value: string; hint?: string; strong?: boolean; delta?: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs text-ink-3">{label}</dt>
-      <dd className={`tabular-nums ${strong ? "text-xl font-bold" : "text-lg"}`}><CountUp value={value} /></dd>
+      <dt className="stat-label">{label}</dt>
+      <dd className={`tabular-nums ${strong ? "text-xl font-bold sm:text-2xl" : "text-lg font-medium"}`}><CountUp value={value} /></dd>
       {delta && <dd>{delta}</dd>}
       {hint && <dd className="text-xs text-ink-3">{hint}</dd>}
     </div>

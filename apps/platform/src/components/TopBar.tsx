@@ -7,6 +7,8 @@ import { useT } from "@/i18n/client";
 import { msg } from "@/i18n/translate";
 import { LanguageSwitch } from "@/components/LanguageSwitch";
 import { ThemeSwitch } from "@/components/ThemeSwitch";
+import { DRAWER_ID } from "@/components/AppNav";
+import { QUICK_SEARCH_EVENT } from "@/components/QuickSearch";
 import type { Theme } from "@/lib/theme";
 import { DEFAULT_ENVIRONMENT, ENV_COOKIE, ENVIRONMENT_ORDER, isEnvironmentName, type EnvironmentName } from "@/lib/environment";
 
@@ -27,22 +29,54 @@ function Menu({ label, title, children, summary, align = "start" }: { label: str
   };
   return (
     <details className="relative">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 hover:bg-paper-2" title={title} aria-label={summary ? label : undefined}>
-        {summary ?? <span className="max-w-[12rem] truncate">{label}</span>}
-        <span aria-hidden className="text-xs text-ink-3">▾</span>
+      <summary className="flex min-h-10 cursor-pointer list-none items-center gap-1.5 rounded-md px-2 hover:bg-paper-2 lg:min-h-8" title={title} aria-label={summary ? label : undefined}>
+        {summary ?? <span className="max-w-[6.5rem] truncate sm:max-w-[12rem]">{label}</span>}
+        <span aria-hidden className="text-xs text-ink-3 max-sm:hidden">▾</span>
       </summary>
       <div onClick={close} className={`absolute ${align === "end" ? "end-0" : "start-0"} z-30 mt-1 min-w-56 rounded-lg border border-line bg-card p-1 text-sm shadow-lg`}>{children}</div>
     </details>
   );
 }
 
-const itemClass = (current: boolean) => `block rounded-md px-3 py-1.5 ${current ? "bg-paper-2 font-medium" : "hover:bg-paper-2"}`;
+const itemClass = (current: boolean) => `flex min-h-11 items-center rounded-md px-3 lg:min-h-0 lg:py-1.5 ${current ? "bg-paper-2 font-medium" : "hover:bg-paper-2"}`;
 
+const iconButton = "grid size-10 shrink-0 place-items-center rounded-lg text-ink-2 hover:bg-paper-2 hover:text-ink";
+
+/**
+ * Phones only: search and the menu as two icon buttons in the top bar, in place of the
+ * search box and the menu above the page. Each shows only where the page has what it
+ * opens (globals.css: the quick search dialog, the menu drawer).
+ */
+export function NavButtons() {
+  const t = useT();
+  return (
+    <div className="flex items-center lg:hidden">
+      <button type="button" className={`quick-search-btn ${iconButton}`} aria-label={t("Search")} onClick={() => window.dispatchEvent(new Event(QUICK_SEARCH_EVENT))}>
+        <svg aria-hidden viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="8.5" cy="8.5" r="5.5" /><path d="m13 13 4.5 4.5" /></svg>
+      </button>
+      <button type="button" className={`nav-drawer-btn ${iconButton}`} aria-label={t("Menu")} popoverTarget={DRAWER_ID}>
+        <svg aria-hidden viewBox="0 0 20 20" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><path d="M3 5.5h14M3 10h14M3 14.5h14" /></svg>
+      </button>
+    </div>
+  );
+}
+
+/** With the "/" after it. Inside a project on a phone it gives its room to the project's name. */
 export function WorkspaceSwitcher({ current, workspaces }: { current: Option; workspaces: Option[] }) {
+  const inProject = Boolean(projectInPath(usePathname()));
+  return (
+    <div className={`flex min-w-0 items-center gap-0.5 sm:gap-1 ${inProject ? "max-sm:hidden" : ""}`}>
+      <WorkspaceMenu current={current} workspaces={workspaces} />
+      <span aria-hidden className="text-ink-3">/</span>
+    </div>
+  );
+}
+
+function WorkspaceMenu({ current, workspaces }: { current: Option; workspaces: Option[] }) {
   const t = useT();
   return (
     <Menu label={current.name} title={t("Switch workspace")}>
-      <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">{t("Workspaces")}</p>
+      <p className="px-3 pb-1 pt-2 eyebrow">{t("Workspaces")}</p>
       {workspaces.map((w) => (
         <Link key={w.slug} href={`/o/${w.slug}`} className={itemClass(w.slug === current.slug)}>{w.name}</Link>
       ))}
@@ -61,7 +95,7 @@ export function ProjectSwitcher({ org, projects, archived = [], canCreate }: { o
   const openArchived = current ? undefined : archived.find((p) => p.slug === slug);
   return (
     <Menu label={current?.name ?? (openArchived ? t("{name} (archived)", { name: openArchived.name }) : t("All projects"))} title={t("Switch project")}>
-      <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">{t("Projects")}</p>
+      <p className="px-3 pb-1 pt-2 eyebrow">{t("Projects")}</p>
       {projects.map((p) => (
         <Link key={p.slug} href={`/o/${org}/apps/${p.slug}`} className={itemClass(p.slug === slug)}>{p.name}</Link>
       ))}
@@ -99,7 +133,7 @@ export function EnvironmentBadge({ initial, org }: { initial?: EnvironmentName; 
   const app = projectInPath(path);
   if (!app || current === "production") return null;
   return (
-    <Link href={`/o/${org}/apps/${encodeURIComponent(app)}/settings/project/environments`} className="pill border-warn/40 bg-warn-soft text-warn" title={t("Change environment")}>
+    <Link href={`/o/${org}/apps/${encodeURIComponent(app)}/settings/project/environments`} className="pill border-warn/40 bg-warn-soft text-warn max-sm:order-last" title={t("Change environment")}>
       {t("Viewing {env} data", { env: t(ENV_LABELS[current]) })}
     </Link>
   );

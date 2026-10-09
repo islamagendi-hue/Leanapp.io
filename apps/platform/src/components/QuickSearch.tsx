@@ -6,6 +6,9 @@ import { useT } from "@/i18n/client";
 import { msg } from "@/i18n/translate";
 import type { NavGroup } from "@/modules/navigation/menu";
 
+/** Dispatched on window to open the quick search from elsewhere (the phone top bar). */
+export const QUICK_SEARCH_EVENT = "leanapp:quick-search";
+
 interface Item { label: string; hint: string; href: string; words: string }
 
 /**
@@ -56,8 +59,14 @@ export function QuickSearch({ base, menu, settings, events, canUsers }: {
         open();
       }
     };
+    // The search button in the top bar on phones (NavButtons) asks for it with this event.
+    const onOpen = () => open();
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    window.addEventListener(QUICK_SEARCH_EVENT, onOpen);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener(QUICK_SEARCH_EVENT, onOpen);
+    };
   }, []);
 
   function open() {
@@ -74,12 +83,13 @@ export function QuickSearch({ base, menu, settings, events, canUsers }: {
 
   return (
     <>
-      <button type="button" onClick={open} className="mb-3 flex w-full items-center justify-between rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink-3 hover:border-line-strong">
+      <button type="button" onClick={open} className="mb-3 hidden w-full items-center justify-between rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink-3 hover:border-line-strong lg:flex">
         <span>{t("Search…")}</span>
         <kbd className="font-mono text-[11px]" dir="ltr">{mac ? "⌘K" : "Ctrl K"}</kbd>
       </button>
       <dialog
         ref={dialog}
+        id="quick-search"
         aria-label={t("Quick search")}
         className="mx-auto mt-[12vh] w-[min(36rem,calc(100vw-2rem))] rounded-xl border border-line bg-card p-0 text-ink shadow-2xl backdrop:bg-ink/30"
         onClick={(e) => e.target === dialog.current && dialog.current?.close()}

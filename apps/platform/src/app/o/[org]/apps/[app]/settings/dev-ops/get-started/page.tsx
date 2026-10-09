@@ -67,13 +67,13 @@ export default async function GetStartedPage(props: PageProps<"/o/[org]/apps/[ap
         </ol>
         <div className="space-y-4">
           <div className="card">
-            <p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("Score · development")}</p>
+            <p className="eyebrow">{t("Score · development")}</p>
             <p className="mt-2 text-4xl font-bold">{devReport.score ? `${devReport.score.overall}%` : "–"}</p>
             <p className="mt-1 text-sm text-ink-3">{devReport.score ? t("{validated}/{expected} planned events validated", { validated: devReport.score.validated, expected: devReport.score.expected }) : t("Publish a tracking plan to start scoring.")}</p>
           </div>
           {next && <Link href={next.href} className="btn w-full">{t("Next: {step}", { step: t(next.short) })}</Link>}
           <div className="card text-sm">
-            <p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("Environments")}</p>
+            <p className="eyebrow">{t("Environments")}</p>
             <ul className="mt-2 space-y-1">
               {reports.map(({ env, report }) => (
                 <li key={env.id} className="flex justify-between">

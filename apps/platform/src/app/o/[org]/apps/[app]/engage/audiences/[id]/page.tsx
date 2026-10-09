@@ -64,7 +64,7 @@ export default async function AudiencePage(props: PageProps<"/o/[org]/apps/[app]
 
       {a.status !== "draft" && (
         <div className="grid gap-4 sm:grid-cols-3">
-          <div className="card"><p className="label">{t("People now")}</p><p className="text-3xl font-bold tabular-nums"><CountUp value={a.member_count.toLocaleString("en-US")} /></p></div>
+          <div className="card"><p className="label">{t("People now")}</p><p className="stat-value"><CountUp value={a.member_count.toLocaleString("en-US")} /></p></div>
           <div className="card"><p className="label">{t("Last computed")}</p><p>{fmtDate(a.last_computed_at, lang)}{a.last_compute_ms !== null && <span className="text-ink-3"> · {t("{n} ms", { n: a.last_compute_ms })}</span>}</p>
             {a.last_compute_error && <p className="text-sm text-alert">{t(a.last_compute_error)}</p>}</div>
           <div className="card"><p className="label">{t("Recomputed every")}</p><p>{a.refresh_minutes < 60 ? t("{n} minutes", { n: a.refresh_minutes }) : t("{n} hours", { n: a.refresh_minutes / 60 })}</p></div>
