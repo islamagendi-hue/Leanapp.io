@@ -21,9 +21,9 @@ const lines = (v: string | undefined) => (v ?? "").split("\n").map((l) => l.trim
 function messageStep(channel: Channel, f: CampaignForm): Step {
   switch (channel) {
     case "push":
-      return { type: "push", title: f.title ?? "", body: f.body ?? "", deepLink: f.deepLink } as Step;
+      return { type: "push", title: f.title ?? "", body: f.body ?? "", deepLink: f.deepLink, imageAssetId: f.imageAssetId } as Step;
     case "in_app":
-      return { type: "in_app", title: f.title ?? "", body: f.body ?? "", buttonText: f.buttonText, deepLink: f.deepLink, expiresInHours: 72 } as Step;
+      return { type: "in_app", title: f.title ?? "", body: f.body ?? "", buttonText: f.buttonText, deepLink: f.deepLink, imageAssetId: f.imageAssetId, expiresInHours: 72 } as Step;
     case "email":
       return (f.emailTemplateId ? { type: "email", templateId: f.emailTemplateId } : { type: "email", subject: f.subject, body: f.body }) as Step;
     case "whatsapp": {
@@ -120,7 +120,7 @@ export function formOf(d: AutomationDefinition, timezone: string, now = new Date
     capHours: d.frequencyCap ? String(d.frequencyCap.hours) : undefined,
     quietHours: d.quietHours ? "on" : undefined,
   };
-  if (s?.type === "push" || s?.type === "in_app") Object.assign(f, { title: s.title, body: s.body, deepLink: s.deepLink, buttonText: s.type === "in_app" ? s.buttonText : undefined });
+  if (s?.type === "push" || s?.type === "in_app") Object.assign(f, { title: s.title, body: s.body, deepLink: s.deepLink, buttonText: s.type === "in_app" ? s.buttonText : undefined, imageAssetId: s.imageAssetId });
   if (s?.type === "email") Object.assign(f, { emailTemplateId: s.templateId, subject: s.subject, body: s.body });
   if (s?.type === "whatsapp") Object.assign(f, { whatsappTemplate: `${s.template}|${s.language}`, whatsappParams: s.bodyParams.join("\n"), phoneProperty: s.phoneProperty });
   // An unsent one-time campaign whose time has passed was (or now is) "Send now".

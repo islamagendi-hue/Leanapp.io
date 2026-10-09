@@ -20,6 +20,7 @@ vi.mock("@/modules/billing/notices", () => ({ sendUsageNotices: async () => ({ n
 vi.mock("@/modules/attribution/delivery", () => ({ runAttributionJobs: async () => null }));
 const runEngagement = vi.fn(async (..._args: unknown[]): Promise<unknown> => ({}));
 vi.mock("@/modules/automation/worker", () => ({ runEngagement }));
+vi.mock("@/modules/media/service", () => ({ purgeDeletedMedia: async () => ({ purged: 0, kept: 0, failed: 0 }) }));
 vi.mock("@/modules/marketing/demo", () => ({ demoEnabled: () => false, ensureDemo: async () => {} }));
 
 const SECRET = "test-cron-secret-0123456789";

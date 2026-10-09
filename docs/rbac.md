@@ -1,6 +1,6 @@
 # Roles and permissions
 
-Defined once in `apps/platform/src/modules/rbac/permissions.ts`. The SQL seed (`db/migrations/0002_rbac_seed.sql`) was generated from it with `npm run db:seed-rbac`. Migrations that are already applied never change, so permissions added later are inserted by their own migration (`analytics.write` in `0010_analytics.sql`; Viewer in `0021_viewer_role.sql`, with `audiences.read` from `0024` and `attribution.read` / `deep_links.read` from `0033_viewer_attribution.sql`); an integration test (`test/rbac.int.test.ts`) checks the migrated database matches `permissions.ts` for every role.
+Defined once in `apps/platform/src/modules/rbac/permissions.ts`. The SQL seed (`db/migrations/0002_rbac_seed.sql`) was generated from it with `npm run db:seed-rbac`. Migrations that are already applied never change, so permissions added later are inserted by their own migration (`analytics.write` in `0010_analytics.sql`; Viewer in `0021_viewer_role.sql`, with `audiences.read` from `0024` and `attribution.read` / `deep_links.read` from `0033_viewer_attribution.sql`; `media.read` / `media.manage` from `0037_media_library.sql`); an integration test (`test/rbac.int.test.ts`) checks the migrated database matches `permissions.ts` for every role.
 
 ## Roles
 
@@ -48,6 +48,7 @@ A member can assign roles up to their own rank and can only manage members of a 
 | integrations.read | ✓ | ✓ | ✓ | | ✓ | |
 | integrations.manage, webhooks.manage | ✓ | ✓ | ✓ | | | |
 | privacy.manage, audit.read | ✓ | ✓ | | | | |
+| media.read / manage (media library: browse and view; upload, replace, publish a link, delete) | ✓ | ✓ | ✓ | | ✓ | |
 
 ## Enforcement
 

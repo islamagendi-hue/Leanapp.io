@@ -5,6 +5,7 @@ import { captureException, report } from "@/lib/monitoring";
 import { purgeRateLimitBuckets } from "@/lib/rate-limit";
 import { sendUsageNotices } from "@/modules/billing/notices";
 import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
+import { purgeDeletedMedia } from "@/modules/media/service";
 import { runAttributionJobs } from "@/modules/attribution/delivery";
 import { runEngagement } from "@/modules/automation/worker";
 import { demoEnabled, ensureDemo } from "@/modules/marketing/demo";
@@ -94,6 +95,8 @@ export async function GET(req: Request) {
   const purged = {
     rate_limit_buckets: await step(errors, "purge_rate_limits", () => purgeRateLimitBuckets()),
     ...(await step(errors, "purge_operational", () => purgeOperationalData())),
+    // Stored files of media deleted over a week ago that nothing references.
+    media: await step(errors, "purge_media", () => purgeDeletedMedia({ limit: 100 })),
   };
   const retention = await step(errors, "retention", () => applyEventRetention());
   // Plan usage emails (80% / 100% / refusing), once per threshold per month.

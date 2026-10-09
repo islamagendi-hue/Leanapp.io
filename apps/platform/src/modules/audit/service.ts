@@ -102,7 +102,12 @@ export type AuditAction =
   | "saved_report.created"
   | "saved_report.deleted"
   | "privacy.suppression_added"
-  | "privacy.suppression_removed";
+  | "privacy.suppression_removed"
+  | "media.uploaded"
+  | "media.replaced"
+  | "media.updated"
+  | "media.public_access_changed"
+  | "media.deleted";
 
 export interface AuditEntry {
   organizationId: string | null;

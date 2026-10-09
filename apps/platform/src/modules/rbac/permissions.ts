@@ -47,6 +47,8 @@ export const PERMISSIONS = {
   "webhooks.manage": "Configure webhooks",
   "privacy.manage": "Handle data export and deletion requests",
   "audit.read": "View the audit log",
+  "media.read": "View the media library",
+  "media.manage": "Upload, replace, publish and delete media",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -88,6 +90,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "webhooks.manage",
     "deep_links.read",
     "deep_links.manage",
+    "media.read",
+    "media.manage",
   ],
   analyst: [...read, "events.read", "analytics.read", "analytics.write", "growth.read", "users.read", "attribution.read", "audiences.read", "audiences.manage", "deep_links.read"],
   marketer: [
@@ -104,6 +108,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "automations.read",
     "automations.manage",
     "integrations.read",
+    "media.read",
+    "media.manage",
   ],
   // Read-only: sees reports (acquisition and attribution included) and people, changes nothing and sees no
   // keys or members. deep_links.read lets the Deep links and Tracking links pages show the real link

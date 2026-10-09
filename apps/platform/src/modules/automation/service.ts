@@ -12,6 +12,7 @@ import { AutomationDefinitionError, parseAutomation, referencedAudiences, refere
 import { FLOW_TEMPLATE_IDS, getFlowTemplate, needsWhatsApp, planFlowTemplate } from "./library";
 import { fill } from "./messages";
 import { nextScheduled } from "./time";
+import { syncAutomationMedia } from "@/modules/media/service";
 
 /**
  * Automations: CRUD, versioning and lifecycle. Every save of the definition is
@@ -183,6 +184,7 @@ async function insertAutomation(
     "insert into platform.automation_versions (organization_id, automation_id, version, definition, created_by) values ($1, $2, 1, $3, $4)",
     [ctx.organizationId, row!.id, JSON.stringify(definition), ctx.userId],
   );
+  await syncAutomationMedia(db, ctx, row!.id, definition);
   const metadata = { environment_id: environmentId, name, kind: opts.kind ?? "automation", ...(opts.template ? { template: opts.template } : {}), ...(opts.audienceId ? { audience_id: opts.audienceId } : {}) };
   await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata });
   return { id: row!.id };
@@ -267,6 +269,7 @@ export async function updateAutomation(ctx: TenantContext, id: string, input: { 
         [ctx.organizationId, id, version, JSON.stringify(definition), ctx.userId],
       );
     }
+    await syncAutomationMedia(db, ctx, id, definition);
     // A new trigger starts from now, never from history.
     if (triggerChanged && cur.status !== "draft") await resetTrigger(db, ctx, id, cur.environment_id, definition);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.updated", targetType: "automation", targetId: id, metadata: { name, version } });

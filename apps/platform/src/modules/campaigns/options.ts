@@ -17,6 +17,7 @@ export interface CampaignForm {
   body?: string;
   deepLink?: string;
   buttonText?: string;
+  imageAssetId?: string; // media library asset (push, in-app)
   emailTemplateId?: string;
   subject?: string;
   whatsappTemplate?: string; // "name|language"

@@ -21,6 +21,8 @@ const deepLink = z
   .refine((v) => !/^(javascript|data|vbscript):/i.test(v), msg("That link scheme is not allowed."))
   .optional()
   .transform((v) => v || undefined);
+/** A media library asset id (src/modules/media); checked against the app and channel when saved and sent. */
+const imageAssetId = z.string().trim().optional().transform((v) => v || undefined).refine((v) => !v || z.uuid().safeParse(v).success, msg("Choose a file from the media library."));
 const eventName = z.string().trim().min(1, msg("Choose an event.")).max(200);
 const propertyName = z.string().trim().regex(/^[A-Za-z0-9_$][A-Za-z0-9_.$-]{0,63}$/, msg("Property names may use letters, digits, _ . $ - (max 64)."));
 const scalar = z.union([z.string().max(500), z.number().finite(), z.boolean(), z.null()]);
@@ -59,9 +61,9 @@ export const stepSchema = z.discriminatedUnion("type", [
     else: z.union([z.literal("exit"), z.object({ goto: z.coerce.number().int().min(1).max(49) })]),
   }),
   z.object({ type: z.literal("webhook"), webhookId: z.string().uuid(msg("Choose a webhook.")) }),
-  z.object({ type: z.literal("push"), title: text(120, msg("Enter a title.")), body: text(500, msg("Enter a message.")), deepLink }),
+  z.object({ type: z.literal("push"), title: text(120, msg("Enter a title.")), body: text(500, msg("Enter a message.")), deepLink, imageAssetId }),
   z.object({
-    type: z.literal("in_app"), title: text(120, msg("Enter a title.")), body: text(1000, msg("Enter a message.")), buttonText: optionalText(40), deepLink,
+    type: z.literal("in_app"), title: text(120, msg("Enter a title.")), body: text(1000, msg("Enter a message.")), buttonText: optionalText(40), deepLink, imageAssetId,
     expiresInHours: z.coerce.number().int().min(1).max(720).default(72),
   }),
   z.object({

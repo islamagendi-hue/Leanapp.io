@@ -45,7 +45,9 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(url, 308);
   }
   // Link redirects set their own headers (the in-app browser page carries its own nonce CSP); well-known files are JSON.
-  const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.startsWith("/l/") && !path.startsWith("/.well-known/") && !path.endsWith("/export");
+  // Media files (the library's file route and public /m/ links) carry their own sandboxing CSP.
+  const isMediaFile = path.startsWith("/m/") || /^\/o\/[^/]+\/apps\/[^/]+\/engage\/media\/[^/]+\/file$/.test(path);
+  const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.startsWith("/l/") && !path.startsWith("/.well-known/") && !path.endsWith("/export") && !isMediaFile;
   const https = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   let csp: string | null = null;
   if (isPage) {
