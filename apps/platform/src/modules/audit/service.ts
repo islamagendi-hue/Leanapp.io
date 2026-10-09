@@ -84,6 +84,8 @@ export type AuditAction =
   | "billing.plan_changed"
   | "billing.invoice_paid"
   | "billing.payment_failed"
+  | "billing.refund_recorded"
+  | "billing.subscription_reconciled"
   | "attribution.settings_updated"
   | "attribution.link_created"
   | "attribution.link_updated"
