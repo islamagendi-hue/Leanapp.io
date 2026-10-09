@@ -3,7 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { getT } from "@/i18n/server";
-import { msg } from "@/i18n/translate";
+import { AR } from "@/i18n/ar";
+import { makeT, msg } from "@/i18n/translate";
 import { activateAudience, archiveAudience, createAudience, previewAudience, updateAudience } from "@/modules/audiences/service";
 import { translateMessage } from "@/modules/automation/messages";
 import { activateAutomation, archiveAutomation, createAutomation, createAutomationFromTemplate, pauseAutomation, updateAutomation } from "@/modules/automation/service";
@@ -92,7 +93,13 @@ export async function applyFlowTemplateAction(orgSlug: string, appSlug: string, 
     const ctx = await requireTenant(orgSlug);
     const events: Record<string, string> = {};
     for (const [k, v] of form.entries()) if (k.startsWith("event.") && typeof v === "string") events[k.slice(6)] = v;
-    id = (await createAutomationFromTemplate(ctx, environmentId, templateId, { events }, { t: await getT() })).id;
+    // The messages' language can differ from the dashboard's: many apps here message their users in Arabic.
+    const lang = str(form, "lang");
+    const t = lang === "ar" ? makeT(AR) : lang === "en" ? makeT(null) : await getT();
+    // "name|language" of an approved WhatsApp template, and its variables one per line.
+    const [template, language] = (str(form, "whatsapp") ?? "").split("|");
+    const whatsapp = template ? { template, language, bodyParams: (str(form, "whatsapp.params") ?? "").split(/\r?\n/).map((l) => l.trim()).filter(Boolean) } : undefined;
+    id = (await createAutomationFromTemplate(ctx, environmentId, templateId, { events, whatsapp }, { t })).id;
   } catch (err) {
     return failed(err);
   }

@@ -587,6 +587,29 @@ test("flow builder: trigger, steps with an insert menu, goal and exit event", as
   await expect(page.getByText(/Exit event: app_uninstalled/)).toBeVisible();
 });
 
+test("flows library: filter, preview the steps, and create a filled-in draft in one click", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/engage/automations?env=development`);
+  const library = page.getByRole("region", { name: "Flows library" });
+  await library.getByRole("combobox", { name: "Category" }).selectOption("conversion");
+  await library.getByRole("searchbox", { name: "Search" }).fill("cart");
+  await library.getByRole("button", { name: "Apply" }).click();
+  await expect(page).toHaveURL(/category=conversion/);
+  await expect(library.getByText(/^Showing \d+ of \d+ flows$/)).toBeVisible();
+  await expect(library.locator('[data-flow-template="welcome_series"]')).toHaveCount(0);
+  const card = library.locator('[data-flow-template="abandoned_cart"]');
+  // The purchase slot is mapped to the event this app already sends, and push shows as not connected yet.
+  await expect(card.getByLabel("Purchase event")).toHaveValue("order_completed");
+  await expect(card.getByText("sent by your app")).toBeVisible();
+  await expect(card.getByText("Push isn't connected in development.")).toBeVisible();
+  await expect(card.getByRole("link", { name: "Connect Push" })).toHaveAttribute("href", /settings\/dev-ops\/channels/);
+  await card.getByText("Preview the steps").click();
+  await expect(card.getByText("You left something in your cart")).toBeVisible();
+  await card.getByRole("button", { name: "Use this flow" }).click();
+  await expect(page.getByRole("heading", { name: /Abandoned cart/, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Goal: order_completed within 3 days" })).toBeVisible();
+});
+
 test("acquisition (beta): overview, sources, attribution, and a tracking link with its QR code", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}/acquisition?env=development`);
