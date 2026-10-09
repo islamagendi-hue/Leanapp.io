@@ -243,17 +243,17 @@ test("product shell: Overview home, Dev Ops in Settings, old addresses and the r
   await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Connect your app" })).toBeVisible();
   const menu = page.getByRole("navigation", { name: "Food Express" });
-  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Flows", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
+  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Journeys & flows", "Experiments", "Integrations", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
   for (const name of ["SDK & API keys", "Debugger", "Tracking plan"]) await expect(menu.getByRole("link", { name })).toHaveCount(0);
   // Menu sections fold and unfold, and stay folded on the next page.
-  const engagement = menu.getByRole("button", { name: "Flows Lab" });
+  const engagement = menu.getByRole("button", { name: "Engagement" });
   await engagement.click();
   await expect(engagement).toHaveAttribute("aria-expanded", "false");
-  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeHidden();
+  await expect(menu.getByRole("link", { name: "Journeys & flows", exact: true })).toBeHidden();
   await page.reload();
-  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeHidden();
-  await menu.getByRole("button", { name: "Flows Lab" }).click();
-  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeVisible();
+  await expect(menu.getByRole("link", { name: "Journeys & flows", exact: true })).toBeHidden();
+  await menu.getByRole("button", { name: "Engagement" }).click();
+  await expect(menu.getByRole("link", { name: "Journeys & flows", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Get started" }).click();
   await page.waitForURL(/settings\/dev-ops\/get-started/);
   await expect(page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "SDK & API keys" })).toBeVisible();
@@ -357,7 +357,7 @@ test("a viewer sees reports and people, and can change nothing", async ({ page, 
   await expect(v.getByRole("link", { name: "Get started" })).toHaveCount(0);
   const menu = v.getByRole("navigation", { name: "Food Express Pro" });
   for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "CAC & LTV", "Ad spend", "Tracking links & QR", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
-  for (const name of ["Flows"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
+  for (const name of ["Journeys & flows", "Experiments"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
   await v.goto(`${appBase}/analytics/events`);
   await expect(v.getByRole("heading", { name: "Events", level: 1 })).toBeVisible();
   // Acquisition and attribution are read-only: no spend entry, CSV import or link creation.
@@ -523,7 +523,7 @@ test("campaigns: audience, channel, message, schedule; the audience must be acti
 test("experiments: create and start one, get a variant from the API, and see the exposure on the results page", async ({ page, request }) => {
   await signIn(page);
   await page.goto(`${appBase}/engage/campaigns?env=development`);
-  await page.getByRole("link", { name: "A/B experiments", exact: true }).first().click();
+  await page.getByRole("navigation", { name: "Food Express" }).getByRole("link", { name: "Experiments", exact: true }).click();
   await expect(page.getByRole("heading", { name: /Experiments/, level: 1 })).toBeVisible();
   await expect(page.getByRole("region", { name: "What works today" })).toContainText("A/B tests of campaign messages");
   await page.getByRole("link", { name: "New experiment" }).click();
@@ -817,7 +817,7 @@ test("retention: Churn and RFM segments, and a group saved as an audience", asyn
   await page.getByTestId("rfm-segments").locator('[data-segment="champions"]').getByRole("button", { name: "Save as audience" }).click();
   await expect(page.getByRole("heading", { name: /RFM: Champions \(SAR, last 365 days\)/, level: 1 })).toBeVisible();
   await expect(page.getByText("in RFM segment Champions (SAR, last 365 days)").first()).toBeVisible();
-  await menu.getByRole("link", { name: "Retention curves", exact: true }).click();
+  await menu.getByRole("link", { name: "Retention", exact: true }).click();
   await expect(page.getByLabel("Return event")).toBeVisible();
 });
 

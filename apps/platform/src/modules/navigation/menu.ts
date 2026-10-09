@@ -20,6 +20,7 @@ export interface NavItem {
   soon?: boolean;
   /** Shown as a sub-entry of the item above it. */
   sub?: boolean;
+  beta?: boolean;
 }
 
 export interface NavGroup {
@@ -28,7 +29,7 @@ export interface NavGroup {
   href?: string;
   match?: string;
   beta?: boolean;
-  /** Starts a block of the menu under this small heading (Growth, Analyze, Engage); "" is a plain divider. */
+  /** Starts a block of the menu under this small heading; "" is a plain divider. */
   heading?: string;
   items: NavItem[];
 }
@@ -57,59 +58,52 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
     [
       { label: msg("Overview"), href: base, items: [] },
       {
-        label: msg("Acquisition"),
-        heading: msg("Growth"),
+        label: msg("Growth"),
+        items: pick(role, [
+          { label: msg("Acquisition"), href: `${base}/acquisition`, perm: "attribution.read", beta: true },
+          { label: msg("Activation"), href: `${base}/growth`, perm: "growth.read" },
+          { label: msg("Retention"), href: `${base}/analytics/retention`, perm: "analytics.read" },
+          { label: msg("Churn"), href: `${base}/analytics/churn`, perm: "analytics.read", sub: true },
+          { label: msg("RFM segments"), href: `${base}/analytics/rfm`, perm: "analytics.read", sub: true },
+          { label: msg("Revenue"), href: `${base}/analytics/revenue`, perm: "analytics.read" },
+        ]),
+      },
+      {
+        label: msg("Analytics"),
+        items: pick(role, [
+          { label: msg("Events & trends"), href: `${base}/analytics/events`, perm: "analytics.read" },
+          { label: msg("Funnels"), href: `${base}/analytics/funnels`, perm: "analytics.read" },
+          { label: msg("Users"), href: `${base}/analytics/users`, perm: "users.read" },
+          { label: msg("Dashboards"), href: `${base}/analytics/dashboards`, perm: "analytics.read" },
+          { label: msg("Saved reports"), href: `${base}/analytics`, perm: "analytics.read" },
+        ]),
+      },
+      {
+        label: msg("Acquisition & attribution"),
         beta: true,
         items: pick(role, [
-          { label: msg("Overview"), href: `${base}/acquisition`, perm: "attribution.read" },
-          { label: msg("CAC & LTV"), href: `${base}/acquisition/channels`, perm: "attribution.read" },
+          { label: msg("Attribution"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
           { label: msg("Sources & campaigns"), href: `${base}/acquisition/sources`, perm: "attribution.read" },
           { label: msg("Ad spend"), href: `${base}/acquisition/spend`, perm: "attribution.read" },
-        ]),
-      },
-      { label: msg("Activation"), href: `${base}/growth`, perm: "growth.read", items: [] },
-      {
-        label: msg("Retention"),
-        items: pick(role, [
-          { label: msg("Retention curves"), href: `${base}/analytics/retention`, perm: "analytics.read" },
-          { label: msg("Churn"), href: `${base}/analytics/churn`, perm: "analytics.read" },
-          { label: msg("RFM segments"), href: `${base}/analytics/rfm`, perm: "analytics.read" },
-        ]),
-      },
-      { label: msg("Revenue"), href: `${base}/analytics/revenue`, perm: "analytics.read", items: [] },
-      {
-        label: msg("Attribution"),
-        beta: true,
-        items: pick(role, [
-          { label: msg("Attribution report"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
+          { label: msg("CAC & LTV"), href: `${base}/acquisition/channels`, perm: "attribution.read" },
           { label: msg("Tracking links & QR"), href: `${base}/acquisition/links`, perm: "attribution.read" },
           { label: msg("Deep links"), href: `${base}/acquisition/deep-links`, perm: "attribution.read" },
         ]),
       },
       {
-        label: msg("Reports"),
-        heading: msg("Analyze"),
+        label: msg("Engagement"),
         items: pick(role, [
-          { label: msg("Events & trends"), href: `${base}/analytics/events`, perm: "analytics.read" },
-          { label: msg("Funnels"), href: `${base}/analytics/funnels`, perm: "analytics.read" },
-          { label: msg("Dashboards"), href: `${base}/analytics/dashboards`, perm: "analytics.read" },
-          { label: msg("Saved reports"), href: `${base}/analytics`, perm: "analytics.read" },
-        ]),
-      },
-      { label: msg("Users"), href: `${base}/analytics/users`, perm: "users.read", items: [] },
-      { label: msg("Audiences"), href: `${base}/engage/audiences`, perm: "audiences.read", items: [] },
-      {
-        label: msg("Flows Lab"),
-        heading: msg("Engage"),
-        items: pick(role, [
+          { label: msg("Audiences"), href: `${base}/engage/audiences`, perm: "audiences.read" },
+          { label: msg("Journeys & flows"), href: `${base}/engage/automations`, perm: "automations.read" },
           { label: msg("Campaigns"), href: `${base}/engage/campaigns`, perm: "automations.read" },
-          { label: msg("Flows"), href: `${base}/engage/automations`, perm: "automations.read" },
+          { label: msg("Experiments"), href: `${base}/engage/experiments`, perm: "automations.read" },
           { label: msg("Templates"), href: `${base}/engage/email-templates`, perm: "automations.read" },
           { label: msg("Channels & delivery"), href: `${base}/engage/channels`, perm: "automations.read" },
         ]),
       },
-      { label: msg("A/B experiments"), href: `${base}/engage/experiments`, perm: "automations.read", items: [] },
-      { label: msg("Settings"), href: `${base}/settings`, heading: "", items: [] },
+      // Both open the Settings menu: Integrations is a page under Settings → Project.
+      { label: msg("Integrations"), href: `${base}/settings/integrations`, perm: "apps.read", heading: "", items: [] },
+      { label: msg("Settings"), href: `${base}/settings`, items: [] },
     ],
     role,
   );

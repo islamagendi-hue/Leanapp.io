@@ -79,13 +79,14 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
     else next.add(label);
     writeFolded([...next]);
   };
-  const link = (href: string, label: string, sub = false) => (
+  const link = (href: string, label: string, sub = false, beta = false) => (
     <Link
       href={href}
       aria-current={href === active ? "page" : undefined}
-      className={`flex min-h-11 items-center rounded-md px-3 lg:min-h-0 lg:px-2 lg:py-1.5 ${sub ? "ms-3 text-[13px]" : ""} ${href === active ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
+      className={`flex min-h-11 items-center gap-2 rounded-md px-3 lg:min-h-0 lg:px-2 lg:py-1.5 ${sub ? "ms-3 text-[13px]" : ""} ${href === active ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
     >
       {t(label)}
+      {beta && <span className="pill border-current text-[10px] opacity-70">{t("Beta")}</span>}
     </Link>
   );
   const nav = (
@@ -119,7 +120,7 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
               {g.items.map((i) => (
                 <li key={i.label}>
                   {i.href ? (
-                    link(i.href, i.label, i.sub)
+                    link(i.href, i.label, i.sub, i.beta)
                   ) : (
                     <span className="flex min-h-11 items-center justify-between px-3 text-ink-3 lg:min-h-0 lg:px-2 lg:py-1.5" title={t("Not available yet")}>
                       {t(i.label)}
