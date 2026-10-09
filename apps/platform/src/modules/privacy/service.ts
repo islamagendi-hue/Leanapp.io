@@ -8,6 +8,7 @@ import { assertCan } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { log } from "@/lib/log";
 import { msg } from "@/i18n/translate";
+import { waitForIngestion, writeTombstones } from "./tombstones";
 
 /**
  * End-user privacy requests (GDPR / PDPL style access and erasure) for one
@@ -30,6 +31,10 @@ import { msg } from "@/i18n/translate";
  * applies: a shared install's `anon:` entries are left alone. Deletion removes
  * suppressions too (they are personal data); if the customer keeps sending
  * messages to that user id, it must suppress them again.
+ *
+ * Deletion leaves tombstones (hashed ids, modules/privacy/tombstones): later
+ * events of the deleted user id, and anonymous events of the deleted installs,
+ * are dropped at ingestion with reason `subject_deleted`.
  *
  * Every query runs under RLS as the organization (withTenant), so a request
  * can't reach another tenant's rows whatever the input.
@@ -319,8 +324,10 @@ const MAX_ATTEMPTS = 3;
 const STALE_RUNNING = "15 minutes";
 
 /**
- * Claims and runs queued deletion jobs. Each job deletes in one transaction
- * under the organization's RLS scope, so it either fully happens or is retried.
+ * Claims and runs queued deletion jobs. Each job first records tombstones for
+ * the subject's identifiers (so later events of the subject are dropped at
+ * ingestion), then deletes in one transaction under the organization's RLS
+ * scope, so the deletion either fully happens or is retried.
  */
 export async function runDeletionJobs(opts: { limit?: number; jobIds?: string[] } = {}): Promise<{ completed: number; failed: number }> {
   const claimed = await withSystem((db) =>
@@ -341,8 +348,8 @@ export async function runDeletionJobs(opts: { limit?: number; jobIds?: string[] 
   let failed = 0;
   for (const job of claimed) {
     try {
-      await withTenant({ organizationId: job.organization_id, userId: null }, async (db) => {
-        await db.query("update platform.privacy_requests set status = 'processing' where id = $1", [job.privacy_request_id]);
+      const tenant = { organizationId: job.organization_id, userId: null };
+      const subjectOf = async (db: Db) => {
         const req = await db.one<{ subject_user_id: string | null; subject_anonymous_id: string | null }>(
           "select subject_user_id, subject_anonymous_id from platform.privacy_requests where id = $1",
           [job.privacy_request_id],
@@ -351,6 +358,30 @@ export async function runDeletionJobs(opts: { limit?: number; jobIds?: string[] 
           userId: req?.subject_user_id ?? undefined,
           anonymousId: req?.subject_anonymous_id ?? undefined,
         });
+        await writeTombstones(db, {
+          organizationId: job.organization_id,
+          environmentId: job.environment_id,
+          privacyRequestId: job.privacy_request_id,
+          userIds: resolved.userIds,
+          anonymousIds: resolved.anonymousIds,
+        });
+        return resolved;
+      };
+      // Tombstones are committed before anything is deleted, then in-flight
+      // ingestion is waited out: from here on no event of the subject can be
+      // stored without the deletion below seeing it (modules/privacy/tombstones).
+      // In one transaction with the deletion, an ingestion that read the
+      // tombstones just before they were committed could store events after the
+      // delete statements ran. A job that later fails keeps its tombstones:
+      // new data stays blocked while it is retried.
+      await withTenant(tenant, async (db) => {
+        await db.query("update platform.privacy_requests set status = 'processing' where id = $1", [job.privacy_request_id]);
+        await subjectOf(db);
+      });
+      await waitForIngestion(job.environment_id);
+      await withTenant(tenant, async (db) => {
+        // Resolved again: an install linked in the meantime is included (and tombstoned) too.
+        const resolved = await subjectOf(db);
         const details: Record<string, number> = {};
         let total = 0;
         for (const t of SUBJECT_TABLES) {

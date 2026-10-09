@@ -90,6 +90,8 @@ Everything else in the dashboard (questionnaire, plan editing, approval and publ
 - **Limits:** see [events](events.md).
 - `source` is set by the server: `backend` for secret keys, `mobile_sdk` for public keys.
 - **Consent:** an event of `type: "consent"` with `consent: { analytics?, marketing?, push?, attribution? }` (booleans, at least one) records the user's decision instead of being stored as an event; it counts as accepted and is free. Events from a user or install whose latest analytics decision is "denied" (including a denial earlier in the same batch) are not stored and are listed in `rejected[]` with `reason: "consent_denied"`; a single event dropped this way still returns `200`. Where attribution is denied, `context.attribution` is removed. See [Consent](#consent-and-suppression).
+- **Deleted users:** after a privacy deletion, events with the deleted `user_id`, and anonymous events (no `user_id`) of an install whose anonymous activity was deleted, are not stored and are listed in `rejected[]` with `reason: "subject_deleted"`, consent events included; like `consent_denied`, a single event dropped this way returns `200`. See [Privacy requests](#privacy-requests).
+- **Rejection reasons:** an entry of `rejected[]` without `reason` failed validation (see its `errors`); `consent_denied` and `subject_deleted` were valid events not stored on purpose. Don't retry either.
 
 ## Privacy requests
 
@@ -103,7 +105,14 @@ Exports cover events, sessions, profile, installs, identity links, push tokens, 
 
 Exports and deletions include consent history (`consent_records`), current consent (`consent_state`) and suppressions, following the same shared-device rule: a shared install's `anon:` entries are kept. Deleting a user also removes their suppressions; suppress them again if you keep their id in your own systems.
 
-Deletion doesn't stop new data: stop sending events for the user first (for example `Analytics.reset()` in the SDK, and stop server-side events).
+**After a deletion (tombstones).** A completed deletion leaves a tombstone for the deleted `user_id` and for each install whose anonymous activity it deleted (installs shared with another user are kept, so they get none). From then on ingestion drops, with `reason: "subject_deleted"`:
+
+- every event carrying the deleted `user_id`, from an SDK's offline queue or a backend, consent events included (so consent history isn't re-created either);
+- anonymous events (no `user_id`) of a deleted install. Another user's identified events on that install are accepted, as the deletion never covered them.
+
+The tombstone keeps no id: it is a sha256 of the environment, the kind of id and the id, checked with one indexed lookup per batch. It applies to the deletion's environment only. Tombstones don't expire and can't be lifted: if the person signs up again, give them a new `user_id` (a reinstall or `Analytics.reset()` already gives the device a new `anonymous_id`). Consent doesn't cover this case: a deletion removes the person's consent records too, so a denial wouldn't have survived it.
+
+Still stop sending events for the user (for example `Analytics.reset()` in the SDK, and stop server-side events): they are dropped, but the requests still count toward rate limits.
 
 ## Consent and suppression
 
