@@ -323,5 +323,20 @@ const ar: Record<string, string> = {
   "Plan": "الباقة",
   "Subscriptions": "الاشتراكات",
   "A subscription counts until its paid period ends, plus 3 days for a late renewal, or until subscription_expired. Cancelling only stops the renewal. Lifetime plans are left out.": "يُحتسب الاشتراك حتى نهاية فترته المدفوعة، مع 3 أيام إضافية للتجديد المتأخر، أو حتى وصول subscription_expired. الإلغاء يوقف التجديد فقط. الباقات مدى الحياة غير محتسبة.",
+  // Overview dashboard
+  "Sign ups": "التسجيلات",
+  Orders: "الطلبات",
+  "Orders per day": "الطلبات يوميًا",
+  "Conversion funnel": "مسار التحويل",
+  "Acquisition by source": "الاستحواذ حسب المصدر",
+  "first touch": "أول تفاعل",
+  "last touch": "آخر تفاعل",
+  "No revenue events in this range.": "لا توجد أحداث إيرادات في هذه الفترة.",
+  "+{n} more currencies": "+{n} عملات أخرى",
+  "Nobody did the first step in this range.": "لم يقم أحد بالخطوة الأولى في هذه الفترة.",
+  "Build any funnel in {funnels}.": "أنشئ أي مسار في {funnels}.",
+  "You don't have access to Acquisition.": "ليس لديك صلاحية الوصول إلى الاستحواذ.",
+  "The funnel needs at least two of: an install, a sign up, an add to cart and an order event.": "يحتاج المسار إلى حدثين على الأقل من: تثبيت، تسجيل، إضافة إلى السلة، وطلب.",
+  "Share of installs in this range, by channel ({model}). Unattributed installs are shown as such, never as organic.": "نسبة عمليات التثبيت في هذه الفترة حسب القناة ({model}). التثبيتات غير المنسوبة تظهر كما هي، ولا تُحتسب أبدًا كعضوية.",
 };
 export default ar;

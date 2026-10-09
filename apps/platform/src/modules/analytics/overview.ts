@@ -45,3 +45,33 @@ export function defaultFunnelSteps(eventNames: string[]): string[] {
 }
 
 export const OVERVIEW_RANGES = [7, 30] as const;
+
+const SIGNUP = /sign_?up|regist|account_created/i;
+const INSTALL = /install|first_open/i;
+
+/** The sign-up event the app sends (most used first), if any. */
+export function signupEventOf(eventNames: string[]): string | null {
+  return eventNames.find((n) => SIGNUP.test(n) && !INSTALL.test(n)) ?? null;
+}
+
+/** The order (conversion) event: the Activation revenue event when defined, else the first purchase-like event. */
+export function orderEventOf(def: GrowthDefinition | null | undefined, eventNames: string[]): string | null {
+  return def?.revenue?.event ?? eventNames.find((n) => END.test(n)) ?? null;
+}
+
+/**
+ * The Overview's conversion funnel: install, sign up, one step in between
+ * (add to cart and the like, else the Activation core action) and the order,
+ * from the events the app sends, in that order and without repeats. Falls
+ * back to the key funnel; null when fewer than two steps are known.
+ */
+export function overviewFunnelSteps(def: GrowthDefinition | null | undefined, eventNames: string[]): string[] | null {
+  const install = eventNames.find((n) => INSTALL.test(n)) ?? null;
+  const signup = signupEventOf(eventNames);
+  const order = orderEventOf(def, eventNames);
+  const middle = eventNames.find((n) => MIDDLE.test(n) && n !== order) ?? def?.core_action?.event ?? null;
+  const steps = [install, signup, middle, order]
+    .filter((s): s is string => Boolean(s))
+    .filter((s, i, all) => all.indexOf(s) === i);
+  return steps.length >= 2 ? steps : keyFunnelSteps(def, eventNames);
+}

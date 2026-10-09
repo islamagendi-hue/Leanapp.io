@@ -18,7 +18,7 @@ export const CHART_COLORS = [1, 2, 3, 4, 5, 6].map((n) => `var(--color-chart-${n
 const VW = 1000;
 const VH = 100;
 
-export async function TrendChart({ days, series, label }: { days: string[]; series: { key: string; counts: number[] }[]; label: string }) {
+export async function TrendChart({ days, series, label, area = false }: { days: string[]; series: { key: string; counts: number[] }[]; label: string; /** Shade under a single series. */ area?: boolean }) {
   const lang = await getLang();
   const max = Math.max(1, ...series.flatMap((s) => s.counts));
   const min = Math.min(0, ...series.flatMap((s) => s.counts)); // below zero only for net amounts (e.g. refunds)
@@ -70,6 +70,10 @@ export async function TrendChart({ days, series, label }: { days: string[]; seri
                 <line key={v} x1={0} x2={VW} y1={fy(v) * VH} y2={fy(v) * VH} vectorEffect="non-scaling-stroke" strokeWidth="1"
                   style={{ stroke: v === 0 ? "var(--color-line-strong)" : "var(--color-line)" }} strokeDasharray={v ? "3 3" : undefined} />
               ))}
+              {area && series.length === 1 && days.length > 1 && (
+                <polygon aria-hidden style={{ fill: color(0), opacity: 0.14 }}
+                  points={[`0,${fy(Math.max(0, bottom)) * VH}`, ...series[0].counts.map((v, i) => `${fx(i) * VW},${fy(v) * VH}`), `${VW},${fy(Math.max(0, bottom)) * VH}`].join(" ")} />
+              )}
               {series.map((s, si) => (
                 <polyline key={s.key} fill="none" vectorEffect="non-scaling-stroke" strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"
                   style={{ stroke: color(si) }} points={s.counts.map((v, i) => `${fx(i) * VW},${fy(v) * VH}`).join(" ")} />

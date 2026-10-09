@@ -701,8 +701,9 @@ test("overview: key numbers for the selected environment, and Connect your app w
   // Development has data, so the setup reminder is one line above the numbers.
   await expect(page.getByText("Production isn't receiving events yet", { exact: false })).toBeVisible();
   const numbers = page.getByRole("region", { name: "Key numbers" });
-  for (const label of ["Active users", "New users", "Events"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
-  for (const heading of ["Active users per day", "Activation", "Retention", "Key funnel", "Top events"]) await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+  for (const label of ["New users", "Active users", "Orders", "Revenue"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
+  for (const heading of ["Orders per day", "Conversion funnel", "Acquisition by source", "Activation", "Retention", "Top events"]) await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/overview.png", fullPage: true });
   await expect(page.getByRole("cell", { name: /Order Completed/ })).toBeVisible();
   const range = page.getByRole("form", { name: "Range" });
   await range.getByLabel("Range").selectOption("15");
@@ -739,7 +740,7 @@ test("charts: the trend chart answers the pointer and keys, and key numbers coun
   const box = (await chart.boundingBox())!;
   await page.mouse.move(box.x + box.width * 0.95, box.y + box.height / 2);
   await expect(tip).toBeVisible();
-  await expect(tip).toContainText("Active users");
+  await expect(tip).toContainText("Orders");
   await expect(tip).toContainText(/\d{1,2} \w{3,} \d{4}/);
   await page.mouse.move(box.x + box.width / 2, box.y + box.height + 200);
   await expect(tip).toHaveCount(0);

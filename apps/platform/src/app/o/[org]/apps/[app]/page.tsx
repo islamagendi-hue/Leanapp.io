@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { AutoApply } from "@/components/AutoApply";
 import { envName, rich } from "@/components/AnalyticsHeader";
-import { WidgetView } from "@/components/dashboards/WidgetView";
 import { EventName } from "@/components/EventName";
+import { FunnelBars, SourceBars } from "@/components/overview/OverviewCharts";
 import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { Stat } from "@/components/Stat";
@@ -10,7 +10,7 @@ import { TrendChart } from "@/components/TrendChart";
 import { getLang, getT } from "@/i18n/server";
 import { msg } from "@/i18n/translate";
 import { eventLabels } from "@/modules/analytics/labels";
-import { keyFunnelSteps } from "@/modules/analytics/overview";
+import { orderEventOf, overviewFunnelSteps, signupEventOf } from "@/modules/analytics/overview";
 import { spanLabel } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { revenueReport } from "@/modules/analytics/revenue";
@@ -18,6 +18,7 @@ import { ANY_EVENT, eventTrend, funnel, kpi, retention, topEvents, type Kpi } fr
 import { environmentHasEvents } from "@/modules/apps/service";
 import { growthValue } from "@/modules/dashboards/service";
 import { growthOverview } from "@/modules/growth/service";
+import { channelReport } from "@/modules/channels/report";
 import { can } from "@/modules/rbac/authorize";
 import type { Permission } from "@/modules/rbac/permissions";
 import { reportRunner } from "@/server/analytics-page";
@@ -117,111 +118,105 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
               ? rich(t("Showing {env}, {range}, compared with {previous}."), { env: envText, range: span, previous: spanLabel(metrics.range.previous.from, metrics.range.previous.to, lang) })
               : rich(t("Showing {env}, {range}."), { env: envText, range: span })}
           </p>
-          <section className="stat-grid sm:grid-cols-3" aria-label={t("Key numbers")}>
+          <section className="stat-grid grid-cols-2 lg:grid-cols-4" aria-label={t("Key numbers")}>
+            {metrics.signups ? <Tile label={t("Sign ups")} k={metrics.signups} /> : <Tile label={t("New users")} k={metrics.fresh} />}
             <Tile label={t("Active users")} k={metrics.active} />
-            <Tile label={t("New users")} k={metrics.fresh} />
-            <Tile label={t("Events")} k={metrics.events} />
+            {metrics.orders ? <Tile label={t("Orders")} k={metrics.orders} /> : <Tile label={t("Events")} k={metrics.events} />}
+            {(() => {
+              const top = metrics.revenue?.currencies[0];
+              if (!top) return <Stat label={t("Revenue")} value="–" note={t("No revenue events in this range.")} />;
+              const others = metrics.revenue!.currencies.length - 1;
+              return (
+                <Stat label={t("Revenue")} unit={top.currency} value={top.net.toLocaleString("en-US", { maximumFractionDigits: 0 })}
+                  delta={<Delta value={top.net} previous={metrics.revenue!.previous?.find((p) => p.currency === top.currency)?.net ?? 0} range={metrics.revenue!.range} />}
+                  note={others > 0 ? t("+{n} more currencies", { n: others }) : undefined} />
+              );
+            })()}
           </section>
 
           <section className="card">
-            <div className="card-header"><h2 className="card-title">{t("Active users per day")}</h2></div>
-            <TrendChart days={metrics.trend.days} series={[{ key: t("Active users"), counts: metrics.trend.series[0]?.people ?? metrics.trend.days.map(() => 0) }]} label={t("Active users per day")} />
+            <div className="card-header">
+              <h2 className="card-title">{metrics.orderEvent ? t("Orders per day") : t("Active users per day")}</h2>
+              <OpenLink href={withRange(`${base}/analytics/events`, metrics.orderEvent ? [["event", metrics.orderEvent]] : [])} text={t("Open")} />
+            </div>
+            {metrics.orderEvent && metrics.orderTrend
+              ? <TrendChart area days={metrics.orderTrend.days} series={[{ key: t("Orders"), counts: metrics.orderTrend.series[0]?.counts ?? metrics.orderTrend.days.map(() => 0) }]} label={t("Orders per day")} />
+              : <TrendChart area days={metrics.trend.days} series={[{ key: t("Active users"), counts: metrics.trend.series[0]?.people ?? metrics.trend.days.map(() => 0) }]} label={t("Active users per day")} />}
           </section>
 
-          {(() => {
-            const activation = (
-              <section className="card" key="activation">
-                <div className="card-header">
-                  <h2 className="card-title">{t("Activation")}</h2>
-                  {can(ctx.role, "growth.read") && <OpenLink href={`${base}/growth?env=${env.type}`} text={t("Open")} />}
-                </div>
-                {metrics.activation === undefined ? <p className="text-sm text-ink-3">{t("You don't have access to Activation.")}</p>
-                  : metrics.activation === null ? <p className="text-sm text-ink-3">{t("Activation isn't turned on. Define what an activated user does to see the rate here.")}</p>
-                  : (
-                    <div className="grid grid-cols-2 gap-3">
-                      <Stat bare value={pct(metrics.activation.rate)} note={t("activation rate (all time)")} />
-                      <Stat bare value={num(metrics.activation.activated)} note={t("activated people")} />
-                    </div>
-                  )}
-              </section>
-            );
-            const keyFunnel = (
-              <section className="card" key="funnel">
-                <div className="card-header">
-                  <h2 className="card-title">{t("Key funnel")}</h2>
-                  {metrics.funnelSteps && <OpenLink href={withRange(`${base}/analytics/funnels`, metrics.funnelSteps.map((s) => ["step", s]))} text={t("Open")} />}
-                </div>
-                {metrics.funnel ? <WidgetView result={{ ok: true, data: { type: "funnel", funnel: metrics.funnel } }} /> : (
-                  <p className="text-sm text-ink-3">
-                    {t("The key funnel follows your Activation steps.")} {can(ctx.role, "growth.read") ? rich(t("Define them in {activation}, or build any funnel in {funnels}."), {
-                      activation: <Link className="underline" href={`${base}/growth?env=${env.type}`}>{t("Activation")}</Link>,
-                      funnels: <Link className="underline" href={`${base}/analytics/funnels?env=${env.type}`}>{t("Funnels")}</Link>,
-                    }) : null}
-                  </p>
-                )}
-              </section>
-            );
-            const retentionCard = (
-              <section className="card" key="retention">
-                <div className="card-header">
-                  <h2 className="card-title">{t("Retention")}</h2>
-                  <OpenLink href={`${base}/analytics/retention?${new URLSearchParams({ env: env.type, days: "30" })}`} text={t("Open")} />
-                </div>
-                <div className="grid grid-cols-3 gap-3">
-                  {(["D1", "D7", "D30"] as const).map((l, i) => (
-                    <Stat key={l} bare small label={l} value={pct(metrics.retention.overall[[0, 2, 4][i]])} />
-                  ))}
-                </div>
-                <p className="mt-3 text-xs text-ink-3">{t("People active on a day in the last 30 days who came back exactly 1, 7 or 30 days later. Days that aren't over yet aren't counted.")}</p>
-              </section>
-            );
-            const topEventsCard = (
-              <section className="card" key="top">
-                <div className="card-header">
-                  <h2 className="card-title">{t("Top events")}</h2>
-                  <OpenLink href={withRange(`${base}/analytics/events`)} text={t("Open")} />
-                </div>
-                <table className="table">
-                  <thead><tr><th className="text-start">{t("Event")}</th><th className="num">{t("Count")}</th><th className="num">{t("People")}</th></tr></thead>
-                  <tbody>
-                    {metrics.top.slice(0, 6).map((e) => (
-                      <tr key={e.name}><td className="text-sm"><Link className="hover:underline" href={withRange(`${base}/analytics/events`, [["event", e.name]])}><EventName name={e.name} labels={label} /></Link></td><td className="num">{num(e.count)}</td><td className="num">{num(e.people)}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-              </section>
-            );
-            // Modules that aren't set up yet say so in short cards side by side, instead of
-            // stretching next to a full report; the reports with data follow, top aligned.
-            const idle = !metrics.funnel && metrics.activation === null;
-            return idle ? (
-              <>
-                <div className="grid items-start gap-4 lg:grid-cols-2">{activation}{keyFunnel}</div>
-                <div className="grid items-start gap-4 lg:grid-cols-2">{retentionCard}{topEventsCard}</div>
-              </>
-            ) : (
-              <div className="grid items-start gap-4 lg:grid-cols-2">
-                <div className="grid gap-4">{activation}{retentionCard}</div>
-                <div className="grid gap-4">{topEventsCard}{keyFunnel}</div>
-              </div>
-            );
-          })()}
-
-          {metrics.revenue && metrics.revenue.currencies.length > 0 && (
+          <div className="grid items-start gap-4 lg:grid-cols-2">
             <section className="card">
               <div className="card-header">
-                <h2 className="card-title">{t("Revenue")}</h2>
-                <OpenLink href={withRange(`${base}/analytics/revenue`)} text={t("Open")} />
+                <h2 className="card-title">{t("Conversion funnel")}</h2>
+                {metrics.funnelSteps && <OpenLink href={withRange(`${base}/analytics/funnels`, metrics.funnelSteps.map((s) => ["step", s]))} text={t("Open")} />}
               </div>
-              <div className="stat-grid sm:grid-cols-3">
-                {metrics.revenue.currencies.slice(0, 3).map((c) => (
-                  <Stat key={c.currency} bare label={t("Net revenue")} value={c.net.toLocaleString("en-US", { maximumFractionDigits: 2 })} unit={c.currency}
-                    delta={<Delta value={c.net} previous={metrics.revenue!.previous?.find((p) => p.currency === c.currency)?.net ?? 0} range={metrics.revenue!.range} />}
-                    note={t("{paying} paying · ARPU {arpu}", { paying: num(c.payingUsers), arpu: c.arpu.toLocaleString("en-US", { maximumFractionDigits: 2 }) })} />
+              {metrics.funnel && metrics.funnel.steps[0]?.people ? (
+                <FunnelBars label={t("Conversion funnel")} steps={metrics.funnel.steps.map((s) => ({ name: s.name, label: label(s.name), people: s.people, fromStart: s.fromStart }))} />
+              ) : (
+                <p className="text-sm text-ink-3">
+                  {metrics.funnelSteps ? t("Nobody did the first step in this range.") : t("The funnel needs at least two of: an install, a sign up, an add to cart and an order event.")}{" "}
+                  {rich(t("Build any funnel in {funnels}."), { funnels: <Link className="underline" href={`${base}/analytics/funnels?env=${env.type}`}>{t("Funnels")}</Link> })}
+                </p>
+              )}
+            </section>
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t("Acquisition by source")}</h2>
+                {metrics.sources !== undefined && <OpenLink href={withRange(`${base}/acquisition/sources`)} text={t("Open")} />}
+              </div>
+              {metrics.sources === undefined ? <p className="text-sm text-ink-3">{t("You don't have access to Acquisition.")}</p>
+                : metrics.sources.length === 0 ? <p className="text-sm text-ink-3">{t("No installs in this range.")}</p>
+                : (
+                  <>
+                    <SourceBars label={t("Acquisition by source")} rows={metrics.sources.map((r) => ({ ...r, label: r.key === "other" ? t("Other") : t(r.label) }))} />
+                    <p className="mt-3 text-xs text-ink-3">{t("Share of installs in this range, by channel ({model}). Unattributed installs are shown as such, never as organic.", { model: metrics.sourceModel === "first_touch" ? t("first touch") : t("last touch") })}</p>
+                  </>
+                )}
+            </section>
+          </div>
+
+          <div className="grid items-start gap-4 lg:grid-cols-3">
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t("Activation")}</h2>
+                {can(ctx.role, "growth.read") && <OpenLink href={`${base}/growth?env=${env.type}`} text={t("Open")} />}
+              </div>
+              {metrics.activation === undefined ? <p className="text-sm text-ink-3">{t("You don't have access to Activation.")}</p>
+                : metrics.activation === null ? <p className="text-sm text-ink-3">{t("Activation isn't turned on. Define what an activated user does to see the rate here.")}</p>
+                : (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Stat bare value={pct(metrics.activation.rate)} note={t("activation rate (all time)")} />
+                    <Stat bare value={num(metrics.activation.activated)} note={t("activated people")} />
+                  </div>
+                )}
+            </section>
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t("Retention")}</h2>
+                <OpenLink href={`${base}/analytics/retention?${new URLSearchParams({ env: env.type, days: "30" })}`} text={t("Open")} />
+              </div>
+              <div className="grid grid-cols-3 gap-3">
+                {(["D1", "D7", "D30"] as const).map((l, i) => (
+                  <Stat key={l} bare small label={l} value={pct(metrics.retention.overall[[0, 2, 4][i]])} />
                 ))}
               </div>
+              <p className="mt-3 text-xs text-ink-3">{t("People active on a day in the last 30 days who came back exactly 1, 7 or 30 days later. Days that aren't over yet aren't counted.")}</p>
             </section>
-          )}
+            <section className="card">
+              <div className="card-header">
+                <h2 className="card-title">{t("Top events")}</h2>
+                <OpenLink href={withRange(`${base}/analytics/events`)} text={t("Open")} />
+              </div>
+              <table className="table">
+                <thead><tr><th className="text-start">{t("Event")}</th><th className="num">{t("Count")}</th><th className="num">{t("People")}</th></tr></thead>
+                <tbody>
+                  {metrics.top.slice(0, 6).map((e) => (
+                    <tr key={e.name}><td className="text-sm"><Link className="hover:underline" href={withRange(`${base}/analytics/events`, [["event", e.name]])}><EventName name={e.name} labels={label} /></Link></td><td className="num">{num(e.count)}</td><td className="num">{num(e.people)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </section>
+          </div>
           <ReportFreshness info={metrics.freshness} path={base} sp={sp} />
         </>
       ))}
@@ -256,8 +251,8 @@ async function overview(ctx: Ctx, scope: { appId: string; environmentId: string;
   const reports = reportRunner(ctx, env, sp);
   // The span alone, for reports that show no comparison.
   const span = { days: period.days, from: period.from, to: period.to };
-  const k = (metric: string) => {
-    const input = { metric, ...period };
+  const k = (metric: string, event?: string) => {
+    const input = { metric, ...(event ? { event } : {}), ...period };
     return reports.run("kpi", input, () => kpi(ctx, env, input));
   };
   const [active, fresh, events] = await Promise.all([k("active_people"), k("new_people"), k("all_events")]);
@@ -280,9 +275,34 @@ async function overview(ctx: Ctx, scope: { appId: string; environmentId: string;
     definition = g.definitions.published?.definition ?? null;
     activation = g.enabled && g.summary ? { rate: growthValue(g.summary, "activation_rate").value, activated: g.summary.activated } : null;
   }
-  const funnelSteps = keyFunnelSteps(definition, top.map((e) => e.name));
+  const names = top.map((e) => e.name);
+  const signupEvent = signupEventOf(names);
+  const orderEvent = orderEventOf(definition, names);
+  const orderTrendInput = orderEvent ? { event: orderEvent, ...span, interval: "day" } : null;
+  const funnelSteps = overviewFunnelSteps(definition, names);
   const funnelInput = funnelSteps ? { steps: funnelSteps, windowDays: 7, ...span } : null;
-  const keyFunnel = funnelInput ? await reports.run("funnel", funnelInput, () => funnel(ctx, env, funnelInput)) : null;
+  const [signups, orders, orderTrend, keyFunnel, channels] = await Promise.all([
+    signupEvent ? k("people", signupEvent) : null,
+    orderEvent ? k("events", orderEvent) : null,
+    orderTrendInput ? reports.run("trend", orderTrendInput, () => eventTrend(ctx, env, orderTrendInput)) : null,
+    funnelInput ? reports.run("funnel", funnelInput, () => funnel(ctx, env, funnelInput)) : null,
+    can(ctx.role, "attribution.read") ? channelReport(ctx, { ...scope, includeSpend: false }, period) : null,
+  ]);
+  const sources = channels ? sourceShares(channels.channels) : undefined;
 
-  return { empty: false as const, range: active.range, active, fresh, events, trend, top, retention: ret, revenue, activation, funnelSteps, funnel: keyFunnel, freshness };
+  return {
+    empty: false as const, range: active.range, active, fresh, events, signups, orders, orderEvent, orderTrend, trend, top, retention: ret, revenue,
+    activation, funnelSteps, funnel: keyFunnel, sources, sourceModel: channels?.model ?? null, freshness,
+  };
+}
+
+/** Each channel's share of installs, largest first: the top five, then the rest as one "other" row. */
+function sourceShares(channels: { key: string; label: string; installs: number; reinstalls: number }[]) {
+  const rows = channels.map((c) => ({ key: c.key, label: c.label, installs: c.installs + c.reinstalls })).filter((c) => c.installs > 0).sort((x, y) => y.installs - x.installs);
+  const total = rows.reduce((n, r) => n + r.installs, 0);
+  const shown = rows.length > 6 ? rows.slice(0, 5) : rows;
+  const rest = rows.slice(shown.length).reduce((n, r) => n + r.installs, 0);
+  const out = shown.map((r) => ({ ...r, share: r.installs / total }));
+  if (rest > 0) out.push({ key: "other", label: "Other", installs: rest, share: rest / total });
+  return out;
 }
