@@ -300,5 +300,12 @@ const ar: Record<string, string> = {
   "Choose a step of this funnel.": "اختر خطوة من مسار التحويل هذا.",
   "Choose a start and a return event.": "اختر حدث بداية وحدث عودة.",
   "Invalid revenue report.": "تقرير إيرادات غير صالح.",
+  // Report toolbar, change badges and loading
+  "More filters": "مرشحات أخرى",
+  "was {value}": "كانت {value}",
+  "Compared with {period}": "مقارنةً بـ {period}",
+  "More reports": "تقارير أخرى",
+  "Loading…": "جارٍ التحميل…",
+  "These starting steps come from your most used events. Change any step to build your own funnel.": "خطوات البداية هذه مأخوذة من أكثر أحداثك استخدامًا. غيّر أي خطوة لتبني مسار التحويل الذي تريده.",
 };
 export default ar;

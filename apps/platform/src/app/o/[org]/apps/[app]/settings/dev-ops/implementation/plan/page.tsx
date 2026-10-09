@@ -123,7 +123,7 @@ export default async function PlanPage(props: PageProps<"/o/[org]/apps/[app]/set
       )}
       {(v.summary.journey_matches?.length ?? 0) > 0 && (
         <div className="card text-sm">
-          <p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("From your journey description")}</p>
+          <p className="eyebrow">{t("From your journey description")}</p>
           <ul className="mt-2 flex flex-wrap gap-2">
             {v.summary.journey_matches.map((m) => (
               <li key={m.phrase} className="rounded-md bg-paper-2 px-2 py-1">“{m.phrase}” <span aria-hidden className="inline-block rtl:-scale-x-100">→</span> <span className="font-mono" dir="ltr">{m.events.join(", ")}</span></li>
@@ -282,7 +282,7 @@ function PropertyForm({ action, t }: { action: Parameters<typeof ActionForm>[0][
 function Stat({ label, value, sub, mono }: { label: string; value: string; sub?: string; mono?: boolean }) {
   return (
     <div className="card">
-      <p className="font-mono text-[11px] uppercase tracking-wide text-ink-3">{label}</p>
+      <p className="eyebrow">{label}</p>
       <p className={`mt-1 truncate text-lg font-bold ${mono ? "font-mono text-base" : ""}`}>{value}</p>
       {sub && <p className="text-xs text-ink-3">{sub}</p>}
     </div>

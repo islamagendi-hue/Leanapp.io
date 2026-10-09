@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { setGrowthModelAction } from "@/app/actions/growth";
 import { ActionForm } from "@/components/ActionForm";
-import { CountUp } from "@/components/CountUp";
 import { DefinitionList } from "@/components/GrowthDefinitionList";
+import { Stat } from "@/components/Stat";
 import { envName } from "@/components/dashboards/EnvironmentNote";
 import { getLang, getT } from "@/i18n/server";
 import { dateLocale } from "@/i18n/translate";
@@ -70,11 +70,11 @@ export default async function GrowthPage(props: PageProps<"/o/[org]/apps/[app]/g
 
       {o.enabled && s && (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <div className="card"><p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("People")}</p><p className="mt-2 text-3xl font-bold tabular-nums"><CountUp value={s.people.toLocaleString("en-GB")} /></p></div>
-            <div className="card"><p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("Activated")}</p><p className="mt-2 text-3xl font-bold tabular-nums"><CountUp value={pct(s.activated, s.people)} /></p><p className="text-xs text-ink-3">{t("{n} people", { n: s.activated.toLocaleString("en-GB") })}</p></div>
-            <div className="card"><p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("Did the core action")}</p><p className="mt-2 text-3xl font-bold tabular-nums"><CountUp value={pct(s.core_people, s.people)} /></p><p className="text-xs text-ink-3">{t("{n} times in all", { n: s.core_actions.toLocaleString("en-GB") })}</p></div>
-            <div className="card"><p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("Paying")}</p><p className="mt-2 text-3xl font-bold tabular-nums"><CountUp value={pct(s.paying, s.people)} /></p><p className="text-xs text-ink-3">{t("{n} purchases", { n: s.purchases.toLocaleString("en-GB") })}</p></div>
+          <div className="stat-grid">
+            <Stat label={t("People")} value={s.people.toLocaleString("en-GB")} />
+            <Stat label={t("Activated")} value={pct(s.activated, s.people)} note={t("{n} people", { n: s.activated.toLocaleString("en-GB") })} />
+            <Stat label={t("Did the core action")} value={pct(s.core_people, s.people)} note={t("{n} times in all", { n: s.core_actions.toLocaleString("en-GB") })} />
+            <Stat label={t("Paying")} value={pct(s.paying, s.people)} note={t("{n} purchases", { n: s.purchases.toLocaleString("en-GB") })} />
           </div>
           <div className="grid gap-4 lg:grid-cols-2">
             <div className="card">

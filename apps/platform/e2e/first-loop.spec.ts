@@ -162,7 +162,7 @@ test("growth: turn on, define, preview, publish, see the summary", async ({ page
   expect(cron.status()).toBe(200);
   await page.goto(`${appBase}/growth?env=development`);
   await expect(page.getByText("80 SAR")).toBeVisible();
-  await expect(page.locator(".card", { hasText: "Paying" })).toContainText("100%");
+  await expect(page.locator(".stat", { hasText: "Paying" })).toContainText("100%");
   await page.goto(`${appBase}/settings/dev-ops/get-started`);
   await expect(page.getByText("See your growth summary")).toBeVisible();
 });

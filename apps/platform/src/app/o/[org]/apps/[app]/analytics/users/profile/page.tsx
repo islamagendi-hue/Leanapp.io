@@ -67,7 +67,7 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="card space-y-3">
-          <h2 className="h2">{t("Identity")}</h2>
+          <h2 className="card-title">{t("Identity")}</h2>
           {p.installs.length === 0 ? (
             <p className="text-sm text-ink-3">{t("No installs linked yet.")}</p>
           ) : (
@@ -98,12 +98,12 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
         </section>
 
         <section className="card space-y-3">
-          <h2 className="h2">{t("Revenue")}</h2>
+          <h2 className="card-title">{t("Revenue")}</h2>
           {p.revenue.length === 0 ? (
             <p className="text-sm text-ink-3">{t("No revenue events.")}</p>
           ) : (
             <table className="table">
-              <thead><tr><th className="text-start">{t("Currency")}</th><th className="text-end">{t("Net")}</th><th className="text-end">{t("Refunds")}</th><th className="text-end">{t("Transactions")}</th></tr></thead>
+              <thead><tr><th className="text-start">{t("Currency")}</th><th className="num">{t("Net")}</th><th className="num">{t("Refunds")}</th><th className="num">{t("Transactions")}</th></tr></thead>
               <tbody>
                 {p.revenue.map((r) => (
                   <tr key={r.currency}>
@@ -121,7 +121,7 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
       </div>
 
       <section className="card space-y-3">
-        <h2 className="h2">{p.userId ? t("User properties") : t("Anonymous traits")}</h2>
+        <h2 className="card-title">{p.userId ? t("User properties") : t("Anonymous traits")}</h2>
         {props_.length === 0 ? (
           <p className="text-sm text-ink-3">{t("None set. Properties come from identify() calls.")}</p>
         ) : (
@@ -136,13 +136,13 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
         )}
       </section>
 
-      <section className="card overflow-x-auto p-0">
-        <h2 className="h2 px-5 pt-4">{t("Activity")}</h2>
+      <section className="card-table">
+        <div className="card-header"><h2 className="card-title">{t("Activity")}</h2></div>
         {timeline.events.length === 0 ? (
           <p className="px-5 py-4 text-sm text-ink-3">{param(sp.before) ? t("No events before this point.") : t("No events.")}</p>
         ) : (
-          <table className="table">
-            <thead><tr><th className="text-start">{t("Time ({timezone})", { timezone: a.timezone })}</th><th className="text-start">{t("Event")}</th><th className="text-start">{t("Properties")}</th><th className="text-start">{t("Platform")}</th></tr></thead>
+          <div className="table-scroll"><table className="table">
+            <thead><tr><th className="text-start">{t("Time ({timezone})", { timezone: a.timezone })}</th><th className="text-start">{t("Event")}</th><th className="text-start">{t("Properties")}</th><th className="hidden text-start sm:table-cell">{t("Platform")}</th></tr></thead>
             <tbody>
               {timeline.events.map((e) => (
                 <tr key={e.id} className="align-top">
@@ -165,11 +165,11 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
                       </dl>
                     )}
                   </td>
-                  <td className="whitespace-nowrap text-sm text-ink-2">{[e.platform, e.appVersion].filter(Boolean).join(" ")}</td>
+                  <td className="hidden whitespace-nowrap text-sm text-ink-2 sm:table-cell">{[e.platform, e.appVersion].filter(Boolean).join(" ")}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
         <div className="flex gap-3 px-5 py-3 text-sm">
           {param(sp.before) && <Link className="underline" href={link(self)}>{t("Newest")}</Link>}

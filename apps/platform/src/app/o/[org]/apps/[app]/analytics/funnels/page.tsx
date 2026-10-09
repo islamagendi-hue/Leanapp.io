@@ -5,11 +5,12 @@ import { dateLocale, type T } from "@/i18n/translate";
 import { EventName } from "@/components/EventName";
 import { AutoApply } from "@/components/AutoApply";
 import { CohortSelect } from "@/components/CohortSelect";
-import { RateDelta, ReportRangeFields } from "@/components/ReportRange";
+import { CompareFields, MoreFilters, RateDelta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { rangePhrase, resolveRange, spanLabel } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { eventLabels } from "@/modules/analytics/labels";
+import { defaultFunnelSteps } from "@/modules/analytics/overview";
 import { FUNNEL_PEOPLE_LIMIT, funnel, funnelPeople, topEvents } from "@/modules/analytics/service";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
@@ -41,11 +42,14 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
   const range = rangeFromParams(toSearch(sp));
   const windowDays = Number(param(sp.window)) || 7;
   const split = param(sp.split) === "platform";
-  const chosen = (Array.isArray(sp.step) ? sp.step : sp.step ? [sp.step] : []).map((s) => s.trim()).filter(Boolean).slice(0, 6);
+  const given = (Array.isArray(sp.step) ? sp.step : sp.step ? [sp.step] : []).map((s) => s.trim()).filter(Boolean).slice(0, 6);
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const scope = { environmentId: env.id, timezone: a.timezone };
   const reports = reportRunner(ctx, scope, sp);
   const events = await reports.run("top_events", { ...range }, () => topEvents(ctx, { ...scope, ...range }));
+  // Opened without steps (no `step` in the address at all): start from a funnel built from the app's own events.
+  const suggested = sp.step === undefined ? defaultFunnelSteps(events.map((e) => e.name)) : [];
+  const chosen = given.length ? given : suggested;
   const funnelInput = { steps: chosen, windowDays, ...range, breakdown: split ? "platform" : undefined, cohortId: cf.cohortId };
   const result = chosen.length >= 2 ? await reports.run("funnel", funnelInput, () => funnel(ctx, scope, funnelInput)) : null;
   const slots = Math.min(6, Math.max(2, chosen.length + 1));
@@ -59,6 +63,7 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
   const peopleLink = (v: string | null) => {
     const q = new URLSearchParams();
     for (const [k, x] of Object.entries(sp)) if (k !== "people") for (const one of Array.isArray(x) ? x : x ? [x] : []) q.append(k, one);
+    if (sp.step === undefined) for (const st of chosen) q.append("step", st);
     if (!q.has("env")) q.set("env", env.type);
     if (v) q.set("people", v);
     return `${path}?${q}`;
@@ -67,19 +72,18 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
     `/o/${org}/apps/${app}/analytics/users/profile?${new URLSearchParams({ env: env.type, ...(p.userId ? { user: p.userId } : { anon: p.anonymousId! }) })}`;
   const when = (d: Date) => new Date(d).toLocaleString(dateLocale(lang), { dateStyle: "medium", timeStyle: "short", timeZone: a.timezone });
   const names = [...new Set([...events.map((e) => e.name), ...chosen])];
+  const shownRange = result?.range ?? { ...resolveRange(range, a.timezone), previous: null };
 
   return (
     <div className="space-y-6">
       <AnalyticsHeader title={t("Funnels")} description={t("How many people go through a sequence of events, in order, within a time window.")} env={env.type} />
-      <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/funnels`} sp={sp} />
-
-      <form method="get" className="card space-y-4">
+      <form method="get" className="filters">
         <input type="hidden" name="env" value={env.type} />
         <AutoApply />
-        <ol className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ol className="col-span-2 grid gap-2 sm:basis-full sm:grid-cols-2 sm:gap-3 lg:grid-cols-3">
           {Array.from({ length: slots }, (_, i) => (
             <li key={i}>
-              <label className="block"><span className="label">{t("Step {n}", { n: i + 1 })}</span>
+              <label className="wide block"><span className="label">{t("Step {n}", { n: i + 1 })}</span>
                 <select name="step" className="input" defaultValue={chosen[i] ?? ""}>
                   <option value="">{i < 2 ? t("Choose an event") : t("Add a step (optional)")}</option>
                   {names.map((n) => <option key={n} value={n}>{label(n)}</option>)}
@@ -88,20 +92,28 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
             </li>
           ))}
         </ol>
-        <div className="flex flex-wrap items-end gap-3">
-          <label><span className="label">{t("Converted within")}</span>
-            <select name="window" className="input" defaultValue={String(windowDays)}>{WINDOWS.map((w) => <option key={w} value={w}>{daysText(t, w)}</option>)}</select>
-          </label>
+        <label><span className="label">{t("Converted within")}</span>
+          <select name="window" className="input" defaultValue={String(windowDays)}>{WINDOWS.map((w) => <option key={w} value={w}>{daysText(t, w)}</option>)}</select>
+        </label>
+        <ReportRangeFields label={t("People who started in")} range={shownRange} compare={false} />
+        <MoreFilters open={Boolean(param(sp.compare) || cf.cohortId)}>
+          <CompareFields range={shownRange} />
           <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
-          <ReportRangeFields label={t("People who started in")} range={result?.range ?? { ...resolveRange(range, a.timezone), previous: null }} />
-          <label className="flex min-h-10 items-center gap-2 text-sm"><input type="checkbox" name="split" value="platform" defaultChecked={split} /> {t("Split by platform")}</label>
-          <button className="btn" type="submit" data-apply>{t("Show funnel")}</button>
-        </div>
+        </MoreFilters>
+        <label className="col-span-2 flex min-h-10 items-center gap-2 text-sm sm:min-h-9"><input type="checkbox" name="split" value="platform" defaultChecked={split} /> {t("Split by platform")}</label>
+        <button className="btn" type="submit" data-apply>{t("Show funnel")}</button>
+        <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/funnels`} sp={sp} className="filters-end" />
       </form>
+      {suggested.length > 0 && result && <p className="-mt-3 text-xs text-ink-3">{t("These starting steps come from your most used events. Change any step to build your own funnel.")}</p>}
 
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the funnel shows everyone.")}</p>}
       {!result ? (
-        <p className="text-sm text-ink-3">{t("Choose at least two steps.")} {events.length === 0 && t("There are no events in this environment and range yet.")}</p>
+        <div className="card flex flex-col items-center gap-4 py-10 text-center">
+          <div aria-hidden className="w-full max-w-xs space-y-2">
+            {[100, 64, 38].map((w) => <div key={w} className="h-5 rounded bg-paper-2" style={{ width: `${w}%` }} />)}
+          </div>
+          <p className="max-w-md text-sm text-ink-2">{t("Choose at least two steps.")} {events.length === 0 && t("There are no events in this environment and range yet.")}</p>
+        </div>
       ) : (
         <section className="card space-y-5">
           <p className="text-sm text-ink-2">
@@ -194,7 +206,7 @@ export default async function FunnelsPage(props: PageProps<"/o/[org]/apps/[app]/
           <p className="text-xs text-ink-3">{t("A person enters at their first step-1 event in the range; each later step must happen after the previous one and within the window from entering.")}</p>
         </section>
       )}
-      {result && cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="funnel" query={{ ...sp, people: undefined }} />}
+      {result && cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="funnel" query={{ ...sp, step: chosen, people: undefined }} />}
     </div>
   );
 }

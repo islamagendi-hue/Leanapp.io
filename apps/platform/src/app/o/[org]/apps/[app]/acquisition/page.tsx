@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AcquisitionHeader, AcquisitionRange, money, num, pct } from "@/components/acquisition/AcquisitionHeader";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
-import { CountUp } from "@/components/CountUp";
+import { Stat } from "@/components/Stat";
 import { TrendChart } from "@/components/TrendChart";
 import { envName, rich } from "@/components/acquisition/rich";
 import { getT } from "@/i18n/server";
@@ -34,7 +34,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
         description={tr("Where installs come from and what they lead to, for the selected environment.")} />
       <AcquisitionRange env={env.type} range={r.range} />
 
-      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label={tr("Acquisition numbers")}>
+      <section className="stat-grid" aria-label={tr("Acquisition numbers")}>
         {[
           [tr("Link clicks"), num(t.clicks), tr("Bots and prefetches excluded")],
           [tr("Installs"), num(allInstalls), t.reinstalls ? tr("{n} reinstalls", { n: num(t.reinstalls) }) : tr("First opens")],
@@ -43,11 +43,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
           [tr("Organic / unattributed"), `${num(t.organic)} · ${pct(t.organic, allInstalls)}`,
             t.organic_ios ? tr("{n} on iOS, where paid installs can't be matched without SKAdNetwork or Apple Search Ads", { n: num(t.organic_ios) }) : tr("{n} re-engagements", { n: num(t.reengagements) })],
         ].map(([label, value, note]) => (
-          <div key={label} className="card">
-            <p className="font-mono text-[11px] uppercase tracking-wide text-ink-3">{label}</p>
-            <p className="mt-1 text-2xl font-bold tabular-nums"><CountUp value={value} /></p>
-            <p className="text-xs text-ink-3">{note}</p>
-          </div>
+          <Stat key={label} label={label} value={value} note={note} />
         ))}
       </section>
 

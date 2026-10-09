@@ -67,7 +67,7 @@ export default async function ValidationPage(props: PageProps<"/o/[org]/apps/[ap
       {s && (
         <div className="grid gap-4 lg:grid-cols-[260px_1fr]">
           <div className="card">
-            <p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("Implementation score")}</p>
+            <p className="eyebrow">{t("Implementation score")}</p>
             <p className={`mt-2 text-5xl font-bold ${s.overall >= 80 ? "text-accent-ink" : s.overall >= 50 ? "text-warn" : "text-alert"}`}>{s.overall}%</p>
             <p className="mt-2 text-sm text-ink-2">{t("{validated} of {expected} planned events validated, {implemented} received.", { validated: s.validated, expected: s.expected, implemented: s.implemented })}</p>
             <p className="mt-1 text-xs text-ink-3">{t("Last event: {date}", { date: ago(report.lastEventAt) })}</p>
