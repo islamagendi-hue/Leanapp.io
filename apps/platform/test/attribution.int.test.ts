@@ -11,6 +11,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { withSystem } from "@/lib/db";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { deliverPostbacks, purgeClickFingerprints } from "@/modules/attribution/delivery";
+import { processAdServicesLookups, queueAdServicesTokens } from "@/modules/attribution/adservices";
+import { applyAdServicesAttribution } from "@/modules/attribution/engine";
 import { attributionOverview } from "@/modules/attribution/reports";
 import { channelReport } from "@/modules/channels/report";
 import { tenantTx } from "@/modules/tenancy/context";
@@ -681,5 +683,112 @@ describe("attribution engine", () => {
     const own = await tenantTx(w.ctx, "attribution.read", (db) =>
       db.one<{ credits: string }>("select count(*) as credits from platform.attribution_conversion_credits where environment_id = $1", [w.dev.id]));
     expect(Number(own!.credits)).toBeGreaterThan(5);
+  });
+});
+
+// ── Apple Search Ads (AdServices) answers as provider-reported attribution (0039b) ─
+describe("Apple Search Ads (AdServices) attribution", () => {
+  let a: T;
+  const token = (n: number) => `${"R".repeat(120)}${n}XyZw+/==`;
+  const ios = (anon: string, attribution: Record<string, string> = {}, o: Record<string, unknown> = {}) =>
+    ev("app_installed", anon, { context: { platform: "ios", os_version: "17.4", attribution }, ...o });
+  const install = (anon: string) => withSystem((db) => db.query<{
+    id: string; kind: string; match_type: string; match_key: string | null; method: string | null; confidence: string | null; source: string | null; campaign: string | null;
+    touchpoint_id: string | null; evidence: Record<string, unknown>;
+  }>(
+    "select id, kind, match_type, match_key, method, confidence, source, campaign, touchpoint_id, evidence from platform.attribution_events where environment_id = $1 and anonymous_id = $2 and kind in ('install', 'reinstall')",
+    [a.dev.id, anon],
+  ));
+  const credits = (anon: string) => withSystem((db) => db.query<{ reason: string; last_non_direct_event_id: string | null }>(
+    `select cc.reason, cc.last_non_direct_event_id from platform.attribution_conversion_credits cc
+       join platform.attribution_conversions c on c.id = cc.conversion_id join platform.events e on e.id = c.event_row_id
+      where c.environment_id = $1 and e.anonymous_id = $2 order by cc.decided_at, cc.reason`,
+    [a.dev.id, anon],
+  ));
+  const apple = (async (_url: string, init: RequestInit) => {
+    const body = String(init.body);
+    if (body === token(1) || body === token(3)) {
+      return Response.json({ attribution: true, orgId: 40669820, campaignId: 542370539, adGroupId: 542317095, keywordId: 87675432, adId: 542317136, countryOrRegion: "SA", conversionType: "Download", claimType: "Click" });
+    }
+    return Response.json({ attribution: false });
+  }) as unknown as typeof fetch;
+
+  beforeAll(async () => {
+    a = await makeTenant("attr-asa");
+  });
+
+  it("upgrades the unattributed iOS install once, re-credits its conversions, and never overrides a LeanApp click match", async () => {
+    const link = await createLink(a.ctx, a.app.id, { environmentId: a.dev.id, name: "Web", source: "tiktok", iosUrl: "https://apps.apple.com/app/id1" });
+    const c = await recorded(link.code, { ua: IPHONE });
+    await send([
+      ios("asa-1", { adservices_token: token(1) }, { user_id: "u-asa-1" }),
+      ios("asa-2", { adservices_token: token(2) }),
+      ios("asa-3", { adservices_token: token(3), click_id: c.clickId }),
+    ], { key: a.sdkKey });
+    await send([
+      ev("purchase_completed", "asa-1", { user_id: "u-asa-1", properties: { transaction_id: "asa-p1", revenue: 30, currency: "SAR" } }),
+      ev("purchase_completed", "asa-2", { properties: { transaction_id: "asa-p2", revenue: 20, currency: "SAR" } }),
+    ], { key: a.sdkKey });
+    const [before] = await install("asa-1");
+    expect(before).toMatchObject({ match_type: "organic", method: "none" });
+
+    // The scan leaves events younger than two minutes for its next run (any tenant's).
+    await withSystem((db) => db.query("update platform.events set received_at = now() - interval '5 minutes' where received_at > now() - interval '5 minutes'"));
+    expect(await queueAdServicesTokens()).toMatchObject({ queued: 3 });
+    expect(await processAdServicesLookups({ fetchImpl: apple })).toMatchObject({ attributed: 2, notAttributed: 1 });
+
+    // asa-1: the same row, upgraded in place, with what it was kept.
+    const rows = await install("asa-1");
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: before.id, kind: "install", match_type: "provider_reported", match_key: "adservices", method: "adservices", confidence: "high", source: "apple_search_ads", campaign: "542370539",
+    });
+    expect(rows[0].evidence).toMatchObject({
+      channel: "apple_search_ads", evidence_level: "provider_reported", limitations: ["provider_reported"],
+      apple: { campaign_id: "542370539", ad_group_id: "542317095", keyword_id: "87675432", ad_id: "542317136", claim_type: "Click" },
+      upgraded_from: { match_type: "organic", method: "none", confidence: "none", source: null },
+    });
+    const tp = await withSystem((db) => db.one<{ provider: string; campaign_id: string; ad_group_id: string; creative_id: string }>(
+      "select provider, campaign_id, ad_group_id, creative_id from platform.attribution_touchpoints where id = $1", [rows[0].touchpoint_id]));
+    expect(tp).toEqual({ provider: "apple_adservices", campaign_id: "542370539", ad_group_id: "542317095", creative_id: "542317136" });
+    // Its purchase now credits Apple Search Ads in the last non-direct view, with the history kept.
+    expect(await credits("asa-1")).toEqual([{ reason: "initial", last_non_direct_event_id: before.id }, { reason: "provider_reported", last_non_direct_event_id: before.id }]);
+    const conv = await withSystem((db) => db.one<{ credit_evidence: Record<string, unknown> }>(
+      "select c.credit_evidence from platform.attribution_conversions c join platform.events e on e.id = c.event_row_id where c.environment_id = $1 and e.anonymous_id = 'asa-1'", [a.dev.id]));
+    expect(conv!.credit_evidence).toMatchObject({ last_non_direct_fallback: false, reason: "provider_reported", last_non_direct: { channel: "apple_search_ads" } });
+
+    // asa-2: Apple said not attributed: nothing changes.
+    expect((await install("asa-2"))[0]).toMatchObject({ match_type: "organic", source: null });
+    expect((await credits("asa-2")).map((r) => r.reason)).toEqual(["initial"]);
+
+    // asa-3: a LeanApp click matched it; Apple's answer is stored but doesn't override it.
+    expect((await install("asa-3"))[0]).toMatchObject({ match_type: "deterministic", source: "tiktok" });
+
+    // Applying again changes nothing (upgraded once).
+    const lookup = await withSystem((db) => db.one<{ id: string }>("select id from platform.adservices_attributions where environment_id = $1 and anonymous_id = 'asa-1'", [a.dev.id]));
+    expect(await withSystem((db) => applyAdServicesAttribution(db, lookup!.id))).toBe("kept_existing_match");
+    expect(await credits("asa-1")).toHaveLength(2);
+
+    // Reports: one install, provider-reported, on the Apple Search Ads channel.
+    const r = await channelReport(a.ctx, { appId: a.app.id, environmentId: a.dev.id, timezone: "UTC", includeSpend: false }, { days: 30, model: "last_non_direct" });
+    expect(r.channels.find((x) => x.key === "apple_search_ads")).toMatchObject({ installs: 1, purchases: 1, sourceClass: "paid", evidence: { provider_reported: 1 } });
+    const overview = await attributionOverview(a.ctx, { environmentId: a.dev.id, timezone: "UTC" }, { days: 30 });
+    expect(overview.totals).toMatchObject({ installs: 3, provider_reported: 1, deterministic: 1 });
+    expect(overview.totals.attributed).toBe(overview.totals.deterministic + overview.totals.reported + overview.totals.probabilistic + overview.totals.provider_reported);
+  });
+
+  it("uses an answer already stored when the install is processed after it", async () => {
+    const sdk = (await authenticateIngestionKey(a.sdkKey))!;
+    await ingest(sdk, { batch: [ios("asa-4", { adservices_token: token(5) })] }, { mode: "batch" });
+    await withSystem((db) => db.query(
+      `insert into platform.adservices_attributions (organization_id, app_id, environment_id, anonymous_id, token_hash, token_received_at, status, campaign_id, ad_group_id, keyword_id, claim_type, looked_up_at)
+       values ($1, $2, $3, 'asa-4', 'hash-asa-4', now(), 'attributed', 111, 222, 333, 'Impression', now())`,
+      [a.org.id, a.app.id, a.dev.id],
+    ));
+    await processPendingEvents({ environmentId: a.dev.id });
+    const [row] = await install("asa-4");
+    expect(row).toMatchObject({ match_type: "provider_reported", match_key: "adservices", method: "adservices", confidence: "medium", source: "apple_search_ads", campaign: "111" });
+    expect(row.evidence).toMatchObject({ limitations: ["provider_reported", "view_through"], apple: { ad_group_id: "222", keyword_id: "333" } });
+    expect(row.evidence.upgraded_from).toBeUndefined();
   });
 });

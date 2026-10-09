@@ -3,6 +3,8 @@ import {
   clickLookbackDays, conversionWindowDays, creditEvidence, describeMatch, fnv1a, isWeakTouch, maxClickLookbackDays, maxConversionWindowDays, parseWindowOverrides,
   pickCredits, webMatch, webTouchOf, type CreditCandidate, type WindowSettings,
 } from "./pure-credit";
+import { matchTypeFor } from "./pure";
+import { evidenceOf } from "@/modules/channels/classify";
 
 const DAY = 86_400_000;
 const NOW = new Date("2026-06-01T12:00:00Z");
@@ -136,6 +138,22 @@ describe("describeMatch", () => {
     expect(describeMatch("organic", "store_organic").method).toBe("store_organic");
     expect(describeMatch("organic", "direct").method).toBe("direct");
     expect(describeMatch("organic", null, { ios: true })).toEqual({ method: "none", confidence: "none", limitations: ["no_evidence", "ios_no_click_id"] });
+  });
+
+  it("describes Apple AdServices answers as provider-reported, lower for impressions", () => {
+    expect(describeMatch("provider_reported", "adservices", { claimType: "Click" })).toEqual({ method: "adservices", confidence: "high", limitations: ["provider_reported"] });
+    expect(describeMatch("provider_reported", "adservices")).toEqual({ method: "adservices", confidence: "high", limitations: ["provider_reported"] });
+    expect(describeMatch("provider_reported", "adservices", { claimType: "Impression" })).toEqual({ method: "adservices", confidence: "medium", limitations: ["provider_reported", "view_through"] });
+    expect(evidenceOf("provider_reported", "adservices")).toBe("provider_reported");
+    expect(matchTypeFor("provider")).toBe("provider_reported");
+  });
+
+  it("treats an Apple Search Ads install as a known source that keeps last-non-direct credit", () => {
+    const asa = touch({ at: ago(5), source: "apple_search_ads", match_type: "provider_reported", match_key: "adservices", campaign: "542370539" });
+    expect(isWeakTouch(asa)).toBe(false);
+    const c = pickCredits([asa, direct(ago(1))], NOW, settings);
+    expect(c.lastNonDirect?.id).toBe(asa.id);
+    expect(creditEvidence(c, settings)).toMatchObject({ last_non_direct: { channel: "apple_search_ads", match_type: "provider_reported" } });
   });
 });
 

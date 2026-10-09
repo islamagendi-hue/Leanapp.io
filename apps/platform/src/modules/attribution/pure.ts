@@ -224,19 +224,22 @@ export function organicReason(utm: { source?: string; medium?: string }): "store
  *   deterministic  a click id the install carried matches a click LeanApp's own link recorded
  *   reported       only the install's context says where it came from (an ad-network click id
  *                  or utm_* parameters with no recorded click of ours behind them): self-reported
- *   probabilistic  opt-in Android IP-hash + OS match to an unclaimed click
- *   organic        nothing matched (includes paid iOS installs without a click id: see docs)
+ *   probabilistic      opt-in Android IP-hash + OS match to an unclaimed click
+ *   organic            nothing matched (includes paid iOS installs without a click id: see docs)
+ *   provider_reported  a provider attributed it on its side: Apple's AdServices API answered that
+ *                      an Apple Search Ads campaign drove this iOS install (match_key adservices)
  */
-export const MATCH_TYPES = ["deterministic", "reported", "probabilistic", "organic"] as const;
+export const MATCH_TYPES = ["deterministic", "reported", "probabilistic", "organic", "provider_reported"] as const;
 export type MatchType = (typeof MATCH_TYPES)[number];
 
 /** What a match rests on, and the match type that is honest for it. */
-export type MatchEvidence = "recorded_click" | "install_context" | "ip_os" | "none";
+export type MatchEvidence = "recorded_click" | "install_context" | "ip_os" | "provider" | "none";
 export function matchTypeFor(evidence: MatchEvidence): MatchType {
   switch (evidence) {
     case "recorded_click": return "deterministic";
     case "install_context": return "reported";
     case "ip_os": return "probabilistic";
+    case "provider": return "provider_reported";
     case "none": return "organic";
   }
 }
