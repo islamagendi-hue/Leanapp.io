@@ -671,7 +671,7 @@ test("SDK & API keys: real quickstarts for every SDK, and an honest release stat
   await page.goto(`${appBase}/settings/dev-ops/sdk?env=development`);
   const status = page.getByRole("region", { name: "SDK release status" });
   for (const sdk of ["JavaScript / React Native", "Android (Kotlin)", "iOS (Swift)", "Flutter (Dart)"]) await expect(status.getByRole("cell", { name: sdk })).toBeVisible();
-  await expect(status.getByText("Not published: add from the repository")).toHaveCount(4);
+  await expect(status.getByText("Not published", { exact: true })).toHaveCount(4);
   await page.getByRole("tab", { name: "Android (Kotlin)" }).click();
   await expect(page.getByText(/AnalyticsOptions\(endpoint = /)).toBeVisible();
   await expect(page.getByText("Not published to Maven Central yet", { exact: false })).toBeVisible();
