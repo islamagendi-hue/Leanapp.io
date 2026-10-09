@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import Link from "next/link";
 import { AutoApply } from "@/components/AutoApply";
 import { getT } from "@/i18n/server";
@@ -61,7 +62,7 @@ export async function AcquisitionHeader({ base, current, title, description, env
  * The range picker of the Acquisition reports: the last 7, 15, 30 or 90 days,
  * or custom dates. It applies as soon as it changes (AutoApply).
  */
-export async function AcquisitionRange({ env, range }: { env: string; range: { preset: number | null; from: string; to: string } }) {
+export async function AcquisitionRange({ env, range, children }: { env: string; range: { preset: number | null; from: string; to: string }; children?: ReactNode }) {
   const t = await getT();
   return (
     <form method="get" className="filters filters-bare" aria-label={t("Range")}>
@@ -75,6 +76,7 @@ export async function AcquisitionRange({ env, range }: { env: string; range: { p
       </label>
       <label className="custom-date"><span className="label">{t("From")}</span><input type="date" name="from" className="input" defaultValue={range.from} /></label>
       <label className="custom-date"><span className="label">{t("To")}</span><input type="date" name="to" className="input" defaultValue={range.to} /></label>
+      {children}
       <button className="btn" type="submit" data-apply>{t("Show")}</button>
     </form>
   );
