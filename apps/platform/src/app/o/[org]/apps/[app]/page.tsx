@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { AutoApply } from "@/components/AutoApply";
+import { CountUp } from "@/components/CountUp";
 import { envName, rich } from "@/components/AnalyticsHeader";
 import { WidgetView } from "@/components/dashboards/WidgetView";
 import { EventName } from "@/components/EventName";
@@ -137,8 +138,8 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
                 : metrics.activation === null ? <p className="text-sm text-ink-3">{t("Activation isn't turned on. Define what an activated user does to see the rate here.")}</p>
                 : (
                   <div className="grid grid-cols-2 gap-3">
-                    <div><p className="text-3xl font-bold tabular-nums">{pct(metrics.activation.rate)}</p><p className="text-xs text-ink-3">{t("activation rate (all time)")}</p></div>
-                    <div><p className="text-3xl font-bold tabular-nums">{num(metrics.activation.activated)}</p><p className="text-xs text-ink-3">{t("activated people")}</p></div>
+                    <div><p className="text-3xl font-bold tabular-nums"><CountUp value={pct(metrics.activation.rate)} /></p><p className="text-xs text-ink-3">{t("activation rate (all time)")}</p></div>
+                    <div><p className="text-3xl font-bold tabular-nums"><CountUp value={num(metrics.activation.activated)} /></p><p className="text-xs text-ink-3">{t("activated people")}</p></div>
                   </div>
                 )}
             </section>
@@ -150,7 +151,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
               </div>
               <div className="grid grid-cols-3 gap-3 text-center">
                 {(["D1", "D7", "D30"] as const).map((label, i) => (
-                  <div key={label}><p className="text-xs text-ink-3">{label}</p><p className="text-2xl font-bold tabular-nums">{pct(metrics.retention.overall[[0, 2, 4][i]])}</p></div>
+                  <div key={label}><p className="text-xs text-ink-3">{label}</p><p className="text-2xl font-bold tabular-nums"><CountUp value={pct(metrics.retention.overall[[0, 2, 4][i]])} /></p></div>
                 ))}
               </div>
               <p className="text-xs text-ink-3">{t("People active on a day in the last 30 days who came back exactly 1, 7 or 30 days later. Days that aren't over yet aren't counted.")}</p>
@@ -196,7 +197,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
               <div className="grid gap-3 sm:grid-cols-3">
                 {metrics.revenue.currencies.slice(0, 3).map((c) => (
                   <div key={c.currency}>
-                    <p className="text-2xl font-bold tabular-nums">{c.net.toLocaleString("en-US", { maximumFractionDigits: 2 })} <span className="text-sm font-normal">{c.currency}</span></p>
+                    <p className="text-2xl font-bold tabular-nums"><CountUp value={c.net.toLocaleString("en-US", { maximumFractionDigits: 2 })} /> <span className="text-sm font-normal">{c.currency}</span></p>
                     <Delta value={c.net} previous={metrics.revenue!.previous?.find((p) => p.currency === c.currency)?.net ?? 0} range={metrics.revenue!.range} />
                     <p className="text-xs text-ink-3">{t("{paying} paying · ARPU {arpu}", { paying: num(c.payingUsers), arpu: c.arpu.toLocaleString("en-US", { maximumFractionDigits: 2 }) })}</p>
                   </div>
@@ -226,7 +227,7 @@ function Tile({ label, k }: { label: string; k: Kpi }) {
   return (
     <div className="card">
       <p className="label">{label}</p>
-      <p className="text-3xl font-bold tabular-nums">{num(k.value)}</p>
+      <p className="text-3xl font-bold tabular-nums"><CountUp value={num(k.value)} /></p>
       <Delta value={k.value} previous={k.previous} range={k.range} />
     </div>
   );

@@ -96,7 +96,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
                     {co.returned.map((n, i) => {
                       const rate = n === null ? null : n / co.size;
                       const c = cell(rate);
-                      return <td key={i} className={`text-center tabular-nums ${c.className}`} style={c.style} title={n === null ? t("Not reached yet") : t("{n} of {size}", { n, size: co.size })}>{rate === null ? "" : pct(rate)}</td>;
+                      return <td key={i} className={`text-center tabular-nums ${c.className}`} style={c.style} data-heat={n === null ? undefined : ""} title={n === null ? t("Not reached yet") : t("{n} of {size}", { n, size: co.size })}>{rate === null ? "" : pct(rate)}</td>;
                     })}
                   </tr>
                 ))}

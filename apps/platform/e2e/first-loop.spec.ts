@@ -623,6 +623,39 @@ test("overview: key numbers for the selected environment, and Connect your app w
   await expect(page.getByText(/No events in development in 1 Sept 2026 – 10 Sept 2026 yet/)).toBeVisible();
 });
 
+test("charts: the trend chart answers the pointer and keys, and key numbers count up to their real value", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  page.on("pageerror", (e) => errors.push(e.message));
+  await signIn(page);
+  const url = `${appBase}?env=development`;
+  await page.goto(url);
+  // The number ends at the value the server rendered, and the server HTML already holds it.
+  const tile = page.getByRole("region", { name: "Key numbers" }).locator("[data-count]").first();
+  const final = (await tile.getAttribute("data-count"))!;
+  expect(final).toMatch(/[1-9]/);
+  await expect(tile).toHaveText(final);
+  expect(await (await page.request.get(url)).text()).toMatch(new RegExp(`data-count="${final}"[^>]*>${final}<`));
+
+  const chart = page.locator("[data-chart-hover]").first();
+  const tip = chart.locator("[data-chart-tooltip]");
+  await expect(tip).toHaveCount(0);
+  const box = (await chart.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.95, box.y + box.height / 2);
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText("Active users");
+  await expect(tip).toContainText(/\d{1,2} \w{3,} \d{4}/);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height + 200);
+  await expect(tip).toHaveCount(0);
+  // Keyboard: focus the chart and move through the days.
+  await chart.focus();
+  await page.keyboard.press("Home");
+  await expect(tip).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
 test("reports apply as you change them, funnel bars open their people, and Ctrl+K jumps anywhere", async ({ page, request }) => {
   const ctx = { platform: "android", app_version: "2.3.0" };
   const sent = await request.post("/v1/events/batch", {

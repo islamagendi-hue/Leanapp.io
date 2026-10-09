@@ -6,6 +6,7 @@ import { msg, type T } from "@/i18n/translate";
 import { CohortSelect } from "@/components/CohortSelect";
 import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
+import { CountUp } from "@/components/CountUp";
 import { TrendChart } from "@/components/TrendChart";
 import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN, NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport } from "@/modules/analytics/revenue";
 import { FALLBACK_PROPERTY } from "@/modules/analytics/revenue-rules";
@@ -174,7 +175,7 @@ function Stat({ label, value, hint, strong, delta }: { label: string; value: str
   return (
     <div>
       <dt className="text-xs text-ink-3">{label}</dt>
-      <dd className={`tabular-nums ${strong ? "text-xl font-bold" : "text-lg"}`}>{value}</dd>
+      <dd className={`tabular-nums ${strong ? "text-xl font-bold" : "text-lg"}`}><CountUp value={value} /></dd>
       {delta && <dd>{delta}</dd>}
       {hint && <dd className="text-xs text-ink-3">{hint}</dd>}
     </div>

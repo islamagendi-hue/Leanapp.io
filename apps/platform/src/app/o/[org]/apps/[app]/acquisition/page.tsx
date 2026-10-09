@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AcquisitionHeader, AcquisitionRange, money, num, pct } from "@/components/acquisition/AcquisitionHeader";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
+import { CountUp } from "@/components/CountUp";
 import { TrendChart } from "@/components/TrendChart";
 import { envName, rich } from "@/components/acquisition/rich";
 import { getT } from "@/i18n/server";
@@ -44,7 +45,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
         ].map(([label, value, note]) => (
           <div key={label} className="card">
             <p className="font-mono text-[11px] uppercase tracking-wide text-ink-3">{label}</p>
-            <p className="mt-1 text-2xl font-bold tabular-nums">{value}</p>
+            <p className="mt-1 text-2xl font-bold tabular-nums"><CountUp value={value} /></p>
             <p className="text-xs text-ink-3">{note}</p>
           </div>
         ))}
