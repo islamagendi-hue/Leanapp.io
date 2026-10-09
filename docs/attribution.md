@@ -109,16 +109,20 @@ Changing spend needs `attribution.manage` and is audited (`attribution.spend_sav
 
 ### CAC and LTV by channel
 
-Acquisition → CAC & LTV (`modules/attribution/economics.ts`, arithmetic in `economics-pure.ts`) puts cost next to what new users paid, for the range picked (preset or custom days, app timezone):
+Acquisition → CAC & LTV (`modules/attribution/economics.ts`, arithmetic in `economics-pure.ts`) puts cost next to what buyers paid, for the range picked (preset or custom days, app timezone) and an **LTV window** of 7, 30, 60, 90 (default), 180 or 365 days. It uses two groups of people, both chosen by the range:
 
-- **New users**: people whose first install or reinstall on record in the environment falls in the range. People are stitched as in Analytics (user_id, else the one user the install is linked to, else the anonymous id), so a second device is not a new user. The channel is that first install's source (a source, `organic` or `(unknown)`).
+- People are stitched as in Analytics (user_id, else the one user the install is linked to, else the anonymous id). A person's **channel** is the source of their first install or reinstall on record (a source, `organic`, `(unknown)`, or `(no install on record)`), in both groups.
+- **New users** (the CAC group): people whose first install or reinstall falls in the range. A second device is not a new user.
 - **Spend**: the spend entered for that source over the range's days, per currency (sources match exactly, as in Revenue by channel).
-- **CAC** = spend ÷ new users, in the spend's currency. "—" when the channel has no spend or no new users.
-- **Revenue**: net revenue (gross − refunds) of those new users from the revenue events in the range, per currency, by the Revenue report's rules. **Paying users**: new users with at least one revenue transaction in the range.
-- **LTV** = revenue ÷ new users. It is observed revenue to date, not a forecast or a predicted lifetime value.
-- **LTV:CAC** = LTV ÷ CAC (that is, revenue ÷ spend). Shown only when the spend and all of the channel's revenue are in one currency; otherwise "—" with a note. Nothing is converted between currencies.
+- **CAC** = spend ÷ new users, in the spend's currency; "—" without spend or new users.
+- **Buyers** (the LTV group): people whose first purchase ever — their first revenue transaction that isn't a refund, by the Revenue report's rules — falls in the range. A person installed long before the range can be a buyer.
+- **Revenue in window**: each buyer's net revenue (gross − refunds) in `[first purchase, first purchase + N days)`, per currency.
+- **LTV** = revenue in window ÷ buyers, per currency. It is observed revenue, not a forecast. A buyer whose N days haven't passed yet counts with what they paid so far; the page shows how many buyers have had the full window and marks the rest **still maturing**.
+- **LTV over time**: LTV at the first day (first 24 hours) and at day 7, 30, 60… up to N. Each point divides the revenue in the first `max(d, 1)` days by only the buyers who have had that long, and shows that count.
+- **LTV:CAC** = LTV ÷ CAC, only when the spend and all of the channel's buyers' revenue are in one currency; otherwise "—" with a note. The two numbers come from different groups (installs in the range, first purchases in the range). Nothing is converted between currencies.
+- **Buyers with the most revenue**: up to 50 of the buyers (a row per person and currency) with channel, first purchase date, purchases and revenue in window, linked to their profile for people with `users.read`.
 
-It needs `attribution.read` and `analytics.read`, and runs through the report cache (kind `channel_economics`).
+It needs `attribution.read` and `analytics.read`, and runs through the report cache (kind `channel_economics`, cache version 4).
 
 ## SKAdNetwork / AdAttributionKit
 
