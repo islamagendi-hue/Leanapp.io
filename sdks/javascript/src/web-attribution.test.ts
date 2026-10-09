@@ -193,6 +193,25 @@ describe("web auto-capture", () => {
 });
 
 describe("Meta browser ids", () => {
+  it("sends the browser's user agent as context.user_agent on web events", async () => {
+    page("https://shop.example/");
+    vi.stubGlobal("navigator", { userAgent: "Mozilla/5.0 (iPhone) Safari/604.1" });
+    const s = server();
+    const c = make(s);
+    c.track("a");
+    await c.flush();
+    expect(s.events()[0].context.user_agent).toBe("Mozilla/5.0 (iPhone) Safari/604.1");
+  });
+
+  it("only reads Meta's cookies, never sets them", async () => {
+    page("https://shop.example/?fbclid=IwAR9", "", "");
+    const s = server();
+    const c = make(s);
+    c.track("a");
+    await c.flush();
+    expect((globalThis as unknown as { document: { cookie: string } }).document.cookie).toBe("");
+  });
+
   it("adds _fbp/_fbc cookie values to every event, and builds fbc from an observed fbclid when there is no _fbc cookie", async () => {
     page("https://shop.example/?fbclid=IwAR9", "", "_fbp=fb.1.1700000000000.42; other=1");
     const s = server();

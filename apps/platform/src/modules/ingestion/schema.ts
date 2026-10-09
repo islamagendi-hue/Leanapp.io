@@ -50,6 +50,8 @@ export const contextSchema = z
       })
       .partial()
       .optional(),
+    /** Web SDK: navigator.userAgent (Meta's Conversions API needs it for website events). */
+    user_agent: z.string().max(1000).optional(),
     locale: z.string().max(35).optional(),
     language: z.string().max(35).optional(),
     timezone: z.string().max(64).optional(),

@@ -782,6 +782,11 @@ export class LeanAppClient {
     const ctx: Record<string, unknown> = { ...autoContext(), ...this.o.context, platform: this.o.platform, sdk: { name: SDK_NAME, version: SDK_VERSION } };
     if (this.o.appVersion) ctx.app_version = this.o.appVersion;
     if (this.o.appBuild) ctx.app_build = this.o.appBuild;
+    if (this.o.platform === "web") {
+      // Browsers: Meta's Conversions API needs the client user agent for website events.
+      const ua = (globalThis as { navigator?: { userAgent?: string } }).navigator?.userAgent;
+      if (typeof ua === "string" && ua) ctx.user_agent = ua.slice(0, 512);
+    }
     // The user's explicit answers only: a default is not consent the user gave.
     if (this.state.consent && Object.keys(this.state.consent).length) ctx.consent = { ...this.state.consent };
     return ctx;
