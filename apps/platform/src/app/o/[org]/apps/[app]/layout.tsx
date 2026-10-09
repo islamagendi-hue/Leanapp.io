@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AppNav } from "@/components/AppNav";
+import { AppNav, NavRail } from "@/components/AppNav";
 import { NavShell } from "@/components/NavShell";
 import { QuickSearch } from "@/components/QuickSearch";
 import { getT } from "@/i18n/server";
@@ -20,6 +20,7 @@ export default async function AppLayout(props: LayoutProps<"/o/[org]/apps/[app]"
     <NavShell
       search={<QuickSearch base={base} menu={menu} settings={settings} events={events} canUsers={can(ctx.role, "users.read")} />}
       nav={<AppNav base={base} appName={a.name} menu={menu} settings={settings} />}
+      rail={<NavRail base={base} menu={menu} />}
     >
       {a.status === "archived" && (
         <p className="mb-6 rounded-lg border border-warn/40 bg-warn-soft px-4 py-3 text-sm" role="status">

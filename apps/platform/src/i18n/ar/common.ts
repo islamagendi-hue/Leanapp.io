@@ -37,6 +37,7 @@ const ar: Record<string, string> = {
   "Hide menu": "أخفِ القائمة",
   "Show menu": "أظهر القائمة",
   "Search pages": "ابحث في الصفحات",
+  Shortcuts: "اختصارات",
   Beta: "تجريبي",
   Soon: "قريبًا",
   "Not available yet": "غير متاح بعد",

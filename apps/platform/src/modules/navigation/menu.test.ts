@@ -29,6 +29,10 @@ describe("navigation menu", () => {
     expect(main.some((h) => h.includes("/settings/dev-ops/") || h.includes("/settings/privacy"))).toBe(false);
     expect(projectMenu("owner", base).map((g) => g.label)).toEqual(["Overview", "Growth", "Attribution", "Analyze", "Segments", "Engage Lab", "A/B experiments", "Settings"]);
     expect(projectMenu("owner", base).filter((g) => g.heading !== undefined).map((g) => `${g.heading}:${g.label}`)).toEqual([":Settings"]);
+    // Every section has its own picture in the folded menu.
+    const icons = projectMenu("owner", base).map((g) => g.icon);
+    expect(icons.every(Boolean)).toBe(true);
+    expect(new Set(icons).size).toBe(icons.length);
     expect(labels(projectMenu("owner", base))).toEqual([
       "Overview",
       "Growth", "Growth/Acquisition", "Growth/CAC & LTV", "Growth/Sources & campaigns", "Growth/Ad spend",

@@ -23,12 +23,16 @@ export interface NavItem {
   beta?: boolean;
 }
 
+export type NavIcon = "overview" | "growth" | "attribution" | "analyze" | "segments" | "engage" | "experiments" | "settings";
+
 export interface NavGroup {
   label: string;
   /** A group with an href and no items is a single top-level entry. */
   href?: string;
   match?: string;
   beta?: boolean;
+  /** The picture for this entry in the folded menu (NavRail). */
+  icon?: NavIcon;
   /** Starts a block of the menu under this small heading; "" is a plain divider. */
   heading?: string;
   items: NavItem[];
@@ -56,9 +60,10 @@ function groups(list: (NavGroup & { perm?: Permission })[], role: Role): NavGrou
 export function projectMenu(role: Role, base: string): NavGroup[] {
   return groups(
     [
-      { label: msg("Overview"), href: base, items: [] },
+      { label: msg("Overview"), href: base, icon: "overview", items: [] },
       {
         label: msg("Growth"),
+        icon: "growth",
         items: pick(role, [
           { label: msg("Acquisition"), href: `${base}/acquisition`, perm: "attribution.read", beta: true },
           { label: msg("CAC & LTV"), href: `${base}/acquisition/channels`, perm: "attribution.read", sub: true },
@@ -73,6 +78,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       },
       {
         label: msg("Attribution"),
+        icon: "attribution",
         beta: true,
         items: pick(role, [
           { label: msg("Attribution report"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
@@ -82,6 +88,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       },
       {
         label: msg("Analyze"),
+        icon: "analyze",
         items: pick(role, [
           { label: msg("Events & trends"), href: `${base}/analytics/events`, perm: "analytics.read" },
           { label: msg("Funnels"), href: `${base}/analytics/funnels`, perm: "analytics.read" },
@@ -91,6 +98,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       },
       {
         label: msg("Segments"),
+        icon: "segments",
         items: pick(role, [
           { label: msg("Users"), href: `${base}/analytics/users`, perm: "users.read" },
           { label: msg("Audiences"), href: `${base}/engage/audiences`, perm: "audiences.read" },
@@ -98,6 +106,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       },
       {
         label: msg("Engage Lab"),
+        icon: "engage",
         items: pick(role, [
           { label: msg("Campaigns"), href: `${base}/engage/campaigns`, perm: "automations.read" },
           { label: msg("Flows"), href: `${base}/engage/automations`, perm: "automations.read" },
@@ -105,8 +114,8 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
           { label: msg("Channels & delivery"), href: `${base}/engage/channels`, perm: "automations.read" },
         ]),
       },
-      { label: msg("A/B experiments"), href: `${base}/engage/experiments`, perm: "automations.read", items: [] },
-      { label: msg("Settings"), href: `${base}/settings`, heading: "", items: [] },
+      { label: msg("A/B experiments"), href: `${base}/engage/experiments`, perm: "automations.read", icon: "experiments", items: [] },
+      { label: msg("Settings"), href: `${base}/settings`, icon: "settings", heading: "", items: [] },
     ],
     role,
   );

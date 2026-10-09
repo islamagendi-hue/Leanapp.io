@@ -2,9 +2,9 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Fragment, useEffect, useRef, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { useT } from "@/i18n/client";
-import { activeHref, type NavGroup } from "@/modules/navigation/menu";
+import { activeHref, type NavGroup, type NavIcon } from "@/modules/navigation/menu";
 
 /**
  * A project's side menu. Inside Settings it swaps to the settings menu (Workspace, Project,
@@ -160,3 +160,74 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
 
 /** The id of the phone menu drawer, opened by the menu button in the top bar. */
 export const DRAWER_ID = "nav-drawer";
+
+const ICONS: Record<NavIcon, ReactNode> = {
+  overview: <path d="M3.5 9 10 3.5 16.5 9v7.5h-4.5v-4.5H8v4.5H3.5z" />,
+  growth: (
+    <>
+      <path d="m3 14 4.5-4.5 3 3L17 6" />
+      <path d="M12.5 6H17v4.5" />
+    </>
+  ),
+  attribution: (
+    <>
+      <path d="M8.5 11.5a3.2 3.2 0 0 0 4.6.2l2.4-2.4a3.2 3.2 0 0 0-4.6-4.6l-1 1" />
+      <path d="M11.5 8.5a3.2 3.2 0 0 0-4.6-.2l-2.4 2.4a3.2 3.2 0 0 0 4.6 4.6l1-1" />
+    </>
+  ),
+  analyze: <path d="M4 16.5V10M8 16.5V4M12 16.5v-8M16 16.5V7" />,
+  segments: (
+    <>
+      <circle cx="7.5" cy="7" r="2.8" />
+      <path d="M2.5 16.5c.4-2.8 2.5-4.5 5-4.5s4.6 1.7 5 4.5" />
+      <path d="M13 4.5a2.6 2.6 0 0 1 0 5M14.5 12.3c1.7.5 2.8 2 3 4.2" />
+    </>
+  ),
+  engage: <path d="M17 3 3 9l5.5 2.5L11 17zM8.5 11.5 17 3" />,
+  experiments: (
+    <>
+      <path d="M7.5 3.5h5M8.5 3.5v5L4 16a.9.9 0 0 0 .8 1.4h10.4A.9.9 0 0 0 16 16l-4.5-7.5v-5" />
+      <path d="M6 13h8" />
+    </>
+  ),
+  settings: (
+    <>
+      <circle cx="10" cy="10" r="2.5" />
+      <path d="M10 2.5v2M10 15.5v2M2.5 10h2M15.5 10h2M4.7 4.7l1.4 1.4M13.9 13.9l1.4 1.4M4.7 15.3l1.4-1.4M13.9 6.1l1.4-1.4" />
+    </>
+  ),
+};
+
+/**
+ * The folded menu (NavShell's thin rail on wide screens): one picture per section, opening its first
+ * page; the section holding the current page is highlighted.
+ */
+export function NavRail({ base, menu }: { base: string; menu: NavGroup[] }) {
+  const path = usePathname();
+  const t = useT();
+  const inSettings = path === `${base}/settings` || path.startsWith(`${base}/settings/`);
+  const active = activeHref(menu, path);
+  return (
+    <nav aria-label={t("Shortcuts")} className="flex flex-col items-center gap-1">
+      {menu.map((g) => {
+        const href = g.href ?? g.items.find((i) => i.href)?.href;
+        if (!g.icon || !href) return null;
+        const here = g.icon === "settings" ? inSettings : !inSettings && (g.href === active || g.items.some((i) => i.href === active));
+        return (
+          <Link
+            key={g.label}
+            href={href}
+            aria-label={t(g.label)}
+            title={t(g.label)}
+            aria-current={here ? "page" : undefined}
+            className={`grid size-9 place-items-center rounded-md ${g.icon === "settings" ? "mt-2" : ""} ${here ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2 hover:text-ink"}`}
+          >
+            <svg aria-hidden viewBox="0 0 20 20" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+              {ICONS[g.icon]}
+            </svg>
+          </Link>
+        );
+      })}
+    </nav>
+  );
+}

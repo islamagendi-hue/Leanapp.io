@@ -5,7 +5,7 @@ import { useT } from "@/i18n/client";
 
 /**
  * The project layout's two columns: the side menu and the page. On wide screens the menu folds
- * away to a thin rail (search on top, the fold button at the bottom), so the page gets the full
+ * away to a thin rail (search on top, a picture per section, the fold button at the bottom), so the page gets the full
  * width; the choice is remembered per browser. Phones keep the drawer (AppNav), so nothing changes there.
  */
 const KEY = "leanapp.nav.collapsed";
@@ -34,7 +34,7 @@ function write(collapsed: boolean) {
   window.dispatchEvent(new Event(KEY));
 }
 
-export function NavShell({ search, nav, children }: { search: ReactNode; nav: ReactNode; children: ReactNode }) {
+export function NavShell({ search, nav, rail, children }: { search: ReactNode; nav: ReactNode; rail: ReactNode; children: ReactNode }) {
   const t = useT();
   const collapsed = useSyncExternalStore(subscribe, read, () => false);
   const label = collapsed ? t("Show menu") : t("Hide menu");
@@ -46,6 +46,7 @@ export function NavShell({ search, nav, children }: { search: ReactNode; nav: Re
           {/* The search stays mounted when folded, so Ctrl+K still opens it. */}
           {search}
           <div className={collapsed ? "max-lg:contents lg:hidden" : "max-lg:contents"}>{nav}</div>
+          {collapsed && <div className="hidden pt-11 lg:block">{rail}</div>}
         </div>
         <div className={`hidden border-t border-line pt-2 lg:flex ${collapsed ? "justify-center" : "justify-start"}`}>
           <button
