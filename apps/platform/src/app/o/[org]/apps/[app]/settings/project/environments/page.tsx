@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { setEnvironmentStatusAction } from "@/app/actions/apps";
 import { ActionForm } from "@/components/ActionForm";
+import { EnvironmentSelect } from "@/components/TopBar";
+import { cookies } from "next/headers";
+import { Suspense } from "react";
+import { ENV_COOKIE, isEnvironmentName } from "@/lib/environment";
 import { getT } from "@/i18n/server";
 import { msg } from "@/i18n/translate";
 import { can } from "@/modules/rbac/authorize";
@@ -23,12 +27,22 @@ export default async function EnvironmentsPage(props: PageProps<"/o/[org]/apps/[
   const manage = can(ctx.role, "apps.update") && a.status === "active";
   const keys = can(ctx.role, "credentials.read");
   const t = await getT();
+  const viewing = (await cookies()).get(ENV_COOKIE)?.value;
   return (
     <div className="space-y-6">
       <div>
         <h1 className="h1">{t("Environments")}</h1>
         <p className="mt-1 text-ink-2">{t("Each environment has its own SDK keys and data; test events never mix with production.")}</p>
       </div>
+      <section className="card max-w-2xl space-y-3">
+        <div>
+          <h2 className="h2">{t("Data you are viewing")}</h2>
+          <p className="mt-1 text-sm text-ink-3">{t("Reports, users and the dashboard show this environment on every page until you change it here.")}</p>
+        </div>
+        <Suspense>
+          <EnvironmentSelect initial={isEnvironmentName(viewing) ? viewing : undefined} />
+        </Suspense>
+      </section>
       <ul className="max-w-2xl space-y-3">
         {environments.map((e) => {
           const paused = e.status === "disabled";

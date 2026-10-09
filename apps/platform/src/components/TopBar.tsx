@@ -78,21 +78,45 @@ const readCookie = (): EnvironmentName | undefined => {
   return isEnvironmentName(v) ? v : undefined;
 };
 
+/** The environment being viewed: `?env=` in the URL, else the remembered cookie, else production. */
+function useViewedEnvironment(initial?: EnvironmentName): EnvironmentName {
+  const params = useSearchParams();
+  // Re-read on every render (navigation re-renders this); the server's value until hydrated.
+  const remembered = useSyncExternalStore(() => () => {}, readCookie, () => initial);
+  const fromUrl = params.get("env");
+  return isEnvironmentName(fromUrl) ? fromUrl : remembered ?? DEFAULT_ENVIRONMENT;
+}
+
 /**
- * The one environment selector, shown on project pages. Choosing puts `?env=` in the URL, which
- * re-renders the page and keeps links shareable; proxy.ts then remembers it in a cookie so every
- * project page opens on it (pickEnvironment reads it on the server).
+ * In the top bar on project pages, only while a non-production environment is
+ * being viewed: names it and links to where it is changed (project settings →
+ * Environments), so test data is never mistaken for live data.
+ */
+export function EnvironmentBadge({ initial, org }: { initial?: EnvironmentName; org: string }) {
+  const path = usePathname();
+  const t = useT();
+  const current = useViewedEnvironment(initial);
+  const app = projectInPath(path);
+  if (!app || current === "production") return null;
+  return (
+    <Link href={`/o/${org}/apps/${encodeURIComponent(app)}/settings/project/environments`} className="pill border-warn/40 bg-warn-soft text-warn" title={t("Change environment")}>
+      {t("Viewing {env} data", { env: t(ENV_LABELS[current]) })}
+    </Link>
+  );
+}
+
+/**
+ * The environment selector, in project settings → Environments. Choosing puts `?env=` in the URL,
+ * which re-renders the page and keeps links shareable; proxy.ts then remembers it in a cookie so
+ * every project page opens on it (pickEnvironment reads it on the server).
  */
 export function EnvironmentSelect({ initial }: { initial?: EnvironmentName }) {
   const path = usePathname();
   const params = useSearchParams();
   const router = useRouter();
   const t = useT();
-  // Re-read on every render (navigation re-renders this); the server's value until hydrated.
-  const remembered = useSyncExternalStore(() => () => {}, readCookie, () => initial);
+  const current = useViewedEnvironment(initial);
   if (!projectInPath(path)) return null;
-  const fromUrl = params.get("env");
-  const current: EnvironmentName = isEnvironmentName(fromUrl) ? fromUrl : remembered ?? DEFAULT_ENVIRONMENT;
 
   const choose = (env: EnvironmentName) => {
     const q = new URLSearchParams(params);

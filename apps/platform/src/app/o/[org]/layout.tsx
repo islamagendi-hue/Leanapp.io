@@ -5,7 +5,7 @@ import { signOutAction } from "@/app/actions/auth";
 import { LogoMark } from "@/components/Logo";
 import { PlanBanner } from "@/components/PlanBanner";
 import { initials } from "@/components/account/AccountSections";
-import { AccountMenu, EnvironmentSelect, ProjectSwitcher, WorkspaceSwitcher } from "@/components/TopBar";
+import { AccountMenu, EnvironmentBadge, ProjectSwitcher, WorkspaceSwitcher } from "@/components/TopBar";
 import { getT } from "@/i18n/server";
 import { msg } from "@/i18n/translate";
 import { ENV_COOKIE, isEnvironmentName } from "@/lib/environment";
@@ -50,7 +50,7 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
             />
           </nav>
           <Suspense>
-            <EnvironmentSelect initial={isEnvironmentName(env) ? env : undefined} />
+            <EnvironmentBadge org={org} initial={isEnvironmentName(env) ? env : undefined} />
           </Suspense>
           <div className="ms-auto flex items-center text-sm">
             <AccountMenu
