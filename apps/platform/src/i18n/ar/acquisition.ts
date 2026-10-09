@@ -130,7 +130,7 @@ const ar: Record<string, string> = {
   "Avg fine value": "متوسط القيمة الدقيقة",
   "Coarse high": "تقريبية مرتفعة",
   "Not included in the Beta": "غير مشمول في النسخة التجريبية",
-  "Automatic import of ad cost, and CPI": "الاستيراد التلقائي لتكلفة الإعلانات، و CPI",
+  "Ad cost import checked with a real ad account (it is built, and tested only against the networks' documented APIs)": "استيراد تكلفة الإعلانات بعد التحقق منه بحساب إعلاني حقيقي (الاستيراد مبني، ومُختبر فقط على واجهات الشبكات الموثّقة)",
   "Fraud prevention": "الحماية من الاحتيال",
   "Multi-touch and view-through attribution": "الإسناد متعدد النقاط والإسناد بالمشاهدة",
   "Installs claimed by ad networks (self-attributing networks) and audience export to them": "عمليات التثبيت التي تنسبها شبكات الإعلانات لنفسها (الشبكات ذاتية الإسناد) وتصدير الجماهير إليها",

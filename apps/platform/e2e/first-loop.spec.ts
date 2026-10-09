@@ -635,7 +635,7 @@ test("acquisition (beta): overview, sources, attribution, and a tracking link wi
   const tabs = page.getByRole("navigation", { name: "Acquisition" });
   await tabs.getByRole("link", { name: "Sources & campaigns" }).click();
   await expect(page.getByRole("heading", { name: "Sources & campaigns Beta", level: 1 })).toBeVisible();
-  await expect(page.getByText(/No cost or CPI here: enter spend on the Ad spend page/)).toBeVisible();
+  await expect(page.getByText(/CPI: spend ÷ installs\. CPA: spend ÷ purchases\./)).toBeVisible();
   // Ad spend: entered by hand or by CSV; a CSV with a wrong row saves nothing and names the line.
   await tabs.getByRole("link", { name: "Ad spend" }).click();
   await expect(page.getByRole("heading", { name: "Ad spend Beta", level: 1 })).toBeVisible();
