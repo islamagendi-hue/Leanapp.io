@@ -91,9 +91,9 @@ export function EventDebugger({ feedUrl, testCurl }: { feedUrl: string; testCurl
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_420px]">
-        <div className="card overflow-x-auto p-0">
+        <div className="card max-h-[70vh] overflow-auto p-0">
           <table className="table">
-            <thead><tr><th>{t("Received")}</th><th>{t("Event")}</th><th>{t("User")}</th><th>{t("Platform")}</th><th>{t("Check")}</th></tr></thead>
+            <thead className="sticky top-0 z-[1] bg-card"><tr><th>{t("Received")}</th><th>{t("Event")}</th><th>{t("User")}</th><th>{t("Platform")}</th><th>{t("Check")}</th></tr></thead>
             <tbody>
               {shown.length === 0 && <tr><td colSpan={5} className="py-8 text-center text-ink-3">{t("Listening for events…")}</td></tr>}
               {shown.map((e) => (
@@ -112,7 +112,7 @@ export function EventDebugger({ feedUrl, testCurl }: { feedUrl: string; testCurl
             </tbody>
           </table>
         </div>
-        <div className="card min-w-0 lg:sticky lg:top-20 lg:self-start">
+        <div className="card min-w-0 lg:sticky lg:top-24 lg:max-h-[calc(100dvh-7rem)] lg:self-start lg:overflow-y-auto">
           {current ? <EventDetail e={current} t={t} lang={lang} /> : <p className="text-sm text-ink-3">{t("Click an event to inspect its payload and validation.")}</p>}
         </div>
       </div>
@@ -172,7 +172,7 @@ function EventDetail({ e, t, lang }: { e: DebugEvent; t: T; lang: Lang }) {
 function Json({ title, value }: { title: string; value: unknown }) {
   return (
     <div>
-      <p className="mb-1 font-mono text-[11px] uppercase tracking-wide text-ink-3">{title}</p>
+      <p className="mb-1 eyebrow">{title}</p>
       <pre className="code max-h-64 overflow-auto text-xs" dir="ltr">{JSON.stringify(value, null, 2)}</pre>
     </div>
   );
@@ -181,7 +181,7 @@ function Json({ title, value }: { title: string; value: unknown }) {
 function Stat({ label, value, accent, warn, hint }: { label: string; value: string; accent?: boolean; warn?: boolean; hint?: string }) {
   return (
     <div className="card">
-      <p className="font-mono text-[11px] uppercase tracking-wide text-ink-3">{label}</p>
+      <p className="eyebrow">{label}</p>
       <p className={`mt-1 truncate text-lg font-bold ${accent ? "text-accent-ink" : ""} ${warn ? "text-warn" : ""}`}>{value}</p>
       {hint && <p className="mt-0.5 text-xs text-ink-3">{hint}</p>}
     </div>
@@ -191,7 +191,7 @@ function Stat({ label, value, accent, warn, hint }: { label: string; value: stri
 function Breakdown({ title, rows }: { title: string; rows: [string, number][] }) {
   return (
     <div className="card text-sm">
-      <p className="font-mono text-[11px] uppercase tracking-wide text-ink-3">{title}</p>
+      <p className="eyebrow">{title}</p>
       <ul className="mt-2 space-y-1">
         {rows.length === 0 && <li className="text-ink-3">–</li>}
         {rows.map(([k, n]) => <li key={k} className="flex justify-between gap-2"><span className="truncate">{k}</span><span className="font-mono text-ink-3">{n}</span></li>)}

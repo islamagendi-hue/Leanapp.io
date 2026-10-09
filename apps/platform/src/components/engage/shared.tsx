@@ -69,7 +69,7 @@ export async function Sparkline({ values, label }: { values: number[]; label: st
   const y = (v: number) => H - 4 - (v / max) * (H - 8);
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="h-20 w-full" role="img" aria-label={label} preserveAspectRatio="none">
-      <polyline fill="none" stroke="#0f6b4f" strokeWidth="2" vectorEffect="non-scaling-stroke" points={values.map((v, i) => `${x(i)},${y(v)}`).join(" ")} />
+      <polyline fill="none" style={{ stroke: "var(--color-chart-1)" }} strokeWidth="2" vectorEffect="non-scaling-stroke" points={values.map((v, i) => `${x(i)},${y(v)}`).join(" ")} />
     </svg>
   );
 }

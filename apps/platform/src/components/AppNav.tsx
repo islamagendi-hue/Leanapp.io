@@ -72,7 +72,7 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
     <Link
       href={href}
       aria-current={href === active ? "page" : undefined}
-      className={`block rounded-md px-2 py-1.5 ${sub ? "ms-3 text-[13px]" : ""} ${href === active ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
+      className={`flex min-h-11 items-center rounded-md px-3 lg:min-h-0 lg:px-2 lg:py-1.5 ${sub ? "ms-3 text-[13px]" : ""} ${href === active ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
     >
       {t(label)}
     </Link>
@@ -80,7 +80,7 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
   const nav = (
     <nav aria-label={title} className="text-sm">
       {back && (
-        <Link href={back.href} className="mb-2 block truncate px-2 text-xs text-ink-3 hover:text-ink">
+        <Link href={back.href} className="mb-2 flex min-h-10 items-center gap-1 truncate px-2 text-xs text-ink-3 hover:text-ink lg:min-h-0">
           <span aria-hidden className="inline-block rtl:-scale-x-100">←</span> {back.label}
         </Link>
       )}
@@ -94,7 +94,7 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
               type="button"
               onClick={() => toggle(g.label)}
               aria-expanded={!closed.has(g.label)}
-              className="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-0.5 text-start font-mono text-[11px] uppercase tracking-wide text-ink-3 hover:bg-paper-2 hover:text-ink"
+              className="eyebrow mb-1 flex min-h-10 w-full items-center gap-2 rounded-md px-2 text-start hover:bg-paper-2 hover:text-ink lg:min-h-0 lg:py-0.5"
             >
               <span aria-hidden className={`inline-block text-[9px] transition-transform ${closed.has(g.label) ? "-rotate-90 rtl:rotate-90" : ""}`}>▼</span>
               {t(g.label)}
@@ -106,7 +106,7 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
                   {i.href ? (
                     link(i.href, i.label, i.sub)
                   ) : (
-                    <span className="flex items-center justify-between px-2 py-1.5 text-ink-3" title={t("Not available yet")}>
+                    <span className="flex min-h-11 items-center justify-between px-3 text-ink-3 lg:min-h-0 lg:px-2 lg:py-1.5" title={t("Not available yet")}>
                       {t(i.label)}
                       <span className="pill border-line text-[10px]">{t("Soon")}</span>
                     </span>
@@ -119,17 +119,27 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
       )}
     </nav>
   );
-  // Phones get the menu folded away above the page; it folds again once an entry is chosen.
+  // Phones open the menu as a drawer from the start edge (the menu button is in the top bar,
+  // see NavButtons); choosing an entry closes it. It is a popover, so it works without JavaScript.
   return (
     <>
-      <details
-        className="rounded-lg border border-line bg-card lg:hidden"
-        onClick={(e) => (e.target as HTMLElement).closest("a") && e.currentTarget.removeAttribute("open")}
+      <div
+        id={DRAWER_ID}
+        popover="auto"
+        className="drawer lg:hidden"
+        onClick={(e) => (e.target as HTMLElement).closest("a") && e.currentTarget.hidePopover()}
       >
-        <summary className="cursor-pointer px-3 py-2 text-sm font-medium">{t("Menu")} · {title}</summary>
-        <div className="border-t border-line p-2">{nav}</div>
-      </details>
+        <div className="mb-1 flex justify-end">
+          <button type="button" popoverTarget={DRAWER_ID} popoverTargetAction="hide" className="grid size-11 place-items-center rounded-lg text-ink-2 hover:bg-paper-2" aria-label={t("Close menu")}>
+            <span aria-hidden className="text-xl leading-none">×</span>
+          </button>
+        </div>
+        {nav}
+      </div>
       <div className="hidden lg:block">{nav}</div>
     </>
   );
 }
+
+/** The id of the phone menu drawer, opened by the menu button in the top bar. */
+export const DRAWER_ID = "nav-drawer";

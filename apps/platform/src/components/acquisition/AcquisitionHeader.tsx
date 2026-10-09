@@ -36,7 +36,7 @@ export async function AcquisitionHeader({ base, current, title, description, env
       <nav className="flex flex-wrap gap-2 text-sm" aria-label={t("Acquisition")}>
         {ACQUISITION_TABS.map(([path, label]) => (
           <Link key={path} href={`${base}${path}?env=${env}`} aria-current={path === current ? "page" : undefined}
-            className={`pill ${path === current ? "border-ink bg-ink text-paper" : "border-line hover:border-line-strong"}`}>{t(label)}</Link>
+            className={`pill min-h-9 px-3 ${path === current ? "border-ink bg-ink text-paper" : "border-line hover:border-line-strong"}`}>{t(label)}</Link>
         ))}
       </nav>
       <details className="max-w-3xl rounded-lg border border-line px-3 py-2 text-sm text-ink-2">
@@ -62,7 +62,7 @@ export async function AcquisitionHeader({ base, current, title, description, env
 export async function AcquisitionRange({ env, range }: { env: string; range: { preset: number | null; from: string; to: string } }) {
   const t = await getT();
   return (
-    <form method="get" className="flex flex-wrap items-end gap-3" aria-label={t("Range")}>
+    <form method="get" className="filters filters-bare" aria-label={t("Range")}>
       <input type="hidden" name="env" value={env} />
       <AutoApply />
       <label><span className="label">{t("Range")}</span>

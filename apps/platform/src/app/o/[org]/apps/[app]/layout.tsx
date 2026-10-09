@@ -16,8 +16,8 @@ export default async function AppLayout(props: LayoutProps<"/o/[org]/apps/[app]"
   const events = can(ctx.role, "analytics.read") ? await planEventList(ctx, a.id) : [];
   const t = await getT();
   return (
-    <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[220px_1fr]">
-      <aside className="lg:sticky lg:top-20 lg:self-start">
+    <div className="mx-auto grid max-w-7xl gap-6 px-4 py-5 lg:grid-cols-[220px_1fr] lg:py-6">
+      <aside className="max-lg:contents lg:sticky lg:top-20 lg:max-h-[calc(100dvh-6rem)] lg:self-start lg:overflow-y-auto lg:overscroll-contain lg:pb-4">
         <QuickSearch base={base} menu={menu} settings={settings} events={events} canUsers={can(ctx.role, "users.read")} />
         <AppNav base={base} appName={a.name} menu={menu} settings={settings} />
       </aside>

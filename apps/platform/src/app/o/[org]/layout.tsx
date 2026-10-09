@@ -5,7 +5,7 @@ import { signOutAction } from "@/app/actions/auth";
 import { LogoMark } from "@/components/Logo";
 import { PlanBanner } from "@/components/PlanBanner";
 import { initials } from "@/components/account/AccountSections";
-import { AccountMenu, EnvironmentBadge, ProjectSwitcher, WorkspaceSwitcher } from "@/components/TopBar";
+import { AccountMenu, EnvironmentBadge, NavButtons, ProjectSwitcher, WorkspaceSwitcher } from "@/components/TopBar";
 import { getT } from "@/i18n/server";
 import { msg } from "@/i18n/translate";
 import { ENV_COOKIE, isEnvironmentName } from "@/lib/environment";
@@ -35,13 +35,12 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-20 border-b border-line bg-paper/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-2 gap-y-1 px-4 py-2 sm:gap-x-3 lg:py-3">
           <Link href={`/o/${org}`} className="flex items-center" aria-label="LeanApp home">
             <LogoMark size={24} />
           </Link>
-          <nav aria-label={t("Workspace and project")} className="flex flex-wrap items-center gap-1 text-sm font-medium">
+          <nav aria-label={t("Workspace and project")} className="flex min-w-0 items-center gap-0.5 text-sm font-medium sm:gap-1">
             <WorkspaceSwitcher current={{ slug: ctx.organizationSlug, name: ctx.organizationName }} workspaces={workspaces.map((w) => ({ slug: w.slug, name: w.name }))} />
-            <span aria-hidden className="text-ink-3">/</span>
             <ProjectSwitcher
               org={org}
               projects={projects.map((p) => ({ slug: p.slug, name: p.name }))}
@@ -52,7 +51,8 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
           <Suspense>
             <EnvironmentBadge org={org} initial={isEnvironmentName(env) ? env : undefined} />
           </Suspense>
-          <div className="ms-auto flex items-center text-sm">
+          <div className="ms-auto flex items-center gap-1 text-sm">
+            <NavButtons />
             <AccountMenu
               name={user?.name ?? ""}
               email={user?.email ?? ""}

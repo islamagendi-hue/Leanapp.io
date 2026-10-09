@@ -4,6 +4,7 @@ import { useEffect, useState, type KeyboardEvent, type PointerEvent, type ReactN
 import { useLang } from "@/i18n/client";
 import { dateLocale, type Lang } from "@/i18n/translate";
 
+/** `ys` (like the chart's `xs`) are fractions of the plot: 0 at the top, 1 at the bottom. */
 export type HoverSeries = { key: string; color: string; values: number[]; ys: number[] };
 
 const value = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 2 });
@@ -15,9 +16,7 @@ const value = (v: number) => v.toLocaleString("en-US", { maximumFractionDigits: 
  * each series' value. The chart itself stays the server's SVG, so without
  * JavaScript it is still drawn and labelled; this only adds to it.
  */
-export function ChartHover({ width, height, top, bottom, xs, days, series, children }: {
-  width: number; height: number; top: number; bottom: number; xs: number[]; days: string[]; series: HoverSeries[]; children: ReactNode;
-}) {
+export function ChartHover({ xs, days, series, children }: { xs: number[]; days: string[]; series: HoverSeries[]; children: ReactNode }) {
   const lang = useLang();
   const [i, setI] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
@@ -30,7 +29,7 @@ export function ChartHover({ width, height, top, bottom, xs, days, series, child
 
   const nearest = (e: PointerEvent<HTMLDivElement>) => {
     const r = e.currentTarget.getBoundingClientRect();
-    const x = ((e.clientX - r.left) / r.width) * width;
+    const x = (e.clientX - r.left) / r.width;
     let best = 0;
     for (let k = 1; k < xs.length; k++) if (Math.abs(xs[k] - x) < Math.abs(xs[best] - x)) best = k;
     setI(best);
@@ -47,11 +46,11 @@ export function ChartHover({ width, height, top, bottom, xs, days, series, child
   };
 
   const shown = i;
-  const at = shown === null ? 0 : xs[shown] / width;
+  const at = shown === null ? 0 : xs[shown];
   const date = shown === null ? "" : formatDay(days[shown], lang);
   return (
     <div
-      className="relative touch-pan-y select-none outline-offset-4"
+      className="relative h-full touch-pan-y select-none outline-offset-4"
       data-chart-hover=""
       tabIndex={ready ? 0 : undefined}
       onPointerMove={nearest}
@@ -63,12 +62,11 @@ export function ChartHover({ width, height, top, bottom, xs, days, series, child
       {children}
       {shown !== null && (
         <>
-          <svg viewBox={`0 0 ${width} ${height}`} className="pointer-events-none absolute inset-0 h-full w-full" style={{ direction: "ltr" }} aria-hidden="true">
-            <line x1={xs[shown]} x2={xs[shown]} y1={top} y2={height - bottom} className="stroke-line-strong" strokeWidth="1" strokeDasharray="4 3" />
-            {series.map((s) => (
-              <circle key={s.key} cx={xs[shown]} cy={s.ys[shown]} r="5" style={{ fill: s.color }} className="stroke-card" strokeWidth="2" />
-            ))}
-          </svg>
+          <div aria-hidden className="pointer-events-none absolute inset-y-0 border-s border-dashed border-line-strong" style={{ left: `${at * 100}%` }} />
+          {series.map((s) => (
+            <span key={s.key} aria-hidden className="pointer-events-none absolute size-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-card"
+              style={{ left: `${at * 100}%`, top: `${s.ys[shown] * 100}%`, background: s.color }} />
+          ))}
           <div
             role="status"
             data-chart-tooltip=""
