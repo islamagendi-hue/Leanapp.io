@@ -99,7 +99,10 @@ export function settingsMenu(role: Role, org: string, base?: string): NavGroup[]
     [
       {
         label: msg("You"),
-        items: pick(role, [{ label: msg("Your profile"), href: `${ws}/profile`, perm: "organization.read" }]),
+        items: pick(role, [
+          { label: msg("Your profile"), href: `${ws}/profile`, perm: "organization.read" },
+          { label: msg("Help & support"), href: `${ws}/support`, perm: "organization.read" },
+        ]),
       },
       {
         label: msg("Workspace"),
@@ -119,6 +122,7 @@ export function settingsMenu(role: Role, org: string, base?: string): NavGroup[]
                 { label: msg("General"), href: `${base}/settings/project`, perm: "apps.read" },
                 { label: msg("Environments"), href: `${base}/settings/project/environments`, perm: "apps.read" },
                 { label: msg("Timezone & currency"), href: `${base}/settings/project/timezone`, perm: "apps.read" },
+                { label: msg("Integrations"), href: `${base}/settings/integrations`, perm: "apps.read" },
                 { label: msg("Data retention"), soon: true, perm: "apps.read" },
                 { label: msg("Privacy requests"), href: `${base}/settings/privacy`, perm: "privacy.manage" },
                 { label: msg("Consent"), href: `${base}/settings/privacy/consent`, perm: "privacy.manage" },

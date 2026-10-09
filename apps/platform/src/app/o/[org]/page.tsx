@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { listApps, listArchivedApps } from "@/modules/apps/service";
 import { getT } from "@/i18n/server";
 import { fmtNumber } from "@/i18n/translate";
@@ -9,6 +10,8 @@ export default async function OrgHome(props: PageProps<"/o/[org]">) {
   const { org } = await props.params;
   const ctx = await requireTenant(org);
   const [apps, archived] = await Promise.all([listApps(ctx), listArchivedApps(ctx)]);
+  // Most accounts have one app: open it instead of a list of one.
+  if (apps.length === 1 && archived.length === 0) redirect(`/o/${org}/apps/${apps[0].slug}`);
   const t = await getT();
   return (
     <main className="mx-auto max-w-5xl px-4 py-8">

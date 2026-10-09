@@ -1,7 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
+import { Suspense } from "react";
 import { startDemoAction } from "@/app/actions/demo";
 import { Logo } from "@/components/Logo";
+import { ThemeSwitch } from "@/components/ThemeSwitch";
+import { getTheme } from "@/lib/theme";
 import { demoEnabled } from "@/modules/marketing/demo";
 import { COMPETITORS, CONTACT_EMAIL, landingCopy, type Availability, type Coverage } from "@/modules/marketing/landing";
 import { getLang } from "@/i18n/server";
@@ -42,6 +45,7 @@ export default async function Home(props: PageProps<"/">) {
   const t = landingCopy(lang);
   const other = lang === "ar" ? "en" : "ar";
   const user = await currentUser();
+  const theme = await getTheme();
   const start = user ? "/onboarding" : "/signup";
   const State = ({ state }: { state: Availability }) => <span className={`pill shrink-0 text-xs ${STATE_STYLE[state]}`}>{t.states[state]}</span>;
 
@@ -58,6 +62,7 @@ export default async function Home(props: PageProps<"/">) {
             <a href="#about" className="hover:text-ink">{t.nav.about}</a>
           </nav>
           <div className="flex items-center gap-3 text-sm">
+            <Suspense><ThemeSwitch current={theme} compact /></Suspense>
             <a href={`/lang?to=${other}&next=/`} hrefLang={other} lang={other} className="text-ink-2 hover:text-ink">{t.nav.other}</a>
             {user ? (
               <Link href="/onboarding" className="btn">{t.nav.dashboard}</Link>

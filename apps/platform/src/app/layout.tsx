@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { I18nProvider } from "@/i18n/client";
 import { clientDictionary } from "@/i18n/server";
 import { getLocale } from "@/lib/locale";
+import { getTheme } from "@/lib/theme";
 import "./globals.css";
 
 const dubai = localFont({
@@ -38,8 +39,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Every page renders per request so Next.js can apply the CSP nonce set in proxy.ts.
   await connection();
   const { lang, dir } = await getLocale();
+  const theme = await getTheme();
   return (
-    <html lang={lang} dir={dir} className={`${dubai.variable} ${plexMono.variable}`}>
+    <html lang={lang} dir={dir} data-theme={theme === "system" ? undefined : theme} className={`${dubai.variable} ${plexMono.variable}`}>
       <body className="min-h-dvh antialiased">
         <I18nProvider lang={lang} dict={await clientDictionary()}>{children}</I18nProvider>
       </body>

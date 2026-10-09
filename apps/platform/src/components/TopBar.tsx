@@ -6,6 +6,8 @@ import { useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 import { useT } from "@/i18n/client";
 import { msg } from "@/i18n/translate";
 import { LanguageSwitch } from "@/components/LanguageSwitch";
+import { ThemeSwitch } from "@/components/ThemeSwitch";
+import type { Theme } from "@/lib/theme";
 import { DEFAULT_ENVIRONMENT, ENV_COOKIE, ENVIRONMENT_ORDER, isEnvironmentName, type EnvironmentName } from "@/lib/environment";
 
 type Option = { slug: string; name: string };
@@ -121,13 +123,14 @@ export function EnvironmentSelect({ initial }: { initial?: EnvironmentName }) {
  * your role here, your profile, the organization's settings you can open, and
  * Sign out.
  */
-export function AccountMenu({ name, email, initials, role, links, signOut }: {
+export function AccountMenu({ name, email, initials, role, links, signOut, theme }: {
   name: string;
   email: string;
   initials: string;
   role: string;
   links: { label: string; href: string }[];
   signOut: () => Promise<void>;
+  theme: Theme;
 }) {
   const t = useT();
   return (
@@ -147,6 +150,10 @@ export function AccountMenu({ name, email, initials, role, links, signOut }: {
       <div className="flex items-center justify-between px-3 py-1.5">
         <span className="text-ink-3">{t("Language")}</span>
         <LanguageSwitch className="font-medium text-ink hover:underline" />
+      </div>
+      <div className="flex items-center justify-between gap-3 px-3 py-1.5">
+        <span className="text-ink-3">{t("Appearance")}</span>
+        <ThemeSwitch current={theme} />
       </div>
       <hr className="my-1 border-line" />
       <form action={signOut}>

@@ -9,6 +9,7 @@ import { AccountMenu, EnvironmentSelect, ProjectSwitcher, WorkspaceSwitcher } fr
 import { getT } from "@/i18n/server";
 import { msg } from "@/i18n/translate";
 import { ENV_COOKIE, isEnvironmentName } from "@/lib/environment";
+import { getTheme } from "@/lib/theme";
 import { listApps, listArchivedApps } from "@/modules/apps/service";
 import { listOrganizationsForUser } from "@/modules/organizations/service";
 import { can } from "@/modules/rbac/authorize";
@@ -29,6 +30,7 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
     { label: msg("Members & invitations"), href: `${ws}/members`, show: can(ctx.role, "members.read") },
     { label: msg("API keys"), href: `${ws}/api-keys`, show: can(ctx.role, "credentials.read") },
     { label: msg("Billing & plan"), href: `${ws}/billing`, show: can(ctx.role, "billing.read") },
+    { label: msg("Help & support"), href: `${ws}/support`, show: true },
   ].filter((l) => l.show).map(({ label, href }) => ({ label, href }));
   return (
     <div className="min-h-dvh">
@@ -58,6 +60,7 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
               role={ROLE_INFO[ctx.role].name}
               links={accountLinks}
               signOut={signOutAction}
+              theme={await getTheme()}
             />
           </div>
         </div>

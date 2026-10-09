@@ -291,8 +291,9 @@ test("project settings: rename, timezone, environments, archive and restore", as
   await expect(page.getByText("This project is archived, so it receives no events.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Restore project" }).click();
   await expect(page.getByText("Project restored.", { exact: false })).toBeVisible();
+  // With one project and none archived, the workspace opens straight into it.
   await page.goto(`/o/${org}`);
-  await expect(page.getByRole("link", { name: /Food Express Pro/ }).filter({ visible: true })).toBeVisible();
+  await page.waitForURL(appBase);
 });
 
 test("a viewer sees reports and people, and can change nothing", async ({ page, browser }) => {

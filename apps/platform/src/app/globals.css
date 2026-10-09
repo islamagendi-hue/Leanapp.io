@@ -25,9 +25,10 @@
   --font-mono: var(--font-plex-mono), var(--font-dubai), ui-monospace, monospace;
 }
 
-/* Dark theme (brand guidelines §4). Tokens swap, so bg-ink text-paper stays the primary button. */
+/* Dark theme (brand guidelines §4). Tokens swap, so bg-ink text-paper stays the primary button.
+   It follows the device unless the person picked Light or Dark (data-theme on <html>, see /theme). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --color-paper: #0e1311;
     --color-paper-2: #131916;
@@ -44,6 +45,32 @@
     --color-warn-soft: #2e2611;
     --color-alert: #e07a55;
     --color-alert-soft: #3a1f15;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper: #0e1311;
+  --color-paper-2: #131916;
+  --color-card: #161c19;
+  --color-ink: #f4f2ec;
+  --color-ink-2: #c4c7c2;
+  --color-ink-3: #959b96;
+  --color-line: #2a312d;
+  --color-line-strong: #3c443f;
+  --color-accent: #3fb58a;
+  --color-accent-ink: #6fd0a9;
+  --color-accent-soft: #15392c;
+  --color-warn: #d4a73a;
+  --color-warn-soft: #2e2611;
+  --color-alert: #e07a55;
+  --color-alert-soft: #3a1f15;
+}
+
+/* dark: utilities follow the same choice. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) { @slot; }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) { @slot; }
   }
 }
 
