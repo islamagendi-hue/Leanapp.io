@@ -29,7 +29,10 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
     [tr("Deterministic"), t.deterministic, tr("Matched to a click LeanApp's own tracking link recorded: its click id came back in the Play install referrer, a deep link or the SDK, or the click carried the same ad-network click id.")],
     [tr("Reported"), t.reported, tr("Only the install says where it came from: an ad-network click id or UTM parameters with no recorded click behind them. Not verified by LeanApp.")],
     [tr("Probabilistic"), t.probabilistic, settings.probabilistic_enabled ? tr("Matched on device signals within {hours} hours of a click.", { hours: settings.probabilistic_window_hours }) : tr("Off for this app.")],
-    [tr("Organic / unattributed"), t.organic, tr("No matching touch within the click lookback. Includes paid iOS installs that carried no LeanApp click id.")],
+    [tr("Organic (store referrer)"), t.organic_store, tr("The store's own install referrer said organic (Google Play: utm_medium=organic). Observed, not matched to a click.")],
+    [tr("Direct"), t.direct, tr("The install's parameters said direct or none.")],
+    [tr("Unknown source"), t.organic_unknown, tr("Marked organic by a source no rule recognises.")],
+    [tr("Unattributed"), t.unattributed, tr("Nothing observed or matched within the click lookback. Includes paid iOS installs that carried no LeanApp click id. Never counted as organic.")],
     [tr("Reinstalls"), t.reinstalls, tr("A device that had installed before.")],
   ];
 
@@ -50,7 +53,7 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
           </tbody>
         </table>
         <p className="px-5 pt-3 text-sm text-ink-2" data-testid="ios-attribution-note">
-          {tr("iOS: paid installs from ad networks can't be attributed deterministically without SKAdNetwork / AdAttributionKit or Apple Search Ads, and LeanApp never fingerprints iOS devices. Unless the install brings back a LeanApp click id, an iOS install counts as organic / unattributed ({n} in this range). Apple's aggregate postbacks are listed under SKAdNetwork postbacks below.", { n: num(t.organic_ios) })}
+          {tr("iOS: paid installs from ad networks can't be attributed deterministically without SKAdNetwork / AdAttributionKit or Apple Search Ads, and LeanApp never fingerprints iOS devices. Unless the install brings back a LeanApp click id, an iOS install counts as unattributed ({n} in this range, all no-match iOS installs). Apple's aggregate postbacks are listed under SKAdNetwork postbacks below.", { n: num(t.organic_ios) })}
         </p>
         <p className="px-5 pb-5 pt-3 text-sm text-ink-3">
           {tr("Also in this range: {reengagements} re-engagements (users back via a tracking link) and {conversions} last-touch conversions.", { reengagements: num(t.reengagements), conversions: num(t.conversions) })}
@@ -67,7 +70,8 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
           <div><dt className="text-ink-3">{tr("Conversion window")}</dt><dd>{tr("{n} days", { n: settings.conversion_window_days })}</dd></div>
           <div><dt className="text-ink-3">{tr("Probabilistic matching")}</dt><dd>{settings.probabilistic_enabled ? tr("On, {hours} hours", { hours: settings.probabilistic_window_hours }) : tr("Off")}</dd></div>
           <div><dt className="text-ink-3">{tr("Re-engagement")}</dt><dd>{settings.reengagement_enabled ? tr("On") : tr("Off")}</dd></div>
-          <div><dt className="text-ink-3">{tr("Model")}</dt><dd>{tr("Last touch")}</dd></div>
+          <div><dt className="text-ink-3">{tr("Reports open with")}</dt><dd>{settings.reporting_model === "first_touch" ? tr("First touch") : tr("Last touch")}</dd></div>
+          <div><dt className="text-ink-3">{tr("Credit models")}</dt><dd>{tr("Last touch and first touch, both within the conversion window")}</dd></div>
         </dl>
       </section>
 
@@ -94,6 +98,17 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
             </tbody>
           </table>
         )}
+      </section>
+
+      <section className="card space-y-2 text-sm" data-testid="evidence-labels">
+        <h2 className="h2">{tr("What each number rests on")}</h2>
+        <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
+          <div><dt className="font-medium">{tr("Deterministic match")}</dt><dd className="text-ink-2">{tr("A click id came back and matches a click LeanApp's own link recorded.")}</dd></div>
+          <div><dt className="font-medium">{tr("Observed")}</dt><dd className="text-ink-2">{tr("LeanApp saw campaign parameters or a store referrer on the install or open, but no recorded click verifies them.")}</dd></div>
+          <div><dt className="font-medium">{tr("Provider-reported")}</dt><dd className="text-ink-2">{tr("A provider says so in aggregate, such as SKAdNetwork postbacks. Shown separately, never added to LeanApp's counts.")}</dd></div>
+          <div><dt className="font-medium">{tr("Modeled")}</dt><dd className="text-ink-2">{tr("Inferred: the opt-in Android match on network address and OS version.")}</dd></div>
+        </dl>
+        <p className="text-ink-3">{tr("UTM parameters alone never make a mobile install deterministic: they say where the person says they came from. On iOS, Universal Links and deferred deep links only carry a click id when the app passes it on.")}</p>
       </section>
 
       <section className="card space-y-2 text-sm">

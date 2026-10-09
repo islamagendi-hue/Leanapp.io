@@ -7,6 +7,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | `0001_foundation.sql` | All tables, indexes, `updated_at` triggers, roles, RLS policies, seed data for plans and usage meters |
 | `0002_rbac_seed.sql` | The first roles, permissions and role → permission matrix, generated from `src/modules/rbac/permissions.ts`. Frozen: later permissions come in their own migrations, and `test/rbac.int.test.ts` checks the migrated database matches `permissions.ts`. |
 | `0033_viewer_attribution.sql` | Viewer gets `attribution.read` and `deep_links.read` (read-only Acquisition and Attribution, so the public demo shows them) and a matching role description. |
+| `0034_growth_channels.sql` | Growth channels ([channels](channels.md)): `channel_definitions` (custom channels per app) and `channel_rules` (per-app classification rules), both RLS-scoped; `attribution_settings.reporting_model` (last / first touch); `attribution_conversions.first_attribution_event_id` and `first_touch_recorded` (first-touch credit). Additive. |
 
 ## Conventions
 
@@ -27,7 +28,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | Apps | `apps`, `app_platforms`, `environments` (one per type per app), `sdk_keys`, `api_keys` |
 | Data plane | `event_batches` (idempotency + request stats), `events`, `anonymous_users`, `app_users`, `identity_links`, `sessions`, `push_tokens` |
 | Implementation | `tracking_projects`, `tracking_questions`, `tracking_answers`, `tracking_plans`, `tracking_plan_versions`, `tracking_events`, `tracking_event_properties`, `tracking_user_properties`, `tracking_attribution_rules`, `tracking_implementation_status`, `tracking_validation_results`, `event_mappings`, `implementation_templates`, `implementation_dependencies` |
-| Attribution | `attribution_settings`, `campaigns`, `attribution_links`, `attribution_touchpoints`, `attribution_events`, `attribution_conversions`, `attribution_postbacks`, `attribution_postback_deliveries` (0012; `campaigns` unused so far), `ad_spend_daily` (0031: spend per environment, day, source, campaign and currency, entered by hand or CSV) |
+| Attribution | `attribution_settings`, `campaigns`, `attribution_links`, `attribution_touchpoints`, `attribution_events`, `attribution_conversions`, `attribution_postbacks`, `attribution_postback_deliveries` (0012; `campaigns` unused so far), `ad_spend_daily` (0031: spend per environment, day, source, campaign and currency, entered by hand or CSV), `channel_definitions`, `channel_rules` (0034: custom channels and rules per app) |
 | Engagement | `audiences`, `audience_members`, `audience_events`, `audience_snapshots`, `automations`, `automation_versions`, `automation_runs`, `notifications`, `in_app_messages`, `whatsapp_templates`, `email_templates`, `email_domains`, `experiments` (0032; A/B tests, see [experiments](experiments.md)) (unused: `audience_conditions`, `automation_triggers`, `automation_actions`; definitions are JSON) |
 | Integrations | `integrations` (push and email credentials in `secret_ciphertext`, AES-256-GCM with `INTEGRATIONS_ENCRYPTION_KEY`), `webhooks` (signing secret hashed and encrypted), `webhook_deliveries` |
 | Operations | `audit_logs` (append-only for tenants), `api_request_logs`, `rate_limit_buckets` |

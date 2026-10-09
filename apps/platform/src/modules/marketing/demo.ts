@@ -163,7 +163,11 @@ function journeys(now: Date, first: number, last: number): Record<string, unknow
         app_version: r() < 0.8 ? "3.2.0" : "3.1.4",
         locale: r() < 0.7 ? "ar-SA" : "en-SA",
         country: "SA",
-        ...(src.source ? { attribution: { utm_source: src.source, utm_medium: "paid", utm_campaign: src.campaign } } : {}),
+        // Paid sources carry their campaign; organic Android installs carry the Play Store's own
+        // organic referrer (store discovery). Organic iOS installs carry nothing: unattributed.
+        ...(src.source
+          ? { attribution: { utm_source: src.source, utm_medium: "paid", utm_campaign: src.campaign } }
+          : platform === "android" ? { attribution: { utm_source: "google-play", utm_medium: "organic" } } : {}),
       };
       let t = day * 86_400_000 + (8 + Math.floor(r() * 14)) * 3_600_000 + Math.floor(r() * 3_600_000);
       let seq = 0;

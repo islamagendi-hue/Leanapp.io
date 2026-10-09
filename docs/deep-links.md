@@ -2,7 +2,7 @@
 
 Two places, two audiences:
 
-- **Acquisition → Deep links** (`/acquisition/deep-links`, `attribution.read`): the business view. What works today in the selected environment, the links that carry a deep link with their clicks, installs, re-engagements and deferred matches, and a channel-preset form to create one. A link's share URL and QR code are on Tracking links & QR (`/acquisition/links?link={code}`); the old `/acquisition/deep-links?link=…` address forwards there.
+- **Acquisition → Deep links** (`/acquisition/deep-links`, `attribution.read`): the business view. What works today in the selected environment, the links that carry a deep link with their clicks, installs, re-engagements and deferred matches, and a channel-preset form to create one. The presets come from the [channel registry](channels.md) (owned, referral and offline, organic and paid channels, each with its source / medium); old preset ids still work. A link's share URL and QR code are on Tracking links & QR (`/acquisition/links?link={code}`); the old `/acquisition/deep-links?link=…` address forwards there.
 - **Settings → Dev Ops → Deep link setup** (`/settings/dev-ops/deep-links`, `deep_links.read` / `deep_links.manage`): the technical setup per environment: link prefix or custom domain, iOS Team ID and bundle ids, Android package and signing certificates, URI scheme, the in-app browser page, the deferred API switch, and the apple-app-site-association / assetlinks.json check.
 
 ## What works today
@@ -24,3 +24,13 @@ Landing on the link's screen when the installed app opens is up to the app: it s
 ## Report
 
 `modules/deeplinks/report.ts` `deepLinkReport(ctx, environmentId, days)` (7 / 30 / 90): per link with a deep link (top 50 by clicks) clicks, installs and re-engagements from the attribution tables, and deferred matches from `deep_link_deferred_matches`; plus the environment's deferred lookups by match (exact, probabilistic, none). Tenant-scoped under `attribution.read`; RLS keeps other organizations out.
+
+## iOS and privacy limits
+
+What links can and can't tell about an install, stated the same way in the product:
+
+- **Universal Links / App Links open an installed app**; they do not survive an install. After a store install, the only deterministic link back to the click is a LeanApp click id: on Android the Play install referrer carries it; on iOS only if the app passes one on (e.g. a link opened after install, or the app reading a click id the user copied with consent). LeanApp never fingerprints iOS devices, and probabilistic matching is Android-only and off by default.
+- **UTM parameters don't make an install deterministic.** They are what the opened URL or referrer says; installs matched only on them are labelled *observed* (`reported`), never deterministic.
+- **Paid iOS installs** without a click id are *unattributed*; SKAdNetwork / AdAttributionKit postbacks are aggregate and provider-reported, shown separately and never joined to users. Apple Search Ads attribution (AdServices token) is not read yet.
+- **Social in-app browsers** (Instagram, Facebook, TikTok, Snapchat, …) don't hand Universal Links to iOS; the interstitial page offers the custom scheme (iOS asks first) and the store.
+- **Deferred deep links** stay Beta and API-only: exact on Android via the install referrer; on iOS only when the app passes the click id.

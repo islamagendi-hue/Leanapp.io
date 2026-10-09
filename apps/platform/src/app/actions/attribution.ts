@@ -54,6 +54,7 @@ export async function updateSettingsAction(orgSlug: string, appSlug: string, _: 
       probabilisticWindowHours: text(form, "probabilisticWindowHours"),
       conversionWindowDays: text(form, "conversionWindowDays"),
       reengagementEnabled: text(form, "reengagementEnabled"),
+      reportingModel: text(form, "reportingModel"),
     });
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution`);
     return { ok: true, message: msg("Saved. New installs and conversions use these settings; past attributions are not recomputed.") };

@@ -3,7 +3,7 @@ import type { Db } from "@/lib/db";
 import { EVENT_LIBRARY } from "@/modules/implementation/catalog/events";
 import type { PublishedPlan } from "@/modules/implementation/plan-store";
 import {
-  clickSignals, extractRevenue, INSTALL_EVENTS, isOrganicUtm, matchTypeFor, networkOfSource, SERVER_CONTEXT_KEY, type ClickSignals, type MatchType, type PostbackPayload,
+  clickSignals, extractRevenue, INSTALL_EVENTS, isOrganicUtm, matchTypeFor, networkOfSource, organicReason, SERVER_CONTEXT_KEY, type ClickSignals, type MatchType, type PostbackPayload,
 } from "./pure";
 
 /**
@@ -24,13 +24,15 @@ import {
  *                              referrer) → reported (the install says so; nothing verifies it)
  *                           4. probabilistic (hashed IP + OS), only when enabled, never iOS: the
  *                              click a deferred deep link handed this install, else an unclaimed one
- *                           5. organic. Paid iOS installs without a click id land here: without
+ *                           5. organic (match_key store_organic or direct when the referrer says so; null
+ *                              = unattributed: nothing matched). Paid iOS installs without a click id land here: without
  *                              SKAdNetwork / AdAttributionKit or Apple Search Ads data they can't
  *                              be attributed, and iOS is never fingerprinted.
  *   A click is claimed once (touchpoint.matched_at): probabilistic matching here and in the
  *   deferred deep link API only takes unclaimed clicks.
  *   app_opened / deep_link_opened with a newer LeanApp click → re_engagement
- *   conversion / revenue events → attribution_conversions, last touch
+ *   conversion / revenue events → attribution_conversions, last touch (attribution_event_id) and
+ *                         first touch (first_attribution_event_id) within the conversion window
  * Every attribution event and conversion queues the matching postbacks.
  */
 
@@ -219,7 +221,9 @@ async function findMatch(db: Db, e: AttributableEvent, settings: AttributionSett
     );
     if (tp) return { touchpoint: tp, matchType: matchTypeFor("ip_os"), matchKey: "ip_ua" };
   }
-  return { touchpoint: null, matchType: matchTypeFor("none"), matchKey: null };
+  // 5. Organic or unattributed: an organic store referrer or "direct" parameters say why
+  // (match_key store_organic / direct); otherwise nothing matched (match_key null = unattributed).
+  return { touchpoint: null, matchType: matchTypeFor("none"), matchKey: s.utm.source && inWindow ? organicReason(s.utm) : null };
 }
 
 /** The click the deferred deep link API handed this install (within the click lookback), if any. */
@@ -337,12 +341,25 @@ async function attributeConversion(db: Db, e: AttributableEvent, name: string, s
       order by ae.occurred_at desc limit 1`,
     [e.environment_id, new Date(e.timestamp.getTime() + SKEW_MS), from, e.anonymous_id, e.user_id],
   );
+  // First touch: the earliest install / reinstall / re-engagement of the same person in the same window.
+  const first = ae
+    ? await db.one<{ id: string }>(
+        `select ae.id from platform.attribution_events ae
+          where ae.environment_id = $1 and ae.occurred_at <= $2 and ae.occurred_at >= $3
+            and (ae.anonymous_id = $4
+                 or ($5::text is not null and ae.user_id = $5)
+                 or ($5::text is not null and ae.anonymous_id in (select anonymous_id from platform.identity_links where environment_id = $1 and user_id = $5)))
+          order by ae.occurred_at asc limit 1`,
+        [e.environment_id, new Date(e.timestamp.getTime() + SKEW_MS), from, e.anonymous_id, e.user_id],
+      )
+    : null;
   const { revenue, currency } = extractRevenue(name, e.properties);
   const conv = await db.one<{ id: string }>(
-    `insert into platform.attribution_conversions (organization_id, app_id, environment_id, attribution_event_id, event_row_id, event_name, revenue, currency, occurred_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+    `insert into platform.attribution_conversions (organization_id, app_id, environment_id, attribution_event_id, first_attribution_event_id, first_touch_recorded,
+                                                   event_row_id, event_name, revenue, currency, occurred_at)
+     values ($1, $2, $3, $4, $5, true, $6, $7, $8, $9, $10)
      on conflict do nothing returning id`,
-    [e.organization_id, e.app_id, e.environment_id, ae?.id ?? null, e.id, name, revenue, currency, e.timestamp],
+    [e.organization_id, e.app_id, e.environment_id, ae?.id ?? null, first?.id ?? ae?.id ?? null, e.id, name, revenue, currency, e.timestamp],
   );
   if (!conv || !ae) return;
   const tp: TouchpointRow | null = ae.tp_id

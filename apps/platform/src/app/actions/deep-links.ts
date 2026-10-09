@@ -2,7 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createLink } from "@/modules/attribution/service";
-import { CHANNEL_PRESETS, linkUrl } from "@/modules/deeplinks/pure";
+import { linkPreset } from "@/modules/channels/registry";
+import { linkUrl } from "@/modules/deeplinks/pure";
 import { checkWellKnown, configLinkBase, getConfig, saveConfig } from "@/modules/deeplinks/service";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { loadApp } from "@/server/session";
@@ -53,7 +54,7 @@ export async function checkWellKnownAction(orgSlug: string, appSlug: string, env
 export async function createChannelLinkAction(orgSlug: string, appSlug: string, _: ActionState, form: FormData): Promise<ActionState> {
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
-    const preset = CHANNEL_PRESETS.find((p) => p.id === text(form, "channel"));
+    const preset = linkPreset(text(form, "channel"));
     const environmentId = text(form, "environmentId") ?? "";
     const link = await createLink(ctx, app.id, {
       environmentId,

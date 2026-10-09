@@ -5,10 +5,9 @@ import { ReportFreshness } from "@/components/ReportFreshness";
 import { Stat } from "@/components/Stat";
 import { TrendChart } from "@/components/TrendChart";
 import { getT } from "@/i18n/server";
-import { msg } from "@/i18n/translate";
 import { localDate } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
-import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "@/modules/analytics/sql";
+import { CHANNEL_KEY_LABELS, CHANNEL_ORGANIC } from "@/modules/analytics/sql";
 import { channelEconomicsReport, TOP_BUYERS } from "@/modules/attribution/economics";
 import { curveDays, LTV_WINDOWS, ltvWindow, type ChannelAmount } from "@/modules/attribution/economics-pure";
 import { can } from "@/modules/rbac/authorize";
@@ -19,7 +18,7 @@ export async function generateMetadata() {
   return { title: (await getT())("CAC & LTV") };
 }
 
-const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic"), [CHANNEL_UNKNOWN]: msg("Unknown source"), [CHANNEL_NO_INSTALL]: msg("No install on record") };
+const CHANNEL_LABELS = CHANNEL_KEY_LABELS;
 const DASH = "—";
 const amount = (v: number | null, currency: string) => (v === null ? DASH : `${money(v)} ${currency}`);
 

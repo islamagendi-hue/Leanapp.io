@@ -1,4 +1,5 @@
 import { msg } from "@/i18n/translate";
+import { NON_SPEND_SOURCES } from "@/modules/channels/registry";
 
 /**
  * Ad spend entered by hand or by CSV (see ./spend.ts): validation, CSV
@@ -22,8 +23,8 @@ export const MAX_SPEND_AMOUNT = 999_999_999_999.99;
 export const MAX_CSV_ROWS = 5000;
 export const CSV_COLUMNS = ["date", "source", "campaign", "currency", "amount"] as const;
 
-/** Channels with no paid source behind them: spend can't be put on these. */
-const RESERVED_SOURCES = new Set(["organic", "(unknown)", "(no install on record)", "(none)"]);
+/** Channels with no paid source behind them (organic, direct, unknown, unattributed): spend can't be put on these. */
+const RESERVED_SOURCES = NON_SPEND_SOURCES;
 
 function validDate(s: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
@@ -46,7 +47,7 @@ export function validateSpend(
   if (date < "2000-01-01" || date > today) return { ok: false, field: "date", error: msg("The date can't be in the future.") };
   const source = str(raw.source);
   if (!source || source.length > 100) return { ok: false, field: "source", error: msg("Enter the source (1–100 characters), as Acquisition shows it.") };
-  if (RESERVED_SOURCES.has(source.toLowerCase())) return { ok: false, field: "source", error: msg("Spend can't be put on organic or unknown installs.") };
+  if (RESERVED_SOURCES.has(source.toLowerCase())) return { ok: false, field: "source", error: msg("Spend can't be put on organic, direct, unknown or unattributed installs.") };
   const campaign = str(raw.campaign);
   if (campaign.length > 100) return { ok: false, field: "campaign", error: msg("The campaign is at most 100 characters.") };
   const currency = str(raw.currency).toUpperCase();

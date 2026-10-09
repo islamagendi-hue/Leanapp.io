@@ -109,8 +109,8 @@ describe("revenue", () => {
       const env = (await db.one<{ organization_id: string; app_id: string }>("select organization_id, app_id from platform.environments where id = $1", [A.dev.id]))!;
       const install = (anon: string, n: number, matchType: string, source: string | null) =>
         db.query(
-          `insert into platform.attribution_events (organization_id, app_id, environment_id, kind, anonymous_id, occurred_at, match_type, source)
-           values ($1, $2, $3, 'install', $4, $5, $6, $7)`,
+          `insert into platform.attribution_events (organization_id, app_id, environment_id, kind, anonymous_id, occurred_at, match_type, source, match_key)
+           values ($1, $2, $3, 'install', $4, $5, $6, $7, case when $6 = 'organic' then 'store_organic' end)`, // organic = the store's organic referrer
           [env.organization_id, env.app_id, A.dev.id, anon, daysAgo(n, 11), matchType, source],
         );
       await install("a1", 6, "deterministic", "tiktok"); // u1 through the stitched install
