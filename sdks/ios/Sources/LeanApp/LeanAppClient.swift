@@ -32,6 +32,15 @@ public struct LeanAppConfig {
     /// Stop sending (events still queue) until optIn().
     public var optedOut: Bool = false
     public var debug: Bool = false
+    /// Consent assumed for every purpose until setConsent() records the user's answer. .granted (default,
+    /// the behaviour before consent existed): track normally. .pending: events wait in memory only (not
+    /// stored, not sent) until consent is granted, and are discarded if it is denied or the app closes
+    /// first. .denied: events are dropped.
+    public var consentDefault: ConsentStatus = .granted
+    /// Per-purpose overrides of `consentDefault`.
+    public var consentDefaults: [ConsentPurpose: ConsentStatus] = [:]
+    /// On the first launch of a new install, ask LeanApp once for the deferred deep link (needs attribution consent).
+    public var deferredDeepLinks: Bool = true
 
     public init(apiKey: String) {
         self.apiKey = apiKey
@@ -165,6 +174,14 @@ public final class LeanAppClient {
     private var skipIdempotencyKey = false
     private var maxBatchSize: Int
     private var timer: DispatchWorkItem?
+    /// Events waiting for consent: memory only, never persisted or sent until consent is granted.
+    private var held: [QueuedEvent] = []
+    /// Attribution captured while attribution consent is pending: memory only.
+    private var heldFirst: [String: String]?
+    private var heldLatest: [String: String]?
+    /// The deferred deep link request waiting for attribution consent.
+    private var deferredRequest: (os: String?, osVersion: String?, completion: ((DeferredDeepLink?) -> Void)?)?
+    private var deferredInFlight = false
 
     public init(
         config: LeanAppConfig,
@@ -221,13 +238,17 @@ public final class LeanAppClient {
 
     /// Links this device to your user id. Traits are facts about the person (plan, city), not actions.
     public func identify(_ userId: String?, traits: [String: Any] = [:]) {
+        var changed = false
         enqueue { [self] in
             if let userId = userId, !userId.isEmpty {
+                changed = state.userId != userId
                 state.userId = userId
                 persistState()
             }
             return ["type": "identify", "user_properties": traits]
         }
+        // Consent given on this device follows the user who signs in on it.
+        queue.async { [self] in if changed { resendConsent() } }
     }
 
     public func setUserProperties(_ traits: [String: Any]) {
@@ -242,27 +263,65 @@ public final class LeanAppClient {
             persistState()
             return ["type": "alias", "previous_id": prev]
         }
+        queue.async { [self] in resendConsent() }
     }
 
-    /// provider: "apns" or "fcm"; permission: granted, denied, provisional or unknown.
+    /// provider: "apns" or "fcm"; permission: granted, denied, provisional or unknown. Governed by push consent.
     public func registerPushToken(_ token: String, provider: String = "apns", permission: String = "unknown") {
         guard provider == "apns" || provider == "fcm" else { return warn("registerPushToken() provider must be apns or fcm") }
-        enqueue { ["type": "push_token", "push_token": ["token": token, "provider": provider, "permission": permission]] }
+        enqueue(purpose: .push) { ["type": "push_token", "push_token": ["token": token, "provider": provider, "permission": permission]] }
     }
 
     /// Captures campaign parameters from a deep link or universal link. The first touch is kept; the latest
     /// is attached to every following event as context.attribution, with the URL as deep_link_url.
+    /// Governed by attribution consent: ignored when denied, kept in memory only while pending.
     @discardableResult
     public func captureAttribution(_ url: String) -> [String: String]? {
         guard var touch = parseAttribution(url) else { return nil }
         touch["deep_link_url"] = String(url.prefix(1000))
         let t = touch
-        queue.async { [self] in
-            state.attributionFirst = state.attributionFirst ?? t
-            state.attributionLatest = t
-            persistState()
-        }
+        queue.async { [self] in recordTouch(t) }
         return touch
+    }
+
+    /// Records the user's consent answers, e.g. from your consent screen. Purposes left out keep their
+    /// state. The answers are stored on the device and sent to LeanApp whatever they are, so the platform
+    /// can honour them. Granting analytics releases events waiting in memory; denying it discards them
+    /// and clears the unsent queue.
+    public func setConsent(_ consent: [ConsentPurpose: Bool]) {
+        if consent.isEmpty { return warn("setConsent() needs at least one of analytics, marketing, push, attribution") }
+        let at = clock()
+        queue.async { [self] in
+            for (p, v) in consent { state.consent[p.rawValue] = v }
+            persistState()
+            // The change goes first, then whatever it releases.
+            pushConsent(consent, at: at)
+            applyConsent()
+        }
+    }
+
+    /// Current consent per purpose: the user's answer, or the configured default where they haven't answered.
+    public func getConsent() -> [ConsentPurpose: ConsentStatus] {
+        sync { () -> [ConsentPurpose: ConsentStatus] in
+            var out: [ConsentPurpose: ConsentStatus] = [:]
+            for p in ConsentPurpose.allCases { out[p] = consentFor(p) }
+            return out
+        }
+    }
+
+    /// Asks LeanApp once per new install (POST /v1/deep-links/deferred) for the deep link of the link click
+    /// the install came from. Waits for attribution consent; `completion` (on the SDK queue) gets the
+    /// answer, or nil when the request failed, attribution consent was denied, deferred deep links are off
+    /// or this install already asked.
+    public func requestDeferredDeepLink(os: String? = "ios", osVersion: String? = nil, completion: ((DeferredDeepLink?) -> Void)? = nil) {
+        queue.async { [self] in
+            if !o.deferredDeepLinks || state.deferredChecked != false || deferredRequest != nil || deferredInFlight {
+                completion?(nil)
+                return
+            }
+            deferredRequest = (os, osVersion, completion)
+            maybeFetchDeferred()
+        }
     }
 
     /// First and latest touch captured on this device, or nil.
@@ -279,14 +338,20 @@ public final class LeanAppClient {
 
     public var queueLength: Int { sync { events.count } }
 
-    /// Call on logout: forgets the user and attribution and starts a new anonymous id and session. Queued events keep their ids.
+    /// Call on logout: forgets the user and attribution and starts a new anonymous id and session. Queued events
+    /// keep their ids. Consent belongs to the device and is kept (and recorded for the new id).
     public func reset() {
         queue.async { [self] in
             var s = State(anonymousId: uuid())
             s.appVersion = state.appVersion
             s.appBuild = state.appBuild
+            s.consent = state.consent
+            s.deferredChecked = state.deferredChecked
             state = s
+            heldFirst = nil
+            heldLatest = nil
             persistState()
+            resendConsent()
         }
     }
 
@@ -309,13 +374,20 @@ public final class LeanAppClient {
     }
 
     /// Sends app_installed on the first launch with the SDK and app_updated when the version or build changed.
-    public func trackInstallOrUpdate(appVersion: String?, appBuild: String?, timestamp: Date = Date()) {
+    /// `attributionToken` is called (on the SDK queue) only for app_installed, and only when attribution
+    /// consent is not denied: pass `AppleAttribution.adServicesToken` to send Apple's AdServices token once,
+    /// as context.attribution.adservices_token (Analytics.initialize does).
+    public func trackInstallOrUpdate(appVersion: String?, appBuild: String?, timestamp: Date = Date(), attributionToken: (() -> String?)? = nil) {
         let at = Int64(timestamp.timeIntervalSince1970 * 1000)
         queue.async { [self] in
             let version = appVersion ?? ""
             let build = appBuild ?? ""
             if state.appVersion == nil && state.appBuild == nil {
-                enqueueNow(eventId: nil, at: at, partial: ["type": "track", "event_name": "app_installed", "properties": ["version": version, "build": build]])
+                var extra: [String: String] = [:]
+                if consentFor(.attribution) != .denied, let token = attributionToken?(), !token.isEmpty {
+                    extra["adservices_token"] = String(token.prefix(4096))
+                }
+                enqueueNow(eventId: nil, at: at, partial: ["type": "track", "event_name": "app_installed", "properties": ["version": version, "build": build]], extraAttribution: extra)
             } else if (state.appVersion ?? "") != version || (state.appBuild ?? "") != build {
                 enqueueNow(eventId: nil, at: at, partial: [
                     "type": "track", "event_name": "app_updated",
@@ -350,37 +422,57 @@ public final class LeanAppClient {
         }
         if let s = loadedState, !s.anonymousId.isEmpty {
             state = s
+            // Installs from before deferred deep links existed are not new installs: they never ask.
+            if state.deferredChecked == nil { state.deferredChecked = true }
         } else {
+            // A new install still has to ask for its deferred deep link (false until answered).
             state = State(anonymousId: uuid())
+            state.deferredChecked = false
         }
         events = []
         if let raw = store.get(prefix + "queue"), let arr = parseJSON(raw) as? [Any] {
             events = arr.compactMap { QueuedEvent(json: $0) }
         }
+        // Unsent events from before a denial (e.g. the app closed mid-way) are not sent.
+        events.removeAll { $0.e["type"] as? String != "consent" && consentFor(purposeOf($0)) == .denied }
         persistState()
         persistQueue()
         if !events.isEmpty { schedule(0) }
     }
 
-    private func enqueue(eventId: String? = nil, timestamp: Date? = nil, _ build: @escaping () -> [String: Any]) {
+    private func enqueue(eventId: String? = nil, timestamp: Date? = nil, purpose: ConsentPurpose = .analytics, _ build: @escaping () -> [String: Any]) {
         // Timestamp is taken at call time, not when the SDK queue gets to it.
         let at = timestamp.map { Int64($0.timeIntervalSince1970 * 1000) } ?? clock()
         queue.async { [self] in
-            enqueueNow(eventId: eventId, at: at, partial: build())
+            enqueueNow(eventId: eventId, at: at, partial: build(), purpose: purpose)
         }
     }
 
-    private func enqueueNow(eventId: String?, at: Int64, partial: [String: Any]) {
+    private func enqueueNow(eventId: String?, at: Int64, partial: [String: Any], purpose: ConsentPurpose = .analytics, extraAttribution: [String: String] = [:]) {
+        let status = consentFor(purpose)
+        if status == .denied { return log("dropped (consent denied): \(partial["type"] ?? "") \(partial["event_name"] ?? "")") }
         var e = partial
         let id = eventId ?? uuid()
+        if events.contains(where: { $0.eventId == id }) || held.contains(where: { $0.eventId == id }) { return } // duplicate call with the same event id
         e["event_id"] = id
         e["timestamp"] = isoString(at)
         e["anonymous_id"] = state.anonymousId
         e["session_id"] = touchSession(at)
-        e["context"] = context()
+        var ctx = context()
+        var attr = state.attributionLatest ?? heldLatest ?? [:]
+        for (k, v) in extraAttribution { attr[k] = v }
+        let attrStatus = consentFor(.attribution)
+        if attrStatus == .granted && !attr.isEmpty { ctx["attribution"] = attr }
+        e["context"] = ctx
         if let u = state.userId { e["user_id"] = u }
-        if events.contains(where: { $0.eventId == id }) { return } // duplicate call with the same event id
         guard let safe = jsonSafe(e) as? [String: Any] else { return }
+        if status == .pending {
+            // Waiting for consent: memory only, bounded like the queue. The attribution waits too, in case
+            // attribution consent is granted by the time the event is released.
+            held.append(QueuedEvent(e: safe, queuedAt: clock(), attr: attrStatus == .pending && !attr.isEmpty ? attr : nil))
+            if held.count > o.maxQueueSize { held.removeFirst(held.count - o.maxQueueSize) }
+            return log("held until consent: \(e["type"] ?? "") \(e["event_name"] ?? "")")
+        }
         events.append(QueuedEvent(e: safe, queuedAt: clock()))
         if events.count > o.maxQueueSize {
             let dropped = events.count - o.maxQueueSize
@@ -408,8 +500,162 @@ public final class LeanAppClient {
         ctx["sdk"] = ["name": sdkName, "version": leanAppSDKVersion]
         if let v = o.appVersion { ctx["app_version"] = v }
         if let b = o.appBuild { ctx["app_build"] = b }
-        if let a = state.attributionLatest { ctx["attribution"] = a }
+        // The user's explicit answers only: a default is not consent the user gave.
+        if !state.consent.isEmpty { ctx["consent"] = state.consent }
         return ctx
+    }
+
+    private func purposeOf(_ q: QueuedEvent) -> ConsentPurpose {
+        q.e["type"] as? String == "push_token" ? .push : .analytics
+    }
+
+    private func consentFor(_ purpose: ConsentPurpose) -> ConsentStatus {
+        switch state.consent[purpose.rawValue] {
+        case .some(true): return .granted
+        case .some(false): return .denied
+        case .none: return o.consentDefaults[purpose] ?? o.consentDefault
+        }
+    }
+
+    /// Stores a touch under attribution consent: the first is kept, the latest replaced.
+    private func recordTouch(_ touch: [String: String]) {
+        switch consentFor(.attribution) {
+        case .denied:
+            return
+        case .pending:
+            // Kept in memory until the user decides; stored only once attribution consent is granted.
+            if heldFirst == nil { heldFirst = state.attributionFirst ?? touch }
+            heldLatest = touch
+        case .granted:
+            state.attributionFirst = state.attributionFirst ?? touch
+            state.attributionLatest = touch
+            persistState()
+        }
+    }
+
+    /// Moves or discards what was waiting for consent after the user's answer changed.
+    private func applyConsent() {
+        let attribution = consentFor(.attribution)
+        let release = held.filter { consentFor(purposeOf($0)) == .granted }
+        held.removeAll { consentFor(purposeOf($0)) != .pending }
+        let before = events.count
+        // Denied: unsent events of that purpose are discarded. Consent changes always stay.
+        events.removeAll { $0.e["type"] as? String != "consent" && consentFor(purposeOf($0)) == .denied }
+        if before != events.count { log("consent denied: discarded \(before - events.count) unsent event(s)") }
+        for q in release {
+            var e = q.e
+            // Attribution that waited with the event goes only if attribution consent is granted now.
+            if let attr = q.attr, attribution == .granted {
+                var ctx = e["context"] as? [String: Any] ?? [:]
+                ctx["attribution"] = attr
+                e["context"] = ctx
+            }
+            events.append(QueuedEvent(e: e, queuedAt: q.queuedAt))
+        }
+        if events.count > o.maxQueueSize { events.removeFirst(events.count - o.maxQueueSize) }
+        if attribution == .granted && (heldFirst != nil || heldLatest != nil) {
+            state.attributionFirst = state.attributionFirst ?? heldFirst ?? heldLatest
+            if let l = heldLatest { state.attributionLatest = l }
+            if state.attributionLatest == nil { state.attributionLatest = state.attributionFirst }
+            persistState()
+        }
+        if attribution != .pending {
+            heldFirst = nil
+            heldLatest = nil
+        }
+        if attribution == .denied && (state.attributionFirst != nil || state.attributionLatest != nil) {
+            state.attributionFirst = nil
+            state.attributionLatest = nil
+            persistState()
+        }
+        if before != events.count || !release.isEmpty { persistQueue() }
+        if !events.isEmpty { schedule(events.count >= o.flushAt ? 0 : Int64(o.flushInterval * 1000)) }
+        maybeFetchDeferred()
+    }
+
+    /// Queues a consent change for LeanApp, whatever the answer, with only the ids and minimal context.
+    private func pushConsent(_ consent: [ConsentPurpose: Bool], at: Int64) {
+        var ctx: [String: Any] = ["platform": o.platform, "sdk": ["name": sdkName, "version": leanAppSDKVersion]]
+        if let v = o.appVersion { ctx["app_version"] = v }
+        var answers: [String: Bool] = [:]
+        for (p, v) in consent { answers[p.rawValue] = v }
+        var e: [String: Any] = [
+            "type": "consent",
+            "consent": answers,
+            "event_id": uuid(),
+            "timestamp": isoString(at),
+            "anonymous_id": state.anonymousId,
+            "context": ctx,
+        ]
+        if let u = state.userId { e["user_id"] = u }
+        guard let safe = jsonSafe(e) as? [String: Any] else { return }
+        events.append(QueuedEvent(e: safe, queuedAt: at))
+        if events.count > o.maxQueueSize {
+            // Never drop a consent change to make room: drop the oldest other event instead.
+            let i = events.firstIndex { $0.e["type"] as? String != "consent" } ?? 0
+            events.remove(at: i)
+        }
+        log("queued consent \(answers)")
+        persistQueue()
+        schedule(0)
+    }
+
+    /// Records the device's explicit answers again for a new identity (sign-in, alias, reset).
+    private func resendConsent() {
+        var answers: [ConsentPurpose: Bool] = [:]
+        for (k, v) in state.consent { if let p = ConsentPurpose(rawValue: k) { answers[p] = v } }
+        if !answers.isEmpty { pushConsent(answers, at: clock()) }
+    }
+
+    private func maybeFetchDeferred() {
+        guard let req = deferredRequest else { return }
+        switch consentFor(.attribution) {
+        case .pending:
+            return // asked once attribution consent is granted
+        case .denied:
+            deferredRequest = nil
+            req.completion?(nil)
+            return
+        case .granted:
+            break
+        }
+        deferredRequest = nil
+        deferredInFlight = true
+        var body: [String: Any] = ["anonymous_id": state.anonymousId, "platform": o.platform]
+        if let os = req.os { body["os"] = os }
+        if let v = req.osVersion { body["os_version"] = String(v.prefix(40)) }
+        if let clickId = state.attributionLatest?["click_id"] { body["click_id"] = String(clickId.prefix(100)) }
+        guard let url = URL(string: o.endpoint + "/v1/deep-links/deferred"),
+              let data = try? JSONSerialization.data(withJSONObject: body) else {
+            deferredInFlight = false
+            req.completion?(nil)
+            return
+        }
+        let headers = ["Content-Type": "application/json", "Authorization": "Bearer \(o.apiKey)"]
+        transport.post(url: url, headers: headers, body: data) { [self] result in
+            queue.async { [self] in
+                deferredInFlight = false
+                var answer: DeferredDeepLink?
+                switch result {
+                case .failure(let err):
+                    warn("deferred deep link request failed: \(err.localizedDescription)")
+                case .success(let res):
+                    if res.ok {
+                        answer = (try? JSONSerialization.jsonObject(with: res.body)).flatMap { DeferredDeepLink(json: $0) }
+                        state.deferredChecked = true
+                        persistState()
+                    } else {
+                        warn("deferred deep link request failed with \(res.status)")
+                        // Asked again on the next launch, unless the request itself was refused as invalid.
+                        if res.status == 400 || res.status == 422 {
+                            state.deferredChecked = true
+                            persistState()
+                        }
+                    }
+                }
+                req.completion?(answer)
+            }
+        }
     }
 
     private func schedule(_ delayMs: Int64) {
@@ -581,13 +827,16 @@ public final class LeanAppClient {
 struct QueuedEvent {
     let e: [String: Any]
     let queuedAt: Int64
+    /// Memory only, on events held for consent: the attribution to attach if attribution consent is granted by then.
+    var attr: [String: String]?
 
     var eventId: String { e["event_id"] as? String ?? "" }
     var json: [String: Any] { ["e": e, "queuedAt": queuedAt] }
 
-    init(e: [String: Any], queuedAt: Int64) {
+    init(e: [String: Any], queuedAt: Int64, attr: [String: String]? = nil) {
         self.e = e
         self.queuedAt = queuedAt
+        self.attr = attr
     }
 
     init?(json: Any) {
@@ -607,6 +856,10 @@ struct State {
     var attributionLatest: [String: String]?
     var appVersion: String?
     var appBuild: String?
+    /// The user's explicit answers (setConsent). Purposes not here follow the configured default.
+    var consent: [String: Bool] = [:]
+    /// false: a new install that still has to ask for its deferred deep link; nil: an install from before they existed.
+    var deferredChecked: Bool?
 
     init(anonymousId: String) {
         self.anonymousId = anonymousId
@@ -623,6 +876,8 @@ struct State {
         }
         appVersion = m["appVersion"] as? String
         appBuild = m["appBuild"] as? String
+        consent = m["consent"] as? [String: Bool] ?? [:]
+        deferredChecked = m["deferredChecked"] as? Bool
     }
 
     var json: [String: Any] {
@@ -633,6 +888,8 @@ struct State {
         if let f = attributionFirst, let l = attributionLatest { m["attribution"] = ["first": f, "latest": l] }
         if let v = appVersion { m["appVersion"] = v }
         if let v = appBuild { m["appBuild"] = v }
+        if !consent.isEmpty { m["consent"] = consent }
+        if let v = deferredChecked { m["deferredChecked"] = v }
         return m
     }
 }
