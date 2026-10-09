@@ -9,6 +9,7 @@ export const ACQUISITION_TABS = [
   ["", msg("Overview")],
   ["/sources", msg("Sources & campaigns")],
   ["/spend", msg("Ad spend")],
+  ["/channels", msg("CAC & LTV")],
   ["/attribution", msg("Attribution")],
   ["/links", msg("Tracking links & QR")],
   ["/deep-links", msg("Deep links")],

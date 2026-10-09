@@ -189,6 +189,33 @@ const ar: Record<string, string> = {
   "Each row needs 5 columns: date, source, campaign, currency, amount.": "يحتاج كل صف إلى 5 أعمدة: التاريخ، المصدر، الحملة، العملة، المبلغ.",
   "Paste or upload at least one row.": "الصق صفًا واحدًا على الأقل أو ارفع ملفًا.",
 
+  // CAC & LTV by channel
+  "CAC & LTV": "CAC و LTV",
+  "CAC and LTV by channel": "CAC و LTV حسب القناة",
+  "What each channel cost and what its new users paid. LTV is revenue seen so far, not a forecast.":
+    "كم كلّفت كل قناة وكم دفع مستخدموها الجدد. LTV هو الإيراد المُسجَّل حتى الآن، وليس توقعًا.",
+  "Channel numbers": "أرقام القنوات",
+  "First install in this range": "أول تثبيت في هذه الفترة",
+  "{pct} of new users": "{pct} من المستخدمين الجدد",
+  "Entered on the Ad spend page": "مُدخَل في صفحة إنفاق الإعلانات",
+  "No spend entered for this range": "لا يوجد إنفاق مُدخَل لهذه الفترة",
+  "No new users or spend in {env} for the selected range of dates.": "لا يوجد مستخدمون جدد ولا إنفاق في {env} خلال الفترة المحددة.",
+  "New users come from installs your app reports. Enter costs on the {spend} page.": "يأتي المستخدمون الجدد من عمليات التثبيت التي يرسلها تطبيقك. أدخِل التكاليف في صفحة {spend}.",
+  "New users by channel": "المستخدمون الجدد حسب القناة",
+  "The full bar is new users. The dark part is those who paid.": "الشريط كاملًا هو المستخدمون الجدد. والجزء الداكن هو من دفع منهم.",
+  "No new users in this range.": "لا يوجد مستخدمون جدد في هذه الفترة.",
+  "{users} new · {paying} paid": "{users} جديد · {paying} دفع",
+  "CAC and LTV": "CAC و LTV",
+  "Each currency has its own row. Nothing is converted.": "لكل عملة صف خاص بها. لا يُحوَّل أي مبلغ بين العملات.",
+  "Spend and revenue are in different currencies.": "الإنفاق والإيراد بعملتين مختلفتين.",
+  "New users: people whose first install is in this range, by that install's source.": "المستخدمون الجدد: من كان أول تثبيت لهم في هذه الفترة، حسب مصدر ذلك التثبيت.",
+  "CAC: spend for the channel divided by its new users. Spend comes from the {spend} page.": "CAC: إنفاق القناة مقسومًا على مستخدميها الجدد. يأتي الإنفاق من صفحة {spend}.",
+  "Revenue: what those new users paid in this range, minus refunds.": "الإيراد: ما دفعه هؤلاء المستخدمون الجدد في هذه الفترة، بعد طرح المبالغ المستردة.",
+  "LTV: that revenue divided by new users. It is revenue seen so far, not a forecast.": "LTV: ذلك الإيراد مقسومًا على المستخدمين الجدد. هو الإيراد المُسجَّل حتى الآن، وليس توقعًا.",
+  "LTV:CAC: LTV divided by CAC. It is shown only when spend and revenue are in the same currency.": "LTV:CAC: قيمة LTV مقسومة على CAC. تظهر فقط عندما يكون الإنفاق والإيراد بالعملة نفسها.",
+  "— means no spend, no new users, or spend and revenue in different currencies.": "— تعني عدم وجود إنفاق، أو عدم وجود مستخدمين جدد، أو أن الإنفاق والإيراد بعملتين مختلفتين.",
+  "— means no spend or no new users.": "— تعني عدم وجود إنفاق أو عدم وجود مستخدمين جدد.",
+
   // Tracking links & QR
   "One link per campaign, ad or placement. It sends iPhone users to the App Store, Android users to Google Play with the click id in the install referrer, and everyone else to your web page. Crawler clicks, link previews and prefetches are not counted. Installs only match clicks of the same environment.":
     "رابط واحد لكل حملة أو إعلان أو موضع. يرسل مستخدمي iPhone إلى App Store، ومستخدمي Android إلى Google Play مع معرّف النقر في مُحيل التثبيت، والجميع غيرهم إلى صفحتك على الويب. ولا تُحسب نقرات برامج الزحف ومعاينات الروابط والتحميل المسبق. تُطابَق عمليات التثبيت فقط مع نقرات البيئة نفسها التي أُنشئ فيها الرابط.",

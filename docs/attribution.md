@@ -2,9 +2,9 @@
 
 LeanApp attributes installs from its own event stream and its own tracking links; it does not import AppsFlyer, Adjust or Branch data. In the product this is **Acquisition (Beta)**, and it is not presented as a full mobile measurement partner (ad spend is entered by hand or by CSV, with no automatic cost import; no fraud prevention, multi-touch, view-through or ad-network-reported installs). The target design (installs and attribution as first-class records, the go.leanapp.io link service, deferred deep links, SKAN, network integrations, MVP vs later and what can't be replicated) is in [attribution architecture](attribution-architecture.md). This page describes what is built today.
 
-**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, settings, ad spend entered by hand or by CSV (shown with return and ROAS in Revenue by channel), and SKAdNetwork / AdAttributionKit postback copies with conversion value schemas (server side). Not built: the iOS SDK applying conversion values, view-through (impression) attribution, automatic ad-network cost import, MMP import (AppsFlyer / Adjust / Branch), first-touch and linear reporting models.
+**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, settings, ad spend entered by hand or by CSV (shown with return and ROAS in Revenue by channel, and with CAC, observed LTV and LTV:CAC on Acquisition → CAC & LTV), and SKAdNetwork / AdAttributionKit postback copies with conversion value schemas (server side). Not built: the iOS SDK applying conversion values, view-through (impression) attribution, automatic ad-network cost import, MMP import (AppsFlyer / Adjust / Branch), first-touch and linear reporting models.
 
-Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migrations `0012_attribution.sql`, `0030_attribution_match_methods.sql` (match types), `0031_ad_spend.sql` (ad spend, `spend.ts`). Dashboard: app → Acquisition (Beta): Overview, Sources & campaigns, Ad spend, Attribution, Tracking links & QR, Deep links. Settings live in Settings → Dev Ops → Attribution.
+Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migrations `0012_attribution.sql`, `0030_attribution_match_methods.sql` (match types), `0031_ad_spend.sql` (ad spend, `spend.ts`). Dashboard: app → Acquisition (Beta): Overview, Sources & campaigns, Ad spend, CAC & LTV, Attribution, Tracking links & QR, Deep links. Settings live in Settings → Dev Ops → Attribution.
 
 ## Why it matters here
 
@@ -93,6 +93,7 @@ App → Acquisition (Beta), labelled Beta on every page with a "What Acquisition
 - **Overview** (`/acquisition`): clicks, installs, attributed (deterministic · reported · probabilistic) and organic / unattributed shares (with the iOS count), installs per day, top 5 sources, top 5 links (click → install) and credited revenue.
 - **Sources & campaigns** (`/acquisition/sources`): installs by source and campaign (deterministic, reported, probabilistic, re-engagements), and conversions and revenue by campaign per currency.
 - **Ad spend** (`/acquisition/spend`): spend per day, source, optional campaign and currency, added one day at a time or pasted / uploaded as CSV (`date,source,campaign,currency,amount`, header optional), with a list of entries and delete. See [Ad spend](#ad-spend).
+- **CAC & LTV** (`/acquisition/channels`): per channel, spend, new users, paying users, CAC, revenue, LTV and LTV:CAC, per currency, with a bar of new and paying users. See [CAC and LTV by channel](#cac-and-ltv-by-channel).
 - **Attribution** (`/acquisition/attribution`): how installs were matched (deterministic, reported, probabilistic, organic / unattributed, reinstalls) with the iOS paid-install note, the matching rules in force (linking to Settings → Dev Ops → Attribution), SKAdNetwork postbacks by source identifier (linking to the SKAN setup), and what the Beta doesn't include.
 - **Tracking links & QR** (`/acquisition/links`): links with clicks and installs, create / pause / resume, and each link's share URL with campaign / placement overrides and an SVG QR code (`?link={code}`). The old QR address on Deep links (`/acquisition/deep-links?link=…`) forwards here.
 
@@ -104,7 +105,20 @@ The MVP's cost model (`platform.ad_spend_daily`, migration 0031; `modules/attrib
 
 `source` must be written exactly as Acquisition shows the attribution `source` (e.g. `tiktok`): the Revenue report broken down by **Channel** sums spend per source and currency over the report's days and shows, next to each channel's revenue, **Spend**, **Return** (gross revenue − spend, can be negative) and **ROAS** (gross revenue ÷ spend, e.g. `3.20×`), each blank when the channel has no spend. Sources with spend but no revenue get their own row. Spend is only compared with revenue in the same currency: nothing is converted or added across currencies. With an audience filter, spend is left out (it can't be split by audience). Saving or deleting spend drops the environment's cached report results.
 
-Changing spend needs `attribution.manage` and is audited (`attribution.spend_saved`, `attribution.spend_imported`, `attribution.spend_deleted`); reading it needs `analytics.read` (the page also needs `attribution.read`, like the rest of Acquisition). Not built: automatic import from ad-network APIs, CPI / CAC, spend per ad set, ad or country, and FX conversion.
+Changing spend needs `attribution.manage` and is audited (`attribution.spend_saved`, `attribution.spend_imported`, `attribution.spend_deleted`); reading it needs `analytics.read` (the page also needs `attribution.read`, like the rest of Acquisition). Not built: automatic import from ad-network APIs, CPI, spend per ad set, ad or country, and FX conversion.
+
+### CAC and LTV by channel
+
+Acquisition → CAC & LTV (`modules/attribution/economics.ts`, arithmetic in `economics-pure.ts`) puts cost next to what new users paid, for the range picked (preset or custom days, app timezone):
+
+- **New users**: people whose first install or reinstall on record in the environment falls in the range. People are stitched as in Analytics (user_id, else the one user the install is linked to, else the anonymous id), so a second device is not a new user. The channel is that first install's source (a source, `organic` or `(unknown)`).
+- **Spend**: the spend entered for that source over the range's days, per currency (sources match exactly, as in Revenue by channel).
+- **CAC** = spend ÷ new users, in the spend's currency. "—" when the channel has no spend or no new users.
+- **Revenue**: net revenue (gross − refunds) of those new users from the revenue events in the range, per currency, by the Revenue report's rules. **Paying users**: new users with at least one revenue transaction in the range.
+- **LTV** = revenue ÷ new users. It is observed revenue to date, not a forecast or a predicted lifetime value.
+- **LTV:CAC** = LTV ÷ CAC (that is, revenue ÷ spend). Shown only when the spend and all of the channel's revenue are in one currency; otherwise "—" with a note. Nothing is converted between currencies.
+
+It needs `attribution.read` and `analytics.read`, and runs through the report cache (kind `channel_economics`).
 
 ## SKAdNetwork / AdAttributionKit
 
@@ -130,7 +144,7 @@ See [SDK: attribution context](sdk.md#attribution-context): `app_installed` with
 
 - iOS SDK support for conversion values (calling `SKAdNetwork.updatePostbackConversionValue` / AdAttributionKit per the schema).
 - View-through attribution: needs impression data from ad networks. `attribution_settings.view_lookback_hours` exists but is **not used** by anything yet; the settings page says so.
-- Automatic cost import from ad networks (spend is entered by hand or by CSV), CPI and CAC; FX conversion of revenue and spend.
+- Automatic cost import from ad networks (spend is entered by hand or by CSV), CPI, predicted LTV; FX conversion of revenue and spend.
 - First-touch and linear models in reports (data supports them; last touch is what is computed).
 - Live verification of the TikTok, Snap, Meta and Google postbacks: needs a customer's ad accounts, app ids and tokens.
 - Management API endpoints for links and postbacks (dashboard only for now).
