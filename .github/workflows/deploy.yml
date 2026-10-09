@@ -2,36 +2,40 @@ name: Deploy
 
 # Migrations, scheduler and deploy for a hosted environment, in that order, so
 # code never runs against a database that lacks its migrations. Nothing here
-# runs from a laptop:
-#   push to `staging` → environment "staging"
-#   push to `main`    → environment "production" (required reviewers, set in GitHub)
-#   manual run        → the environment you pick
+# runs from a laptop, and nothing runs before CI passed on the same commit:
+#   CI succeeds on a push to `staging` → environment "staging"
+#   CI succeeds on a push to `main`    → environment "production" (required reviewers, set in GitHub)
+# There is no manual trigger: a manual run could deploy a commit CI never
+# passed. To retry a failed deploy, use "Re-run jobs" on its Deploy run (same
+# commit, same CI result).
 # Vercel's own Git deploys are off for these two branches (apps/platform/vercel.json);
 # the deploy hook below starts the build after the migrations succeed.
 #
-# GitHub environment secrets (Settings → Environments → staging / production):
-#   DATABASE_URL            direct or session-pooler URL of that environment's database
-#   CRON_SECRET             same value as the Vercel env var of that environment
-#   APP_URL                 https://app.leanapp.io (production) or the staging URL
-#   VERCEL_DEPLOY_HOOK_URL  Vercel deploy hook for the branch (optional until the Vercel project exists)
+# workflow_run always runs this file as it is on the default branch (main), and
+# github.ref / github.sha point at main, so the branch and commit come from
+# github.event.workflow_run (head_branch, head_sha).
+#
+# GitHub environment secrets (Settings → Environments → staging / production).
+# scripts/ci/check-deploy-config.sh refuses the run BEFORE migrations when a
+# required one is missing:
+#   DATABASE_URL            direct or session-pooler URL of that environment's database (required)
+#   CRON_SECRET             same value as the Vercel env var of that environment (required)
+#   APP_URL                 https://app.leanapp.io (production) or the staging URL; the smoke test URL (required)
+#   VERCEL_DEPLOY_HOOK_URL  Vercel deploy hook for the branch (required for production; staging warns, skips deploy)
 #   VERCEL_BYPASS           protection bypass for automation (staging only, optional)
-#   SMOKE_SDK_KEY           development key of the internal "LeanApp smoke" app (optional)
+#   SMOKE_SDK_KEY           development key of the internal "LeanApp smoke" app (optional; adds the test-event check)
 # GitHub environment variable:
-#   WORKER_SCHEDULE         '*/5 * * * *' production, '*/15 * * * *' staging
+#   WORKER_SCHEDULE         '*/5 * * * *' production, '*/15 * * * *' staging (required)
+# Details and branch protection: docs/ops/deploy-and-branch-protection.md
 
 on:
-  push:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
     branches: [main, staging]
-  workflow_dispatch:
-    inputs:
-      target:
-        description: Environment
-        type: choice
-        options: [staging, production]
-        required: true
 
 concurrency:
-  group: deploy-${{ github.event_name == 'workflow_dispatch' && inputs.target || (github.ref_name == 'main' && 'production' || 'staging') }}
+  group: deploy-${{ github.event.workflow_run.head_branch == 'main' && 'production' || 'staging' }}
   cancel-in-progress: false
 
 permissions:
@@ -40,35 +44,41 @@ permissions:
 jobs:
   deploy:
     name: Migrate, schedule, deploy, smoke test
+    # Only a successful CI run of a push to main/staging in this repository,
+    # never a pull request (whose head branch could also be called "main").
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      (github.event.workflow_run.head_branch == 'main' || github.event.workflow_run.head_branch == 'staging')
     runs-on: ubuntu-latest
-    environment: ${{ github.event_name == 'workflow_dispatch' && inputs.target || (github.ref_name == 'main' && 'production' || 'staging') }}
+    environment: ${{ github.event.workflow_run.head_branch == 'main' && 'production' || 'staging' }}
     defaults:
       run:
         working-directory: apps/platform
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       DATABASE_SSL: require
+      TARGET: ${{ github.event.workflow_run.head_branch == 'main' && 'production' || 'staging' }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
       - uses: actions/checkout@v4
-      - name: Refuse a branch that does not belong to this environment
-        env:
-          TARGET: ${{ github.event_name == 'workflow_dispatch' && inputs.target || (github.ref_name == 'main' && 'production' || 'staging') }}
-          REF: ${{ github.ref_name }}
-        run: |
-          want=$([ "$TARGET" = production ] && echo main || echo staging)
-          if [ "$REF" != "$want" ]; then echo "::error::$TARGET deploys only from the $want branch (this run is on $REF)."; exit 1; fi
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
       - name: Refuse when the environment is not configured
         env:
-          HAS_CRON_SECRET: ${{ secrets.CRON_SECRET != '' }}
-          HAS_APP_URL: ${{ secrets.APP_URL != '' }}
+          DEPLOY_TARGET: ${{ github.event.workflow_run.head_branch == 'main' && 'production' || 'staging' }}
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          APP_URL: ${{ secrets.APP_URL }}
+          VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
           WORKER_SCHEDULE: ${{ vars.WORKER_SCHEDULE }}
+        run: bash scripts/ci/check-deploy-config.sh
+      # The deploy hook builds the branch head, so the commit CI passed must still be it.
+      - name: Refuse a commit that is no longer the branch head
         run: |
-          missing=""
-          [ -n "$DATABASE_URL" ] || missing="$missing DATABASE_URL"
-          [ "$HAS_CRON_SECRET" = true ] || missing="$missing CRON_SECRET"
-          [ "$HAS_APP_URL" = true ] || missing="$missing APP_URL"
-          [ -n "$WORKER_SCHEDULE" ] || missing="$missing WORKER_SCHEDULE(variable)"
-          if [ -n "$missing" ]; then echo "::error::Missing in this GitHub environment:$missing"; exit 1; fi
+          head=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          if [ "$head" != "$SHA" ]; then echo "::error::$BRANCH moved on to $head; this run is for $SHA. The newer commit's own run deploys it."; exit 1; fi
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -88,18 +98,27 @@ jobs:
             -v app_url="$APP_URL" -v secret="$CRON_SECRET" \
             -v schedule="$WORKER_SCHEDULE" -v bypass="$VERCEL_BYPASS" \
             -f db/ops/schedule.sql
+      - name: Refuse a commit that is no longer the branch head (before deploying)
+        run: |
+          head=$(git ls-remote origin "refs/heads/$BRANCH" | cut -f1)
+          if [ "$head" != "$SHA" ]; then echo "::error::$BRANCH moved on to $head; this run is for $SHA. The newer commit's own run deploys it."; exit 1; fi
       - name: Start the Vercel deployment
         id: hook
         env:
           HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
         run: |
-          if [ -z "$HOOK" ]; then
-            echo "::warning::VERCEL_DEPLOY_HOOK_URL is not set; no deployment started."
-            echo "started=false" >> "$GITHUB_OUTPUT"
-          else
+          if [ -n "$HOOK" ]; then
             curl -fsS -X POST "$HOOK" > /dev/null
             echo "started=true" >> "$GITHUB_OUTPUT"
+          elif [ "$TARGET" = production ]; then
+            echo "::error::VERCEL_DEPLOY_HOOK_URL is required for production."
+            exit 1
+          else
+            echo "::warning::VERCEL_DEPLOY_HOOK_URL is not set for staging; no deployment started, no smoke test."
+            echo "started=false" >> "$GITHUB_OUTPUT"
           fi
+      # Production always reaches this step with started=true (the hook is required
+      # above), so the smoke test cannot be skipped there.
       - name: Smoke test the deployment
         if: steps.hook.outputs.started == 'true'
         env:
@@ -107,6 +126,6 @@ jobs:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
           VERCEL_BYPASS: ${{ secrets.VERCEL_BYPASS }}
           SMOKE_SDK_KEY: ${{ secrets.SMOKE_SDK_KEY }}
-          EXPECT_SHA: ${{ github.sha }}  # the hook deploys the branch head, which is this commit
+          EXPECT_SHA: ${{ github.event.workflow_run.head_sha }}  # the hook deploys the branch head, checked above to be this commit
           SMOKE_WAIT_SECONDS: "900"
         run: npm run smoke

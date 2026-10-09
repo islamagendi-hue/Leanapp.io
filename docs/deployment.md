@@ -25,8 +25,9 @@ smoke test writes only to the development data environment of an internal app).
 
 ```
 merge to staging (or main)
-  → GitHub Actions "Deploy" (.github/workflows/deploy.yml), environment staging (or production: waits for a reviewer)
-      1. refuses if the branch does not match the environment or a secret is missing
+  → GitHub Actions "CI" on that commit
+  → when CI succeeded: "Deploy" (.github/workflows/deploy.yml), environment staging (or production: waits for a reviewer)
+      1. refuses if a secret is missing or the branch moved past the tested commit (before any migration)
       2. npm run db:migrate            (forward-only, each file in its own transaction)
       3. psql -f db/ops/schedule.sql   (pg_cron job, idempotent)
       4. POST the Vercel deploy hook   (builds that branch on Vercel)
@@ -35,6 +36,9 @@ merge to staging (or main)
 
 Vercel's automatic Git deploys are turned off for `main` and `staging` in
 `apps/platform/vercel.json`, so code is only deployed after its migrations ran.
+Deploy never runs for a commit whose CI failed, and has no manual trigger; see
+[deploy safety and branch protection](ops/deploy-and-branch-protection.md) for
+the gating, the required secrets and the branch protection the owner turns on.
 Pull requests still get Vercel previews and CI (lint, typecheck, unit,
 integration against Postgres, migrations on an empty database, build, browser
 tests).
@@ -91,9 +95,10 @@ webhooks). It needs a schedule:
    - Optional: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` ([billing](billing.md)); `EVENT_RETENTION` stays unset (deletion is off until paid plans are final); `DEMO_ENABLED=1` turns on the public read-only demo (sample data, refreshed by the scheduled worker).
 6. **GitHub environments** (repository Settings → Environments): create
    `staging` and `production`; on `production` add yourself as a required
-   reviewer and restrict it to the `main` branch. In each, add secrets
+   reviewer and restrict it to the `main` branch (leave `staging` unrestricted:
+   Deploy runs from `workflow_run`, whose ref is always `main`). In each, add secrets
    `DATABASE_URL` (session pooler or direct URL), `CRON_SECRET` (same value as
-   in Vercel), `APP_URL`, `VERCEL_DEPLOY_HOOK_URL`, and optionally
+   in Vercel), `APP_URL`, `VERCEL_DEPLOY_HOOK_URL` (required for production), and optionally
    `VERCEL_BYPASS` (staging) and `SMOKE_SDK_KEY`; and a variable
    `WORKER_SCHEDULE` = `*/5 * * * *` (production) or `*/15 * * * *` (staging).
 7. **First deploy.** Create the `staging` branch from `main` (or merge into
