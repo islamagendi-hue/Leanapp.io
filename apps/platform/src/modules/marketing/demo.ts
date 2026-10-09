@@ -69,10 +69,10 @@ async function findDemo(): Promise<DemoRefs | null> {
   });
 }
 
-/** Creates the demo organization, app and Viewer account. Their passwords are random and never used: /demo signs in directly. */
+/** Creates the demo organization, app and Viewer account. Their passwords are random and never used: /demo signs in directly. "a1" keeps a random token from failing the letters-and-a-number rule. */
 async function createDemo(): Promise<DemoRefs> {
-  const { user: owner } = await signUp({ name: "LeanApp Demo", email: OWNER_EMAIL, password: randomToken(24) }, { ip: "demo" });
-  const { user: viewer } = await signUp({ name: "Demo visitor", email: DEMO_EMAIL, password: randomToken(24) }, { ip: "demo" });
+  const { user: owner } = await signUp({ name: "LeanApp Demo", email: OWNER_EMAIL, password: `${randomToken(24)}a1` }, { ip: "demo" });
+  const { user: viewer } = await signUp({ name: "Demo visitor", email: DEMO_EMAIL, password: `${randomToken(24)}a1` }, { ip: "demo" });
   const org = await createOrganization(owner.id, { name: DEMO_ORG_NAME, country: "SA", timezone: "Asia/Riyadh", defaultCurrency: "SAR", industry: "" });
   const ctx = await resolveTenant(owner.id, org.slug);
   const app = await createApp(ctx, { name: DEMO_APP_NAME, description: "Food delivery app (sample data)", platforms: ["android", "ios"] });
