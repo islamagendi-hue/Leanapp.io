@@ -66,7 +66,7 @@ export interface AnalyticsOptions {
   /**
    * Browsers: on start, read the page URL and document.referrer. A visit with UTMs, a click id or an
    * external referrer becomes the latest touch (and the first, if none was kept) and sends a
-   * `$landing` event. Default true on web; ignored elsewhere.
+   * `landing_viewed` event. Default true on web; ignored elsewhere.
    */
   autoCapture?: boolean;
   /** Browsers: your other domains (e.g. "checkout.example.com"). Referrers from them, or their subdomains, are internal. */
@@ -166,7 +166,7 @@ export interface ExperimentAssignment {
 export const EXPOSURE_EVENT = "experiment_exposure";
 
 /** Browsers: sent when a visit arrives with a source (UTMs, a click id or an external referrer). */
-export const LANDING_EVENT = "$landing";
+export const LANDING_EVENT = "landing_viewed";
 
 const KEY_PATTERN = /^la_(pk|sk)_(dev|stg|live)_[A-Za-z0-9_-]{20,}$/;
 // Browsers cap the bodies of all in-flight keepalive requests at 64 KiB; stay under it with headroom.
@@ -441,7 +441,7 @@ export class LeanAppClient {
    * latest is attached to following events (in browsers: to the first event of each session).
    * Browsers capture the page they start on by themselves (autoCapture); call this for later
    * single-page-app navigations, optionally with the referrer. In a browser a URL that shows a
-   * source (UTMs, a click id, or an external `referrer`) also sends a `$landing` event.
+   * source (UTMs, a click id, or an external `referrer`) also sends a `landing_viewed` event.
    * Returns the parameters found, or null when the URL has none.
    */
   captureAttribution(url: string, options: { referrer?: string } = {}): Attribution | null {
@@ -790,7 +790,7 @@ export class LeanAppClient {
   /**
    * context.attribution for an event, before consent is applied.
    * Apps: the latest touch on every event (as before).
-   * Browsers: `touch` for a $landing event; otherwise only the first event of a session carries
+   * Browsers: `touch` for a landing_viewed event; otherwise only the first event of a session carries
    * attribution: the touch that started this session, or just the landing page when the session
    * shows no source (so a direct visit is never reported as the earlier source). Meta's
    * _fbp/_fbc go on every event when allowed.
@@ -822,7 +822,7 @@ export class LeanAppClient {
     return out;
   }
 
-  /** Stores a touch (first kept, latest replaced) under attribution consent; browsers also send `$landing`. */
+  /** Stores a touch (first kept, latest replaced) under attribution consent; browsers also send `landing_viewed`. */
   private recordTouch(touch: Attribution, at: number, web: boolean) {
     const status = this.consentFor("attribution");
     if (status === "denied") return;

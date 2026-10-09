@@ -60,14 +60,14 @@ afterEach(() => {
 });
 
 describe("web auto-capture", () => {
-  it("captures UTMs, click ids, the landing page and an external referrer on start, and sends $landing", async () => {
+  it("captures UTMs, click ids, the landing page and an external referrer on start, and sends landing_viewed", async () => {
     page("https://shop.example/sale?utm_source=google&utm_medium=cpc&utm_campaign=ramadan&gclid=Cj0K&email=a%40b.com#top", "https://www.google.com/search?q=private");
     const s = server();
     const c = make(s);
     c.track("product_viewed");
     await c.flush();
     const events = s.events();
-    expect(events.map((e) => e.event_name)).toEqual(["$landing", "product_viewed"]);
+    expect(events.map((e) => e.event_name)).toEqual(["landing_viewed", "product_viewed"]);
     const landing = events[0];
     // Other query parameters (here an email) and the referrer's query never leave the browser.
     expect(landing.properties).toEqual({
@@ -89,7 +89,7 @@ describe("web auto-capture", () => {
     expect(c.getAttribution()?.first.utm_source).toBe("google");
   });
 
-  it("direct visit (missing UTMs, no referrer): no touch, no $landing, only the landing page on the session's first event", async () => {
+  it("direct visit (missing UTMs, no referrer): no touch, no landing_viewed, only the landing page on the session's first event", async () => {
     page("https://shop.example/");
     const s = server();
     const c = make(s);
@@ -97,7 +97,7 @@ describe("web auto-capture", () => {
     c.track("b");
     await c.flush();
     const [a, b] = s.events();
-    expect(named(s.events(), "$landing")).toHaveLength(0);
+    expect(named(s.events(), "landing_viewed")).toHaveLength(0);
     expect(a.context.attribution).toEqual({ landing_url: "https://shop.example/" });
     expect(b.context.attribution).toBeUndefined();
     expect(c.getAttribution()).toBeNull();
@@ -120,7 +120,7 @@ describe("web auto-capture", () => {
     await second.flush();
     const signup = named(s.events(), "signup_completed")[0];
     expect(signup.context.attribution).toEqual({ landing_url: "https://shop.example/pricing" });
-    expect(named(s.events(), "$landing")).toHaveLength(1);
+    expect(named(s.events(), "landing_viewed")).toHaveLength(1);
     // The paid touch stays the first and the latest touch on the device.
     expect(second.getAttribution()).toMatchObject({ first: { utm_source: "meta" }, latest: { utm_source: "meta" } });
   });
@@ -138,7 +138,7 @@ describe("web auto-capture", () => {
     const second = make(s, { storage }, clock);
     second.track("order_completed");
     await second.flush();
-    const landings = named(s.events(), "$landing");
+    const landings = named(s.events(), "landing_viewed");
     expect(landings.map((e) => (e.context.attribution as Record<string, string> | undefined)?.touch)).toEqual(["first", "latest"]);
     expect(second.getAttribution()).toMatchObject({ first: { utm_source: "tiktok" }, latest: { utm_source: "newsletter" } });
     expect(named(s.events(), "order_completed")[0].context.attribution).toBeUndefined();
@@ -149,7 +149,7 @@ describe("web auto-capture", () => {
     let s = server();
     let c = make(s);
     await c.flush();
-    expect(named(s.events(), "$landing")[0].context.attribution).toEqual({
+    expect(named(s.events(), "landing_viewed")[0].context.attribution).toEqual({
       landing_url: "https://shop.example/blog",
       referrer: "https://news.example.org/article",
       touch: "first",
@@ -161,7 +161,7 @@ describe("web auto-capture", () => {
     c = make(s);
     c.track("a");
     await c.flush();
-    expect(named(s.events(), "$landing")).toHaveLength(0);
+    expect(named(s.events(), "landing_viewed")).toHaveLength(0);
     await c.shutdown();
 
     page("https://shop.example/thanks", "https://pay.checkout.example.net/done");
@@ -169,16 +169,16 @@ describe("web auto-capture", () => {
     c = make(s, { internalDomains: ["checkout.example.net"] });
     c.track("a");
     await c.flush();
-    expect(named(s.events(), "$landing")).toHaveLength(0);
+    expect(named(s.events(), "landing_viewed")).toHaveLength(0);
   });
 
-  it("capturing the same page again in the session (manual call after autoCapture) sends one $landing", async () => {
+  it("capturing the same page again in the session (manual call after autoCapture) sends one landing_viewed", async () => {
     page("https://shop.example/?utm_source=snapchat&ScCid=s1");
     const s = server();
     const c = make(s);
     c.captureAttribution("https://shop.example/?utm_source=snapchat&ScCid=s1");
     await c.flush();
-    expect(named(s.events(), "$landing")).toHaveLength(1);
+    expect(named(s.events(), "landing_viewed")).toHaveLength(1);
   });
 
   it("can be turned off", async () => {
@@ -187,7 +187,7 @@ describe("web auto-capture", () => {
     const c = make(s, { autoCapture: false });
     c.track("a");
     await c.flush();
-    expect(named(s.events(), "$landing")).toHaveLength(0);
+    expect(named(s.events(), "landing_viewed")).toHaveLength(0);
     expect(c.getAttribution()).toBeNull();
   });
 });
@@ -225,7 +225,7 @@ describe("Meta browser ids", () => {
 });
 
 describe("web attribution and consent", () => {
-  it("holds $landing with its touch until consent; analytics alone releases it without attribution", async () => {
+  it("holds landing_viewed with its touch until consent; analytics alone releases it without attribution", async () => {
     page("https://shop.example/?utm_source=google&gclid=g1");
     const s = server();
     const c = make(s, { consentDefault: "pending" });
@@ -235,19 +235,19 @@ describe("web attribution and consent", () => {
     c.setConsent({ analytics: true });
     await c.flush();
     const sent = s.events().filter((e) => e.type === "track");
-    expect(sent.map((e) => e.event_name)).toEqual(["$landing", "a"]);
+    expect(sent.map((e) => e.event_name)).toEqual(["landing_viewed", "a"]);
     for (const e of sent) expect(e.context.attribution).toBeUndefined();
     expect(c.getAttribution()).toBeNull();
   });
 
-  it("releases the held touch with $landing when attribution consent is granted too", async () => {
+  it("releases the held touch with landing_viewed when attribution consent is granted too", async () => {
     page("https://shop.example/?utm_source=google&gclid=g1");
     const s = server();
     const c = make(s, { consentDefault: "pending", metaBrowserIds: false });
     c.track("a");
     c.setConsent({ analytics: true, attribution: true });
     await c.flush();
-    const landing = named(s.events(), "$landing")[0];
+    const landing = named(s.events(), "landing_viewed")[0];
     expect(landing.context.attribution).toMatchObject({ utm_source: "google", gclid: "g1", touch: "first" });
     expect(landing.context.consent).toBeUndefined(); // queued before the answer
     c.track("b");
@@ -262,7 +262,7 @@ describe("web attribution and consent", () => {
     const c = make(s, { consentDefault: { attribution: "denied" } });
     c.track("a");
     await c.flush();
-    expect(named(s.events(), "$landing")).toHaveLength(0);
+    expect(named(s.events(), "landing_viewed")).toHaveLength(0);
     expect(s.events()[0].context.attribution).toBeUndefined();
     expect(c.getAttribution()).toBeNull();
   });

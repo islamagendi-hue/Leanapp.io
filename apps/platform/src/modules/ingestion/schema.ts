@@ -73,8 +73,7 @@ export const eventSchema = z
       .trim()
       .min(1)
       .max(100)
-      // A leading $ marks names the SDKs send themselves ($landing).
-      .regex(/^\$?[A-Za-z][A-Za-z0-9_ .:\-]*$/, "event_name must start with a letter (or $ and a letter) and contain letters, digits, spaces, _ . : -")
+      .regex(/^[A-Za-z][A-Za-z0-9_ .:\-]*$/, "event_name must start with a letter and contain letters, digits, spaces, _ . : -")
       .optional(),
     event_id: id.optional(),
     timestamp: z.string().max(40).optional(),
