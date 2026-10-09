@@ -22,7 +22,7 @@ describe("deepLinkCapabilities", () => {
   it("deferred deep links are never claimed as live", () => {
     const on = deepLinkCapabilities(base).find((c) => c.key === "deferred")!;
     expect(on.status).toBe("beta");
-    expect(on.detail).toMatch(/SDKs don't make this call yet/);
+    expect(on.detail).toMatch(/once on a new install's first open/);
     expect(status(deepLinkCapabilities({ ...base, deferred_enabled: false })).deferred).toBe("off");
   });
 });
