@@ -315,8 +315,8 @@ const ar: Record<string, string> = {
   "Deep link after install (deferred)": "رابط عميق بعد التثبيت (مؤجل)",
   "Set up deep links first.": "أعِدّ الروابط العميقة أولًا.",
   "Turned off in Deep link setup.": "متوقف في إعداد الروابط العميقة.",
-  "API only: your app calls POST /v1/deep-links/deferred on its first open and routes to the returned deep link. The LeanApp SDKs don't make this call yet. Exact match on Android through the Play install referrer; on iOS only when your app passes the click id.":
-    "عبر API فقط: يستدعي تطبيقك POST /v1/deep-links/deferred عند أول فتح ثم ينتقل إلى الرابط العميق المُعاد. لا تُجري حزم LeanApp SDK هذا الاستدعاء بعد. المطابقة دقيقة على Android عبر مُحيل التثبيت من Play؛ وعلى iOS فقط عندما يمرّر تطبيقك معرّف النقر.",
+  "The LeanApp SDKs ask POST /v1/deep-links/deferred once on a new install's first open, after attribution consent, and hand the returned deep link to your app. Exact match on Android through the Play install referrer; on iOS only when your app passes the click id.":
+    "تطلب حزم LeanApp SDK الرابط من POST /v1/deep-links/deferred مرة واحدة عند أول فتح لتثبيت جديد، بعد موافقة الإسناد، وتسلّم الرابط العميق المُعاد لتطبيقك. المطابقة دقيقة على Android عبر مُحيل التثبيت من Play؛ وعلى iOS فقط عندما يمرّر تطبيقك معرّف النقر.",
 
   // Channel presets (modules/deeplinks/pure.ts)
   Email: "البريد الإلكتروني",

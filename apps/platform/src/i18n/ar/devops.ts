@@ -1280,11 +1280,9 @@ const ar: Record<string, string> = {
   "Play install referrer on React Native (needs a native module)": "Play install referrer على React Native (يحتاج وحدة أصلية)",
   "deep_link_url on app opens": "deep_link_url عند فتح التطبيق",
   "in-app message display in the SDK": "عرض الرسائل داخل التطبيق نفسه",
-  "deferred and resolve deep link calls": "استدعاءات الروابط العميقة المؤجلة والحلّ",
+  "resolve deep link calls": "استدعاءات حلّ الروابط العميقة",
   "29 JVM unit tests and the Android library build, run in CI": "29 اختبار وحدة على JVM، وبناء مكتبة أندرويد، وكلها تعمل في CI",
-  "consent per purpose (optOut / optIn only, for now)": "الموافقة حسب الغرض (optOut / optIn فقط)",
   "24 XCTest tests and device and simulator builds on macOS in CI": "24 اختبار XCTest، وبناء للجهاز والمحاكي على macOS، وكلها تعمل في CI",
-  "SKAdNetwork / AdAttributionKit conversion values": "قيم التحويل في SKAdNetwork / AdAttributionKit",
   "25 tests and flutter analyze in CI": "25 اختبارًا وflutter analyze في CI",
   "install referrer without a separate plugin": "قراءة install referrer دون الحاجة إلى إضافة منفصلة",
 };

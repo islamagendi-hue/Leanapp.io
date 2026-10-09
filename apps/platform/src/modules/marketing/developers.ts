@@ -207,23 +207,23 @@ const EN = {
     cards: {
       javascript: {
         runsOn: "Web browsers, React Native apps and Node.js 18+ servers. No dependencies.",
-        does: ["Events, screens, users and sessions", "Consent per purpose (analytics, marketing, push, attribution)", "Campaign data from URLs: utm_* and ad click ids", "Offline queue: localStorage in browsers, AsyncStorage on React Native"],
-        notYet: ["Play install referrer on React Native", "deep_link_url on app opens", "Showing in-app messages", "Deferred deep link calls"],
+        does: ["Events, screens, users and sessions", "Consent per purpose (analytics, marketing, push, attribution)", "Web visits captured for you: landing page, referrer, utm_* and ad click ids, first and latest touch", "Offline queue: localStorage in browsers, AsyncStorage on React Native"],
+        notYet: ["Play install referrer on React Native", "deep_link_url on app opens", "Showing in-app messages", "Resolve deep link calls"],
       },
       android: {
         runsOn: "Android 5.0+ (API 21). Needs Play Install Referrer.",
         does: ["Events, screens, users and sessions", "app_installed, app_updated and app_opened sent for you", "Google Play install referrer, read once per install", "Campaign data from the link that opened the app"],
-        notYet: ["Consent per purpose (optOut / optIn only)", "Showing in-app messages", "Deferred deep link calls"],
+        notYet: ["Showing in-app messages", "Resolve deep link calls"],
       },
       ios: {
         runsOn: "iOS 13 and later, plus macOS 10.15+ and tvOS 13+. It has no dependencies, so adding it brings no other libraries into your app's build.",
         does: ["Events, screens, users and sessions", "app_installed, app_updated and app_opened sent for you", "APNs push tokens", "Campaign data from deep links and universal links you pass in"],
-        notYet: ["Consent per purpose (optOut / optIn only)", "SKAdNetwork / AdAttributionKit conversion values", "Showing in-app messages", "Deferred deep link calls"],
+        notYet: ["Showing in-app messages", "Resolve deep link calls"],
       },
       flutter: {
         runsOn: "Flutter 3.13+ (Dart 3.1+) on Android and iOS, with http and shared_preferences as dependencies.",
         does: ["Events, screens, users and sessions", "app_installed, app_updated and app_opened sent for you", "Install referrer passed in from a plugin such as play_install_referrer", "Campaign data from links you pass in"],
-        notYet: ["Consent per purpose (optOut / optIn only)", "Install referrer without a plugin", "Showing in-app messages", "Deferred deep link calls"],
+        notYet: ["Install referrer without a plugin", "Showing in-app messages", "Resolve deep link calls"],
       },
     } as Record<SdkId, { runsOn: string; does: string[]; notYet: string[] }>,
   },

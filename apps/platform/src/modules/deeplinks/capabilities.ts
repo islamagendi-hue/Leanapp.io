@@ -78,7 +78,7 @@ export function deepLinkCapabilities(config: ConfigFacts | null): Capability[] {
           ? { status: "off" as const, detail: msg("Turned off in Deep link setup.") }
           : {
               status: "beta" as const,
-              detail: msg("API only: your app calls POST /v1/deep-links/deferred on its first open and routes to the returned deep link. The LeanApp SDKs don't make this call yet. Exact match on Android through the Play install referrer; on iOS only when your app passes the click id."),
+              detail: msg("The LeanApp SDKs ask POST /v1/deep-links/deferred once on a new install's first open, after attribution consent, and hand the returned deep link to your app. Exact match on Android through the Play install referrer; on iOS only when your app passes the click id."),
             }),
     },
   ];
