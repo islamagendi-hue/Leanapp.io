@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formEncode, paymentsConnected, stripeSignatureHeader, verifyStripeSignature } from "./stripe";
+import { formEncode, isAllowedProviderRedirect, keyMode, paymentsConnected, STRIPE_WEBHOOK_EVENTS, stripeSignatureHeader, verifyStripeSignature } from "./stripe";
 
 const secret = "whsec_test_secret";
 const payload = JSON.stringify({ id: "evt_1", type: "invoice.paid" });
@@ -45,5 +45,34 @@ describe("Stripe requests", () => {
     expect(paymentsConnected({ STRIPE_SECRET_KEY: "sk_test_1" })).toBe(false);
     expect(paymentsConnected({ STRIPE_WEBHOOK_SECRET: "whsec_1" })).toBe(false);
     expect(paymentsConnected({ STRIPE_SECRET_KEY: "sk_test_1", STRIPE_WEBHOOK_SECRET: "whsec_1" })).toBe(true);
+  });
+});
+
+describe("Stripe modes and redirects", () => {
+  it("derives test or live from the key prefix and refuses anything else", () => {
+    expect(keyMode("sk_test_abc")).toBe("test");
+    expect(keyMode("rk_test_abc")).toBe("test");
+    expect(keyMode("sk_live_abc")).toBe("live");
+    expect(keyMode("rk_live_abc")).toBe("live");
+    expect(keyMode("pk_live_abc")).toBeNull();
+    expect(keyMode("sk_abc")).toBeNull();
+    expect(keyMode(undefined)).toBeNull();
+    expect(paymentsConnected({ STRIPE_SECRET_KEY: "pk_test_1", STRIPE_WEBHOOK_SECRET: "whsec_1" })).toBe(false);
+    expect(paymentsConnected({ STRIPE_SECRET_KEY: "sk_test_1", STRIPE_WEBHOOK_SECRET: "secret" })).toBe(false);
+  });
+
+  it("allows redirects only to Stripe's Checkout and Portal hosts over https", () => {
+    expect(isAllowedProviderRedirect("https://checkout.stripe.com/c/pay/cs_1")).toBe(true);
+    expect(isAllowedProviderRedirect("https://billing.stripe.com/p/session/x")).toBe(true);
+    expect(isAllowedProviderRedirect("http://checkout.stripe.com/c/pay/cs_1")).toBe(false);
+    expect(isAllowedProviderRedirect("https://checkout.stripe.com.evil.example/x")).toBe(false);
+    expect(isAllowedProviderRedirect("https://user:pw@checkout.stripe.com/x")).toBe(false);
+    expect(isAllowedProviderRedirect("https://checkout.stripe.com:8443/x")).toBe(false);
+    expect(isAllowedProviderRedirect("/o/acme/settings/billing")).toBe(false);
+    expect(isAllowedProviderRedirect(undefined)).toBe(false);
+  });
+
+  it("lists every webhook event the handler applies", () => {
+    expect(STRIPE_WEBHOOK_EVENTS).toEqual(expect.arrayContaining(["checkout.session.completed", "customer.subscription.deleted", "invoice.payment_succeeded", "invoice.payment_failed", "charge.refunded"]));
   });
 });

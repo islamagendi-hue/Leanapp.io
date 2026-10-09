@@ -5,6 +5,7 @@ import { withSystem, type Db } from "@/lib/db";
 import { PlanLimitError } from "@/lib/errors";
 import { asLimit, canAdd, eventHardCap, eventState, LIMIT_FEATURES, usagePeriod, type LimitKey, type LimitState } from "./limits";
 import { envNumber } from "@/lib/env-number";
+import { entitled } from "./plans";
 
 /**
  * Plan-limit enforcement. Limits are data (platform.plan_features); a null or
@@ -30,6 +31,29 @@ export async function planLimit(db: Db, organizationId: string, key: LimitKey): 
     [organizationId, LIMIT_FEATURES[key]],
   );
   return asLimit(row?.value);
+}
+
+/**
+ * Feature entitlement (plan_features `feature.<name>`): allowed unless the
+ * organization's plan explicitly sets it to false (plans.ts entitled()). Works
+ * in tenant and system transactions. Independent of the payment provider, so
+ * an unconfigured provider never takes a feature away.
+ */
+export async function featureEntitled(db: Db, organizationId: string, feature: string): Promise<boolean> {
+  const row = await db.one<{ value: unknown }>(
+    `select f.value from platform.organizations o
+       join platform.plan_features f on f.plan_id = o.plan_id and f.feature = $2
+      where o.id = $1`,
+    [organizationId, `feature.${feature}`],
+  );
+  return entitled(row ? { [`feature.${feature}`]: row.value } : null, feature);
+}
+
+/** Refuses with plan_limit_exceeded (403) when the plan doesn't include `feature`. */
+export async function assertEntitled(db: Db, organizationId: string, feature: string): Promise<void> {
+  if (!(await featureEntitled(db, organizationId, feature))) {
+    throw new PlanLimitError(msg("Your plan doesn't include this feature. Upgrade the plan to use it."), "feature");
+  }
 }
 
 async function lockOrg(db: Db, what: string, organizationId: string) {

@@ -12,6 +12,7 @@
  * Only variable names and reasons are reported, never values.
  */
 import { encryptionKeyProblem } from "@/lib/secret-box";
+import { priceEnvProblems } from "@/modules/billing/plans";
 
 export type Deployment = "production" | "preview" | "local";
 
@@ -80,6 +81,8 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   const stripeKey = env.STRIPE_SECRET_KEY ?? "";
   const stripeHook = env.STRIPE_WEBHOOK_SECRET ?? "";
   if (stripeKey && !/^(sk|rk)_(live|test)_/.test(stripeKey)) warn("STRIPE_SECRET_KEY", "does not look like a Stripe secret key (sk_… or rk_…)");
+  // Price ids per plan and interval (STRIPE_PRICE_<PLAN>_<INTERVAL>); unknown plan names are caught by the billing status.
+  for (const p of priceEnvProblems(env, [])) warn(p.variable, p.problem);
   if (stripeHook && !stripeHook.startsWith("whsec_")) warn("STRIPE_WEBHOOK_SECRET", "does not look like a Stripe webhook signing secret (whsec_…)");
   if (Boolean(stripeKey) !== Boolean(stripeHook)) warn(stripeKey ? "STRIPE_WEBHOOK_SECRET" : "STRIPE_SECRET_KEY", "set both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET; payments stay disconnected until then");
   else if (deployment === "production" && !stripeKey) warn("STRIPE_SECRET_KEY", "not set; payments are not connected and plans can't be bought");
