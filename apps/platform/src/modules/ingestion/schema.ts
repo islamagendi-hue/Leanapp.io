@@ -3,6 +3,7 @@
  * Field names are snake_case on the wire. See docs/events.md.
  */
 import { z } from "zod";
+import { attributionContextSchema, sanitizeAttribution } from "./attribution-context";
 
 export const LIMITS = {
   maxBatchEvents: 500,
@@ -56,7 +57,8 @@ export const contextSchema = z
     sdk: z.object({ name: z.string().max(50), version: z.string().max(30) }).optional(),
     network: z.object({ carrier: z.string().max(100).optional(), wifi: z.boolean().optional() }).partial().optional(),
     screen: z.object({ width: z.number().optional(), height: z.number().optional(), density: z.number().optional() }).partial().optional(),
-    attribution: z.record(z.string().max(60), z.string().max(1000)).optional(),
+    // Well-known keys (UTMs, click ids, landing_url, referrer, campaign ids, fbp/fbc, adservices_token, touch): see attribution-context.ts and docs/events.md.
+    attribution: attributionContextSchema.optional(),
     // Native SDKs: Play Install Referrer details (install_referrer, referrer_click_timestamp_seconds, …). See docs/sdk.md.
     campaign: z.record(z.string().max(60), z.union([z.string().max(1000), z.number().finite(), z.boolean(), z.null()])).optional(),
     consent: z.record(z.string().max(30), z.boolean()).optional(),
@@ -71,7 +73,8 @@ export const eventSchema = z
       .trim()
       .min(1)
       .max(100)
-      .regex(/^[A-Za-z][A-Za-z0-9_ .:\-]*$/, "event_name must start with a letter and contain letters, digits, spaces, _ . : -")
+      // A leading $ marks names the SDKs send themselves ($landing).
+      .regex(/^\$?[A-Za-z][A-Za-z0-9_ .:\-]*$/, "event_name must start with a letter (or $ and a letter) and contain letters, digits, spaces, _ . : -")
       .optional(),
     event_id: id.optional(),
     timestamp: z.string().max(40).optional(),
@@ -191,6 +194,11 @@ export function normalizeEvent(
   if (e.type === "alias") properties.previous_id = e.previous_id;
   if (e.type === "push_token") properties.provider = e.push_token!.provider;
   const context = { ...e.context } as Record<string, unknown>;
+  if (e.context.attribution) {
+    const clean = sanitizeAttribution(e.context.attribution as Record<string, string>);
+    context.attribution = clean.attribution;
+    warnings.push(...clean.warnings);
+  }
   if (e.push_token) context.push = { token: e.push_token.token, provider: e.push_token.provider, permission: e.push_token.permission };
 
   return {

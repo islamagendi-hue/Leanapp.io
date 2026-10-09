@@ -1,4 +1,4 @@
-import { parseAttribution, type Attribution } from "./attribution.js";
+import { landingUrl, metaBrowserIds, parseAttribution, webTouch, type Attribution } from "./attribution.js";
 import { localStorageAdapter, memoryStorage, type StorageAdapter } from "./storage.js";
 
 export const SDK_NAME = "leanapp-js";
@@ -63,6 +63,26 @@ export interface AnalyticsOptions {
   appState?: AppStateLike;
   /** How long getVariant() reuses the assignments it fetched for the same user. Default 5 minutes. */
   experimentsCacheMs?: number;
+  /**
+   * Browsers: on start, read the page URL and document.referrer. A visit with UTMs, a click id or an
+   * external referrer becomes the latest touch (and the first, if none was kept) and sends a
+   * `$landing` event. Default true on web; ignored elsewhere.
+   */
+  autoCapture?: boolean;
+  /** Browsers: your other domains (e.g. "checkout.example.com"). Referrers from them, or their subdomains, are internal. */
+  internalDomains?: string[];
+  /**
+   * Browsers: add Meta's _fbp / _fbc cookie values (set by Meta's Pixel, never by LeanApp) to
+   * context.attribution, for the Conversions API. Needs attribution and marketing consent. Default true.
+   */
+  metaBrowserIds?: boolean;
+  /**
+   * React Native: on the first launch of a new install, ask LeanApp once for the deferred deep link
+   * (POST /v1/deep-links/deferred). Needs attribution consent. Default true on react_native, else false.
+   */
+  deferredDeepLinks?: boolean;
+  /** Called once per install with LeanApp's answer from /v1/deep-links/deferred (match_type "none" when nothing matched). */
+  onDeferredDeepLink?: (result: DeferredDeepLink) => void;
   debug?: boolean;
   fetch?: typeof fetch;
   now?: () => number;
@@ -91,9 +111,24 @@ export interface WireEvent {
   consent?: ConsentInput;
 }
 
+/** LeanApp's answer from POST /v1/deep-links/deferred. */
+export interface DeferredDeepLink {
+  match_type: "deterministic" | "probabilistic" | "none";
+  /** Why nothing matched: no_click, already_checked, disabled. */
+  reason?: string;
+  match_key?: string;
+  link?: { code: string; name: string };
+  deep_link: { path: string | null; params: Record<string, string>; url: string | null } | null;
+  campaign?: Record<string, string | null>;
+  click_id?: string | null;
+  is_deferred: true;
+}
+
 interface QueuedEvent {
   e: WireEvent;
   queuedAt: number;
+  /** Memory only, on events held for consent: the attribution to attach if attribution consent is granted by then. */
+  attr?: Attribution;
 }
 
 interface PersistedState {
@@ -102,6 +137,13 @@ interface PersistedState {
   sessionId?: string;
   lastActivity?: number;
   attribution?: { first: Attribution; latest: Attribution };
+  /** Web: the session the latest touch was captured in, and whether it also became the first touch. */
+  latestSession?: string;
+  latestIsFirst?: boolean;
+  /** Web: the session whose first event already carried the attribution context. */
+  attributionSession?: string;
+  /** The deferred deep link was asked for (once per install). */
+  deferredChecked?: boolean;
   /** The user's explicit answers (setConsent). Purposes not here follow consentDefault. */
   consent?: ConsentInput;
 }
@@ -122,6 +164,9 @@ export interface ExperimentAssignment {
 
 /** The event that records a user saw a variant; experiment results count people from it. */
 export const EXPOSURE_EVENT = "experiment_exposure";
+
+/** Browsers: sent when a visit arrives with a source (UTMs, a click id or an external referrer). */
+export const LANDING_EVENT = "$landing";
 
 const KEY_PATTERN = /^la_(pk|sk)_(dev|stg|live)_[A-Za-z0-9_-]{20,}$/;
 // Browsers cap the bodies of all in-flight keepalive requests at 64 KiB; stay under it with headroom.
@@ -228,7 +273,25 @@ function autoContext(): Record<string, unknown> {
  * path: events go to a persistent queue and are sent in batches with retries.
  */
 export class LeanAppClient {
-  private readonly o: Required<Omit<AnalyticsOptions, "appVersion" | "appBuild" | "platform" | "context" | "optedOut" | "storage" | "flushOnHide" | "appState" | "consentDefault">> & {
+  private readonly o: Required<
+    Omit<
+      AnalyticsOptions,
+      | "appVersion"
+      | "appBuild"
+      | "platform"
+      | "context"
+      | "optedOut"
+      | "storage"
+      | "flushOnHide"
+      | "appState"
+      | "consentDefault"
+      | "autoCapture"
+      | "internalDomains"
+      | "metaBrowserIds"
+      | "deferredDeepLinks"
+      | "onDeferredDeepLink"
+    >
+  > & {
     platform: Platform;
     appVersion?: string;
     appBuild?: string;
@@ -263,6 +326,14 @@ export class LeanAppClient {
   private assignments: { identity: string; at: number; promise: Promise<Map<string, ExperimentAssignment>> } | null = null;
   /** Exposures already queued by this client: experiment id, variant and user. */
   private readonly exposed = new Set<string>();
+  private readonly internalDomains: string[];
+  private readonly metaIds: boolean;
+  private readonly deferredEnabled: boolean;
+  private readonly onDeferred?: (result: DeferredDeepLink) => void;
+  /** Browsers: the page URL and referrer when the client was created, captured once storage loaded. */
+  private startPage: { url: string; referrer: string; at: number } | null = null;
+  /** The deferred deep link answer of this launch (null when not asked: already asked before, not allowed, or failed). */
+  private deferred: Promise<DeferredDeepLink | null> | null = null;
 
   constructor(options: AnalyticsOptions) {
     if (!options || typeof options.apiKey !== "string" || !KEY_PATTERN.test(options.apiKey)) {
@@ -297,6 +368,14 @@ export class LeanAppClient {
     this.consentDefault = Object.fromEntries(
       CONSENT_PURPOSES.map((p) => [p, typeof d === "string" ? d : (d[p] ?? "granted")]),
     ) as ConsentState;
+    this.internalDomains = options.internalDomains ?? [];
+    this.metaIds = options.metaBrowserIds ?? true;
+    this.deferredEnabled = options.deferredDeepLinks ?? platform === "react_native";
+    this.onDeferred = options.onDeferredDeepLink;
+    if (platform === "web" && options.autoCapture !== false) {
+      const g = globalThis as { location?: { href?: string }; document?: { referrer?: string } };
+      if (typeof g.location?.href === "string") this.startPage = { url: g.location.href, referrer: g.document?.referrer ?? "", at: this.o.now() };
+    }
     this.storage = options.storage ?? (platform === "web" ? localStorageAdapter() : memoryStorage());
     // Scoped per key kind and environment so dev and production data never share a queue.
     this.prefix = storagePrefix(options.apiKey);
@@ -358,24 +437,34 @@ export class LeanAppClient {
   }
 
   /**
-   * Captures campaign parameters from a deep link or landing URL. The first
-   * touch is kept; the latest touch is attached to every following event.
+   * Captures campaign parameters from a deep link or landing URL. The first touch is kept; the
+   * latest is attached to following events (in browsers: to the first event of each session).
+   * Browsers capture the page they start on by themselves (autoCapture); call this for later
+   * single-page-app navigations, optionally with the referrer. In a browser a URL that shows a
+   * source (UTMs, a click id, or an external `referrer`) also sends a `$landing` event.
+   * Returns the parameters found, or null when the URL has none.
    */
-  captureAttribution(url: string): Attribution | null {
+  captureAttribution(url: string, options: { referrer?: string } = {}): Attribution | null {
+    const at = this.o.now();
     const parsed = parseAttribution(url);
+    if (this.o.platform === "web") {
+      const touch = webTouch(url, options.referrer ?? null, this.internalDomains);
+      if (touch) this.whenLoaded(() => this.recordTouch(touch, at, true));
+      return parsed;
+    }
     if (!parsed) return null;
-    this.whenLoaded(() => {
-      const status = this.consentFor("attribution");
-      if (status === "denied") return;
-      if (status === "pending") {
-        // Kept in memory until the user decides; stored only once attribution consent is granted.
-        this.heldAttribution = { first: this.heldAttribution?.first ?? this.state.attribution?.first ?? parsed, latest: parsed };
-        return;
-      }
-      this.state.attribution = { first: this.state.attribution?.first ?? parsed, latest: parsed };
-      this.persistState();
-    });
+    this.whenLoaded(() => this.recordTouch(parsed, at, false));
     return parsed;
+  }
+
+  /**
+   * React Native: LeanApp's deferred deep link for this install. Asked once per install, on the
+   * first launch (or when attribution consent is granted later in that launch). Resolves null
+   * when it was already asked in an earlier launch, attribution consent is not granted, the
+   * request failed, or deferredDeepLinks is off.
+   */
+  getDeferredDeepLink(): Promise<DeferredDeepLink | null> {
+    return this.readyPromise.then(() => this.deferred ?? null);
   }
 
   /**
@@ -468,7 +557,12 @@ export class LeanAppClient {
    */
   reset(): void {
     this.whenLoaded(() => {
-      this.state = { anonymousId: this.o.uuid(), ...(this.state.consent ? { consent: this.state.consent } : {}) };
+      this.state = {
+        anonymousId: this.o.uuid(),
+        ...(this.state.consent ? { consent: this.state.consent } : {}),
+        // The install already asked for its deferred deep link.
+        ...(this.state.deferredChecked !== undefined ? { deferredChecked: this.state.deferredChecked } : {}),
+      };
       this.persistState();
       this.resendConsent();
     });
@@ -527,12 +621,15 @@ export class LeanAppClient {
         }
       }
       const state = rawState ? (JSON.parse(rawState) as PersistedState) : null;
-      this.state = state?.anonymousId ? state : { anonymousId: this.o.uuid() };
+      // A new install still has to ask for its deferred deep link (false until answered). Installs
+      // from before deferred deep links existed are not new: they never ask.
+      this.state = state?.anonymousId ? state : { anonymousId: this.o.uuid(), deferredChecked: false };
+      if (this.state.deferredChecked === undefined) this.state.deferredChecked = true;
       const q = rawQueue ? (JSON.parse(rawQueue) as QueuedEvent[]) : [];
       this.queue = Array.isArray(q) ? q.filter((x) => x && x.e && typeof x.e.event_id === "string") : [];
     } catch (err) {
       this.warn("could not read persisted state; starting fresh", err);
-      this.state = { anonymousId: this.o.uuid() };
+      this.state = { anonymousId: this.o.uuid(), deferredChecked: true };
       this.queue = [];
     }
     this.persistState();
@@ -541,6 +638,14 @@ export class LeanAppClient {
     // Unsent events from before a denial (e.g. the app closed mid-way) are not sent.
     const kept = this.queue.filter((q) => q.e.type === "consent" || this.consentFor(q.e.type === "push_token" ? "push" : "analytics") !== "denied");
     if (kept.length !== this.queue.length) this.queue = kept;
+    // The page the browser started on goes first, so calls made right after initialize() see its touch.
+    if (this.startPage) {
+      const { url, referrer, at } = this.startPage;
+      this.startPage = null;
+      const touch = webTouch(url, referrer, this.internalDomains);
+      if (touch) this.recordTouch(touch, at, true);
+    }
+    this.maybeFetchDeferred();
     const fns = this.pending;
     this.pending = [];
     for (const fn of fns) fn();
@@ -598,7 +703,7 @@ export class LeanAppClient {
 
   private enqueue(
     build: () => Omit<WireEvent, "event_id" | "timestamp" | "anonymous_id" | "context">,
-    options: { eventId?: string; timestamp?: Date } = {},
+    options: { eventId?: string; timestamp?: Date; touch?: Attribution } = {},
     purpose: ConsentPurpose = "analytics",
   ) {
     // Timestamp is taken at call time, not when storage finishes loading.
@@ -608,19 +713,31 @@ export class LeanAppClient {
         const partial = build();
         const status = this.consentFor(purpose);
         if (status === "denied") return this.log("dropped (consent denied):", partial.type, partial.event_name ?? "");
+        const eventId = options.eventId ?? this.o.uuid();
+        if (this.queue.some((q) => q.e.event_id === eventId) || this.held.some((q) => q.e.event_id === eventId)) return; // duplicate call with the same event id
+        const sessionId = this.touchSession(at);
         const e: WireEvent = {
           ...partial,
-          event_id: options.eventId ?? this.o.uuid(),
+          event_id: eventId,
           timestamp: new Date(at).toISOString(),
           anonymous_id: this.state.anonymousId,
-          session_id: this.touchSession(at),
+          session_id: sessionId,
           context: this.context(),
         };
         if (this.state.userId) e.user_id = this.state.userId;
-        if (this.queue.some((q) => q.e.event_id === e.event_id) || this.held.some((q) => q.e.event_id === e.event_id)) return; // duplicate call with the same event id
+        const attr = this.attributionFor(sessionId, options.touch, at);
+        const attrStatus = this.consentFor("attribution");
+        if (attr && attrStatus === "granted") {
+          e.context.attribution = attr;
+          if (this.o.platform === "web") {
+            this.state.attributionSession = sessionId;
+            this.persistState();
+          }
+        }
         if (status === "pending") {
-          // Waiting for consent: memory only, bounded like the queue.
-          this.held.push({ e, queuedAt: this.o.now() });
+          // Waiting for consent: memory only, bounded like the queue. The attribution waits too, in
+          // case attribution consent is granted by the time the event is released.
+          this.held.push({ e, queuedAt: this.o.now(), ...(attr && attrStatus === "pending" ? { attr } : {}) });
           if (this.held.length > this.o.maxQueueSize) this.held.splice(0, this.held.length - this.o.maxQueueSize);
           this.log("held until consent:", e.type, e.event_name ?? "");
           return;
@@ -665,8 +782,119 @@ export class LeanAppClient {
     const ctx: Record<string, unknown> = { ...autoContext(), ...this.o.context, platform: this.o.platform, sdk: { name: SDK_NAME, version: SDK_VERSION } };
     if (this.o.appVersion) ctx.app_version = this.o.appVersion;
     if (this.o.appBuild) ctx.app_build = this.o.appBuild;
-    if (this.state.attribution && this.consentFor("attribution") === "granted") ctx.attribution = { ...this.state.attribution.latest };
+    // The user's explicit answers only: a default is not consent the user gave.
+    if (this.state.consent && Object.keys(this.state.consent).length) ctx.consent = { ...this.state.consent };
     return ctx;
+  }
+
+  /**
+   * context.attribution for an event, before consent is applied.
+   * Apps: the latest touch on every event (as before).
+   * Browsers: `touch` for a $landing event; otherwise only the first event of a session carries
+   * attribution: the touch that started this session, or just the landing page when the session
+   * shows no source (so a direct visit is never reported as the earlier source). Meta's
+   * _fbp/_fbc go on every event when allowed.
+   */
+  private attributionFor(sessionId: string, touch: Attribution | undefined, at: number): Attribution | undefined {
+    const stored = this.state.attribution ?? this.heldAttribution ?? undefined;
+    if (this.o.platform !== "web") return stored ? { ...stored.latest } : undefined;
+    let out: Attribution | undefined;
+    if (touch) {
+      out = { ...touch, touch: this.state.latestIsFirst ? "first" : "latest" };
+    } else if (this.state.attributionSession !== sessionId) {
+      if (stored && this.state.latestSession === sessionId) {
+        out = { ...stored.latest, touch: this.state.latestIsFirst ? "first" : "latest" };
+      } else {
+        const href = (globalThis as { location?: { href?: string } }).location?.href;
+        const landing = typeof href === "string" ? landingUrl(href, null) : null;
+        if (landing) out = { landing_url: landing };
+      }
+    }
+    const meta = this.metaIds && this.consentFor("marketing") === "granted";
+    if (meta) {
+      const ids = metaBrowserIds(null, at);
+      const fbc = ids.fbc ?? stored?.latest.fbc;
+      if (ids.fbp || fbc) out = { ...out, ...(ids.fbp ? { fbp: ids.fbp } : {}), ...(fbc ? { fbc } : {}) };
+    } else if (out) {
+      delete out.fbp;
+      delete out.fbc;
+    }
+    return out;
+  }
+
+  /** Stores a touch (first kept, latest replaced) under attribution consent; browsers also send `$landing`. */
+  private recordTouch(touch: Attribution, at: number, web: boolean) {
+    const status = this.consentFor("attribution");
+    if (status === "denied") return;
+    if (web && touch.fbclid && !touch.fbc && this.metaIds) {
+      // Meta's documented fbc format, from the fbclid on the page and the time it was seen.
+      const fbc = metaBrowserIds(touch.fbclid, at).fbc;
+      if (fbc) touch = { ...touch, fbc };
+    }
+    const prior = this.state.attribution ?? this.heldAttribution;
+    const next = { first: prior?.first ?? touch, latest: touch };
+    if (status === "pending") {
+      // Kept in memory until the user decides; stored only once attribution consent is granted.
+      this.heldAttribution = next;
+    } else {
+      this.state.attribution = next;
+    }
+    if (web) {
+      this.state.latestIsFirst = !prior;
+      this.state.latestSession = this.touchSession(at);
+    }
+    this.persistState();
+    if (!web) return;
+    const props: Properties = { landing_url: touch.landing_url ?? null };
+    if (touch.referrer) props.referrer = touch.referrer;
+    // A stable id: capturing the same page twice in a session (autoCapture plus a manual call) sends one event.
+    const eventId = `landing:${eventIdsHash([this.state.latestSession ?? "", touch.landing_url ?? "", touch.referrer ?? ""])}`;
+    this.enqueue(() => ({ type: "track", event_name: LANDING_EVENT, properties: props }), { eventId, timestamp: new Date(at), touch });
+  }
+
+  /** Asks for the deferred deep link once per new install, when allowed. */
+  private maybeFetchDeferred() {
+    if (!this.deferredEnabled || this.deferred || this.state.deferredChecked !== false) return;
+    if (this.consentFor("attribution") !== "granted") return;
+    this.deferred = this.fetchDeferred();
+  }
+
+  private async fetchDeferred(): Promise<DeferredDeepLink | null> {
+    try {
+      const body: Record<string, string> = { anonymous_id: this.state.anonymousId, platform: this.o.platform };
+      const os = this.o.context.os;
+      if (os === "ios" || os === "android") body.os = os;
+      if (typeof this.o.context.os_version === "string") body.os_version = this.o.context.os_version.slice(0, 40);
+      const clickId = this.state.attribution?.latest.click_id;
+      if (clickId) body.click_id = clickId;
+      const res = await this.o.fetch(`${this.o.endpoint}/v1/deep-links/deferred`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${this.o.apiKey}` },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        this.warn(`deferred deep link request failed with ${res.status}`);
+        // Asked again on the next launch, unless the request itself was refused as invalid.
+        if (res.status === 400 || res.status === 422) this.markDeferredChecked();
+        return null;
+      }
+      const result = (await res.json()) as DeferredDeepLink;
+      this.markDeferredChecked();
+      try {
+        this.onDeferred?.(result);
+      } catch (err) {
+        this.warn("onDeferredDeepLink threw", err);
+      }
+      return result;
+    } catch (err) {
+      this.warn("deferred deep link request failed", err);
+      return null;
+    }
+  }
+
+  private markDeferredChecked() {
+    this.state.deferredChecked = true;
+    this.persistState();
   }
 
   private consentFor(purpose: ConsentPurpose): ConsentStatus {
@@ -686,20 +914,30 @@ export class LeanAppClient {
     // Denied: unsent events of that purpose are discarded. Consent changes always stay.
     this.queue = this.queue.filter((q) => q.e.type === "consent" || waiting(q) !== "denied");
     if (before !== this.queue.length) this.log(`consent denied: discarded ${before - this.queue.length} unsent event(s)`);
+    const attribution = this.consentFor("attribution");
+    for (const q of release) {
+      // Attribution that waited with the event goes only if attribution consent is granted now.
+      if (q.attr && attribution === "granted") q.e.context = { ...q.e.context, attribution: q.attr };
+      delete q.attr;
+    }
     if (release.length) {
       this.queue.push(...release);
       if (this.queue.length > this.o.maxQueueSize) this.queue.splice(0, this.queue.length - this.o.maxQueueSize);
     }
-    const attribution = this.consentFor("attribution");
     if (attribution === "granted" && this.heldAttribution) {
       this.state.attribution = { first: this.state.attribution?.first ?? this.heldAttribution.first, latest: this.heldAttribution.latest };
+      // The session's next event carries the touch that waited for consent.
+      delete this.state.attributionSession;
       this.persistState();
     }
     if (attribution !== "pending") this.heldAttribution = null;
     if (attribution === "denied" && this.state.attribution) {
       delete this.state.attribution;
+      delete this.state.latestSession;
+      delete this.state.latestIsFirst;
       this.persistState();
     }
+    this.maybeFetchDeferred();
     if (before !== this.queue.length || release.length) this.persistQueue();
     if (this.queue.length) this.schedule(this.queue.length >= this.o.flushAt ? 0 : this.o.flushIntervalMs);
   }

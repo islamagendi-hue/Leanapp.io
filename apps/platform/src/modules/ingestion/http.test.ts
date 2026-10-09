@@ -3,10 +3,11 @@ import { LIMITS } from "./schema";
 
 // Size limits are checked before JSON parsing, rate limiting and storage; every
 // dependency with I/O is mocked, so no database is needed.
-const principal = { organizationId: "org", environmentId: "env", kind: "ingestion", scopes: ["events:write"] };
+const principal = { organizationId: "org", appId: "app", environmentId: "env", keyId: "key-1", kind: "sdk", scopes: ["events:write"] };
 vi.mock("@/modules/credentials/service", () => ({ authenticateIngestionKey: async () => principal }));
 vi.mock("@/lib/db", () => ({ withSystem: async () => {} }));
-vi.mock("@/lib/rate-limit", () => ({ consumeRateLimit: async () => 0 }));
+const consumeRateLimit = vi.fn(async (..._args: unknown[]) => 0);
+vi.mock("@/lib/rate-limit", () => ({ consumeRateLimit }));
 vi.mock("@/modules/processing/processor", () => ({ processPendingEvents: async () => ({ processed: 0, failed: 0 }) }));
 vi.mock("next/server", () => ({ after: () => {} }));
 const ingest = vi.fn(async (..._args: unknown[]) => ({ status: 200, body: { accepted: 1 }, headers: {}, replayed: false }));
@@ -66,5 +67,43 @@ describe("handleIngest size limits (bytes, not characters)", () => {
     expect(text.length).toBeLessThan(LIMITS.maxBatchBytes);
     const res = await handleIngest(post("/v1/events/batch", text), "batch");
     expect(res.status).toBe(413);
+  });
+});
+
+describe("handleIngest rate limits", () => {
+  const events = JSON.stringify({ batch: [{ type: "track", event_name: "a", anonymous_id: "x" }, { type: "track", event_name: "b", anonymous_id: "x" }] });
+
+  it("counts every event against the environment, the API key and the client IP (hashed, never raw)", async () => {
+    const { handleIngest } = await import("./http");
+    const res = await handleIngest(post("/v1/events/batch", events, { "x-forwarded-for": "203.0.113.9, 10.0.0.1" }), "batch");
+    expect(res.status).toBe(200);
+    const keys = consumeRateLimit.mock.calls.map((c) => c[0] as string);
+    expect(keys[0]).toBe("ingest:env");
+    expect(keys[1]).toBe("ingest:key:key-1");
+    expect(keys[2]).toMatch(/^ingest:ip:env:[A-Za-z0-9_-]{32}$/);
+    expect(keys[2]).not.toContain("203.0.113.9");
+    for (const c of consumeRateLimit.mock.calls) expect(c[3]).toBe(2);
+  });
+
+  it("answers 429 with Retry-After from the first limit reached, and stores nothing", async () => {
+    const { handleIngest } = await import("./http");
+    consumeRateLimit.mockImplementation(async (...args: unknown[]) => (String(args[0]).startsWith("ingest:ip:") ? 12 : 0));
+    const res = await handleIngest(post("/v1/events/batch", events, { "x-real-ip": "198.51.100.4" }), "batch");
+    expect(res.status).toBe(429);
+    expect(res.headers.get("Retry-After")).toBe("12");
+    expect(await res.json()).toEqual({ error: "rate_limited", message: "Event rate limit exceeded for this IP address." });
+    expect(ingest).not.toHaveBeenCalled();
+    consumeRateLimit.mockImplementation(async () => 0);
+  });
+
+  it("does not limit server keys by IP (one server sends for many users)", async () => {
+    const { handleIngest } = await import("./http");
+    principal.kind = "api";
+    try {
+      await handleIngest(post("/v1/events/batch", events, { "x-forwarded-for": "203.0.113.9" }), "batch");
+      expect(consumeRateLimit.mock.calls.map((c) => String(c[0]))).toEqual(["ingest:env", "ingest:key:key-1"]);
+    } finally {
+      principal.kind = "sdk";
+    }
   });
 });
