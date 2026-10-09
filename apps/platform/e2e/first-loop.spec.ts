@@ -84,6 +84,8 @@ test("events sent with the SDK key show up in the debugger and the score", async
   await signIn(page);
   await page.goto(`${appBase}/settings/dev-ops/debugger?env=development`);
   await expect(page.getByText("Waiting for first event")).toBeVisible();
+  await expect(page.getByTestId("failed-count")).toHaveText("0");
+  await expect(page.getByText("No failed events.")).toBeVisible();
   const ctx = { platform: "ios", app_version: "2.3.0", sdk: { name: "leanapp-js", version: "0.1.0" }, attribution: { utm_source: "tiktok" } };
   const res = await request.post("/v1/events/batch", {
     headers: { Authorization: `Bearer ${sdkKey}` },
