@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { COMPARE_AR, COMPARE_EN, FLOW, FLOW_AR, landingCopy, landingLang } from "./landing";
+import { INTEGRATIONS } from "@/modules/integrations/catalog";
+import { COMPARE_AR, COMPARE_EN, FLOW, FLOW_AR, landingCopy, landingLang, WORKS_WITH } from "./landing";
 
 describe("landing content", () => {
   it("follows the product flow", () => {
@@ -42,6 +43,39 @@ describe("landing content", () => {
       const copy = landingCopy(lang);
       expect(copy.notOffered).not.toMatch(/A\/B/);
       expect(copy.pricing.plans.flatMap((p) => p.features).join(" ")).not.toMatch(/coming soon|قريبًا/);
+    }
+  });
+
+  it("shows one built-in dashboard, with the same parts in both languages", () => {
+    const en = landingCopy("en");
+    const ar = landingCopy("ar");
+    expect(en.demo).not.toHaveProperty("shots");
+    for (const key of ["kpis", "steps"] as const) {
+      expect(ar.demo.board[key]).toHaveLength(en.demo.board[key].length);
+      ar.demo.board[key].forEach((s, i) => expect(s).not.toBe(en.demo.board[key][i]));
+    }
+    for (const key of Object.keys(en.demo.board) as (keyof typeof en.demo.board)[]) {
+      if (typeof en.demo.board[key] === "string") expect(ar.demo.board[key], key).not.toBe(en.demo.board[key]);
+    }
+    for (const key of ["title", "lead", "note", "cta", "alt", "pause", "play"] as const) expect(ar.demo[key], key).not.toBe(en.demo[key]);
+  });
+
+  it("lists only services we really connect to in Works with", () => {
+    const catalog = new Map(INTEGRATIONS.flatMap((g) => g.items).map((i) => [i.id, i.state]));
+    for (const w of WORKS_WITH) {
+      expect(catalog.get(w.integration), w.name).toBeDefined();
+      expect(catalog.get(w.integration), w.name).not.toBe("soon");
+    }
+    expect(WORKS_WITH.map((w) => w.name)).not.toContain("Microsoft Clarity");
+    for (const lang of ["en", "ar"] as const) expect(landingCopy(lang).worksWith.note).toMatch(/Clarity/);
+  });
+
+  it("keeps the new copy plain: no em-dashes and no free offer", () => {
+    for (const lang of ["en", "ar"] as const) {
+      const { hero, demo, worksWith } = landingCopy(lang);
+      const text = JSON.stringify({ hero, demo, worksWith });
+      expect(text).not.toMatch(/—/);
+      expect(text).not.toMatch(/\bfree\b|مجان/i);
     }
   });
 
