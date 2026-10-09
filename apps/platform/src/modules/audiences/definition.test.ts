@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { compileAudience, describeNode, parseDefinition, type AudienceNode } from "./definition";
+import { compileAudience, describeNode, leaves as leavesOf, parseDefinition, usesRevenueRules, type AudienceNode } from "./definition";
 
 const ENV = "00000000-0000-0000-0000-000000000001";
 
@@ -95,6 +95,32 @@ describe("compileAudience", () => {
     expect(() => compileAudience(def, ENV)).toThrow(/trigger time/);
   });
 
+  it("compiles RFM segments with the environment's revenue rules, scoring everyone before a one-person filter", () => {
+    const def = parseDefinition({ type: "and", children: [{ type: "rfm", segments: ["champions", "loyal"], withinDays: 90, currency: "sar" }, { type: "platform", platforms: ["ios"] }] });
+    expect(leavesOf(def)).toMatchObject([{ type: "rfm", currency: "SAR", withinDays: 90 }, { type: "platform" }]);
+    expect(usesRevenueRules(def)).toBe(true);
+    expect(() => compileAudience(def, ENV)).toThrow(/revenue rules/);
+    const rules = [{ event: "order_completed", property: "revenue", kind: "revenue" as const, source: "catalog" as const }];
+    const { sql, params } = compileAudience(def, ENV, { revenueRules: rules, personKey: "u1" });
+    expect(sql).toContain("c1_tx as");
+    expect(sql).toContain("c1_customers as");
+    expect(sql).toMatch(/coalesce\(c1\.segment = any\(\$\d+::text\[\]\), false\)/);
+    // The scoring CTEs don't filter by the person (scores are relative to every customer).
+    const person = `$${params.indexOf("u1") + 1}`;
+    expect(sql.slice(sql.indexOf("c1_ev as"), sql.indexOf("c1_customers as"))).not.toMatch(new RegExp(`\\${person}(?!\\d)`));
+    expect(params).toEqual(expect.arrayContaining([["champions", "loyal"], "SAR", 90, ["order_completed"], "u1"]));
+    const used = new Set([...sql.matchAll(/\$(\d+)/g)].map((m) => Number(m[1])));
+    expect(used.size).toBe(params.length);
+  });
+
+  it("rejects RFM conditions without segments or with a bad currency", () => {
+    expect(() => parseDefinition({ type: "rfm", segments: [], currency: "SAR" })).toThrow(/at least one segment/);
+    expect(() => parseDefinition({ type: "rfm", segments: ["vip"], currency: "SAR" })).toThrow();
+    expect(() => parseDefinition({ type: "rfm", segments: ["lost"], currency: "SA'R" })).toThrow(/currency/);
+    expect(parseDefinition({ type: "rfm", segments: ["lost"], currency: "(none)" })).toMatchObject({ currency: "(none)", withinDays: 365 });
+    expect(usesRevenueRules(parseDefinition({ type: "platform", platforms: ["ios"] }))).toBe(false);
+  });
+
   it("uses only whitelisted SQL for operators", () => {
     for (const op of ["eq", "neq", "gt", "gte", "lt", "lte", "contains", "not_contains", "in", "exists", "not_exists"]) {
       const value = ["gt", "gte", "lt", "lte"].includes(op) ? 5 : op === "in" ? ["a"] : op.includes("exists") ? undefined : "a";
@@ -114,5 +140,6 @@ describe("describeNode", () => {
       ],
     });
     expect(describeNode(def)).toBe('(did purchase where plan is "gold" at least 2 times in the last 14 days AND did not do checkout_started in the last 1 days)');
+    expect(describeNode(parseDefinition({ type: "rfm", segments: ["at_risk", "cant_lose"], withinDays: 180, currency: "SAR" }))).toBe("in RFM segment At risk or Can't lose them (SAR, last 180 days)");
   });
 });

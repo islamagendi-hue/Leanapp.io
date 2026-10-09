@@ -9,7 +9,10 @@ import { ForbiddenError } from "@/lib/errors";
 import { channelEconomicsReport } from "@/modules/attribution/economics";
 import { attributionOverview } from "@/modules/attribution/reports";
 import { listSpend, saveSpend } from "@/modules/attribution/spend";
-import { DEMO_EMAIL, demoEvents, demoSession, ensureDemo, isDemoUser, seedDemoSpend } from "@/modules/marketing/demo";
+import { DEMO_EMAIL, demoEvents, demoHistory, demoSession, ensureDemo, isDemoUser, seedDemoSpend, sendDemoHistory } from "@/modules/marketing/demo";
+import { churnReport } from "@/modules/analytics/churn";
+import { processPendingEvents } from "@/modules/processing/processor";
+import { rfmReport } from "@/modules/analytics/rfm";
 import { can } from "@/modules/rbac/authorize";
 import { resolveTenant } from "@/modules/tenancy/context";
 
@@ -55,7 +58,7 @@ describe("public demo", () => {
       ),
     );
     expect(role?.role_id).toBe("viewer");
-  });
+  }, 180_000); // A new demo stores and processes tens of thousands of events.
 
   it("shows the demo Viewer real Acquisition numbers: installs by source, ad spend, CAC & LTV", async () => {
     const refs = await ensureDemo({ now });
@@ -116,6 +119,33 @@ describe("public demo", () => {
     await ensureDemo({ now, staleHours: Number.POSITIVE_INFINITY });
     expect(await total()).toEqual(before);
   });
+
+  it("has history for Churn and RFM segments: people who left, people at risk, and most segments filled", async () => {
+    const refs = await ensureDemo({ now });
+    // A new demo leaves what doesn't fit in one run to the worker.
+    while ((await processPendingEvents({ environmentId: refs.environmentId, limit: 20_000 })).processed > 0);
+    const ctx = await resolveTenant(refs.viewerId, refs.orgSlug);
+    const scope = { environmentId: refs.environmentId, timezone: "Asia/Riyadh" };
+    // History is stored directly (older than ingestion takes) and sending it again adds nothing.
+    const oldest = await withSystem((db) => db.one<{ days: number }>(`select extract(day from now() - min("timestamp"))::int as days from platform.events where environment_id = $1`, [refs.environmentId]));
+    expect(oldest!.days).toBeGreaterThan(140);
+    expect(await sendDemoHistory(refs, now)).toBe(0);
+    expect(demoHistory(now)).toEqual(demoHistory(now));
+
+    const churn = await churnReport(ctx, scope, { window: 30, interval: "week" });
+    expect(churn.totals.churned).toBeGreaterThan(200);
+    expect(churn.totals.at_risk).toBeGreaterThan(30);
+    expect(churn.totals.active).toBeGreaterThan(100);
+    expect(churn.series.filter((p) => p.rate !== null && p.rate > 0).length).toBeGreaterThanOrEqual(10);
+    for (const s of ["tiktok", "snapchat", "google", "meta", "organic"]) expect(churn.channels.map((c) => c.channel), s).toContain(s);
+
+    const rfm = await rfmReport(ctx, scope, { window: 365 });
+    expect(rfm.currency).toBe("SAR");
+    expect(rfm.customers).toBeGreaterThan(300);
+    const filled = rfm.segments.filter((s) => s.customers > 0).map((s) => s.segment);
+    expect(filled.length, filled.join()).toBeGreaterThanOrEqual(9);
+    for (const s of ["champions", "loyal", "at_risk", "cant_lose", "lost", "new_customers"]) expect(filled, s).toContain(s);
+  }, 180_000);
 
   it("signs in as the demo Viewer", async () => {
     const refs = await ensureDemo({ now });

@@ -32,7 +32,7 @@ const MAX_BYTES = 512 * 1024;
 /** Bumped when a report's result shape changes (2: revenue channel rows carry spend; 3: revenue carries MRR; 4: channel economics use a first-purchase LTV cohort). */
 const VERSION = 4;
 
-export type ReportKind = "trend" | "kpi" | "funnel" | "retention" | "revenue" | "top_events" | "audience_size" | "channel_economics";
+export type ReportKind = "trend" | "kpi" | "funnel" | "retention" | "revenue" | "top_events" | "audience_size" | "channel_economics" | "churn" | "rfm";
 
 export interface CachedResult<T> {
   value: T;

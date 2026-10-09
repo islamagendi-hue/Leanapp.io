@@ -4,7 +4,7 @@ import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import { msg } from "@/i18n/translate";
 import type { Permission } from "@/modules/rbac/permissions";
-import { compileAudience, DefinitionError, parseDefinition, peopleCtes, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
+import { compileAudienceIn, DefinitionError, parseDefinition, peopleCtes, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { measurable } from "./retention-rule";
 import {
@@ -105,7 +105,7 @@ export async function loadAudienceDefinition(db: Db, environmentId: string, id: 
 /** SELECT of an audience's people (column `person`), its values added to `p`, whose $1 must be the environment id. */
 export async function audienceSql(db: Db, scope: { environmentId: string; timezone?: string }, id: string, p: Params): Promise<string> {
   const def = await loadAudienceDefinition(db, scope.environmentId, id);
-  return compileAudience(def, scope.environmentId, { params: p, timezone: scope.timezone ?? "UTC" }).sql;
+  return (await compileAudienceIn(db, def, scope.environmentId, { params: p, timezone: scope.timezone ?? "UTC" })).sql;
 }
 
 /**

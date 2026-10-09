@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { can } from "@/modules/rbac/authorize";
 import { ROLES } from "@/modules/rbac/permissions";
 import { activeHref, projectMenu, settingsMenu, type NavGroup } from "./menu";
 
@@ -34,6 +35,18 @@ describe("navigation menu", () => {
     expect(headed("viewer")).toEqual(["Growth:Acquisition", "Analyze:Reports", ":Settings"]);
     expect(projectMenu("owner", base).find((g) => g.label === "Acquisition")?.beta).toBe(true);
     expect(labels(projectMenu("owner", base))).toContain("Attribution/Deep links");
+    // Retention is a section: its curves, churn and RFM segments, behind the retention page's permission.
+    const retention = projectMenu("owner", base).find((g) => g.label === "Retention")!;
+    expect(retention.href).toBeUndefined();
+    expect(retention.items.map((i) => [i.label, i.href])).toEqual([
+      ["Retention curves", `${base}/analytics/retention`],
+      ["Churn", `${base}/analytics/churn`],
+      ["RFM segments", `${base}/analytics/rfm`],
+    ]);
+    for (const role of ROLES) {
+      const items = projectMenu(role, base).find((g) => g.label === "Retention")?.items.length ?? 0;
+      expect(items, role).toBe(can(role, "analytics.read") ? 3 : 0);
+    }
     expect(labels(settingsMenu("owner", "acme", base)).filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Dev Ops", "Security"]);
   });
 
@@ -58,7 +71,7 @@ describe("navigation menu", () => {
     expect(labels(projectMenu("viewer", base))).toEqual([
       "Overview",
       "Acquisition", "Acquisition/Overview", "Acquisition/CAC & LTV", "Acquisition/Sources & campaigns", "Acquisition/Ad spend",
-      "Activation", "Retention", "Revenue",
+      "Activation", "Retention", "Retention/Retention curves", "Retention/Churn", "Retention/RFM segments", "Revenue",
       "Attribution", "Attribution/Attribution report", "Attribution/Tracking links & QR", "Attribution/Deep links",
       "Reports", "Reports/Events & trends", "Reports/Funnels", "Reports/Dashboards", "Reports/Saved reports",
       "Users", "Audiences", "Settings",

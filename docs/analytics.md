@@ -26,6 +26,31 @@ The amount is the first of `revenue`, `price` (subscriptions) or `fee` (money mo
 
 **MRR** (`modules/analytics/mrr.ts`) comes from `subscription_started`, `subscription_renewed` and `subscription_expired`, keyed by `subscription_id`. At a moment T a subscription is active when its latest charge before T still covers T (its `billing_period`, plus 3 days' grace for late renewal events) and no `subscription_expired` came after that charge. Cancelling only stops renewal. `price` becomes a monthly amount (weekly × 52/12, quarterly ÷ 3, yearly ÷ 12); lifetime and unknown periods are left out. The page shows MRR at the end and start of the range, ARR (MRR × 12), active subscriptions, MRR at the end of each bucket and per `plan_id`, per currency with no conversion.
 
+### Retention section: curves, churn and RFM segments
+
+The menu's **Retention** section has three pages (all `analytics.read`, so Viewers and the public demo see them), linked to each other by tabs: **Retention curves** (`/analytics/retention`, the cohort heat map above), **Churn** (`/analytics/churn`) and **RFM segments** (`/analytics/rfm`). Both new pages go through the result cache (kinds `churn` and `rfm`) and can save any group as an [audience](audiences.md) (needs `audiences.manage`; Viewers see no button).
+
+#### Churn
+
+`modules/analytics/churn.ts`, rules in `churn-pure.ts`. A person's last activity is their profile's **Last seen**: the latest event the app sent for them, of any kind. With a churn window of *N* days (`?window=` 14, 30, 60 or 90; 30 by default):
+
+- **Churned**: last seen more than *N* days ago.
+- **At risk**: last seen more than *N*/2 days ago, but within *N* days.
+- **Active**: seen in the last *N*/2 days.
+
+Everyone with activity on record is in exactly one group. People are the audiences' people (identified users, and installs not linked to exactly one user), and people with a privacy deletion in progress are left out, so a group and the audience saved from it have the same members. The page shows the three counts and the churned share, the **churn rate over time** (`?interval=week`, 12 weeks, or `month`, 6 months: of the people active at a period's start, meaning seen in the *N* days before it, the share not seen in the *N* days up to its end; calendar days in the app's timezone; the current period counts up to today), churn **by acquisition channel** (the source of the person's first install, as in CAC & LTV), and the at-risk people closest to churning (up to 100, linking to their profiles).
+
+#### RFM segments
+
+`modules/analytics/rfm.ts`, scoring in `rfm-pure.ts`. Over the last *N* days (`?window=` 30, 90, 180 or 365; 365 by default) and in one currency (`?currency=`, by default the one with the most customers; nothing is converted):
+
+- A **customer** has at least one purchase: a revenue transaction that isn't a refund, by the Revenue rules above.
+- **Recency**: whole days since their last purchase. **Frequency**: their purchases. **Monetary**: net revenue (purchases minus refunds), to the cent.
+- Each is scored 1–5 by quintile among the window's customers, 5 best, from the percent rank: `1 + ⌊5 × worse ÷ (customers − 1)⌋`, at most 5, where *worse* counts customers with a strictly worse value. Ties share the lower score: one-time buyers always get frequency 1, and a lone customer scores 1, 1, 1 (the page warns below 5 customers).
+- The segment comes from R and FM = (F + M) ÷ 2 rounded half up, on a fixed 5 × 5 grid: R5 FM1 *New customers*; R5 FM2–3 and R4 FM2–3 *Potential loyalists*; R5 FM4–5 *Champions*; R4 FM1 *Promising*; R4 FM4–5 and R3 FM4–5 *Loyal*; R3 FM3 *Need attention*; R3 FM1–2 *About to sleep*; R1–2 FM3–4 *At risk*; R1–2 FM5 *Can't lose them*; R2 FM1–2 *Hibernating*; R1 FM1–2 *Lost*.
+
+The page shows the R × FM map with customers per cell, a card per segment (customers, share of customers, net revenue and its share), and a table per segment, folded except the first (the 25 customers with the most revenue, linking to their profiles). The `rfm` audience leaf compiles the same scoring to SQL (bigint arithmetic, so it equals the TypeScript exactly); an integration test checks every segment's audience against the page.
+
 ### Audiences as report filters (formerly cohorts)
 
 Cohorts merged into [Audiences](audiences.md) (migration `0024_cohorts_into_audiences.sql`). There is one segmentation layer: the audience condition tree (AND / OR / NOT over events, properties, revenue, platform, first and last seen) and its one SQL compiler serve Analytics, Users and Engagement.
@@ -38,7 +63,7 @@ Cohorts merged into [Audiences](audiences.md) (migration `0024_cohorts_into_audi
 
 ### Result cache
 
-Report pages (Events, Funnels, Retention, Revenue) reuse a finished result for up to 10 minutes (`modules/analytics/cache.ts`, table `platform.report_cache`, migration 0025). Postgres stays the source of truth: nothing is precomputed, and an expired result is simply computed again.
+Report pages (Events, Funnels, Retention, Churn, RFM segments, Revenue) reuse a finished result for up to 10 minutes (`modules/analytics/cache.ts`, table `platform.report_cache`, migration 0025). Postgres stays the source of truth: nothing is precomputed, and an expired result is simply computed again.
 
 - The key is a SHA-256 of the environment, the report kind, its full input (event or steps, range, interval, breakdown, property filters, comparison, audience), the timezone, and the audience's last change. Editing an audience therefore recomputes reports filtered by it at once.
 - A page served from the cache says how old its results are, with "Refresh now" (`?fresh=1`) to recompute.

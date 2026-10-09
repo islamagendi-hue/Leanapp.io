@@ -787,6 +787,40 @@ test("reports apply as you change them, funnel bars open their people, and Ctrl+
   await expect(search.getByRole("option", { name: /Order Completed/ })).toBeVisible();
 });
 
+test("retention: Churn and RFM segments, and a group saved as an audience", async ({ page, request }) => {
+  const ctx = { platform: "android", app_version: "2.3.0" };
+  const order = (user: string, n: number, revenue: number) =>
+    ({ type: "track", event_name: "order_completed", event_id: crypto.randomUUID(), anonymous_id: `dev-${user}`, user_id: user, properties: { order_id: `${user}-${n}`, revenue, price: revenue, currency: "SAR" }, context: ctx });
+  const sent = await request.post("/v1/events/batch", {
+    headers: { Authorization: `Bearer ${sdkKey}` },
+    data: { batch: [order("u-rfm-1", 1, 120), order("u-rfm-1", 2, 80), order("u-rfm-2", 1, 30)] },
+  });
+  expect(sent.status()).toBe(200);
+  await request.get("/api/internal/process-events", { headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? "e2e-cron-secret-0123456789"}` } });
+  await signIn(page);
+  await page.goto(`${appBase}?env=development`);
+  const menu = page.getByRole("navigation", { name: "Food Express Pro" });
+  await menu.getByRole("link", { name: "Churn", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Churn", level: 1 })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Retention" }).getByRole("link", { name: "Churn" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByTestId("churn-buckets")).toContainText("At risk");
+  await page.getByLabel("Churn window").selectOption("60");
+  await expect(page).toHaveURL(/window=60/);
+  await page.getByTestId("churn-buckets").getByRole("row", { name: /Churned/ }).getByRole("button", { name: "Save as audience" }).click();
+  await expect(page.getByRole("heading", { name: /Churned: not seen in 60 days/, level: 1 })).toBeVisible();
+  await expect(page.getByText("last seen more than 60 days ago").first()).toBeVisible();
+
+  await menu.getByRole("link", { name: "RFM segments", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "RFM segments", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("rfm-grid")).toBeVisible();
+  await expect(page.getByTestId("rfm-segments").locator("article")).toHaveCount(11);
+  await page.getByTestId("rfm-segments").locator('[data-segment="champions"]').getByRole("button", { name: "Save as audience" }).click();
+  await expect(page.getByRole("heading", { name: /RFM: Champions \(SAR, last 365 days\)/, level: 1 })).toBeVisible();
+  await expect(page.getByText("in RFM segment Champions (SAR, last 365 days)").first()).toBeVisible();
+  await menu.getByRole("link", { name: "Retention curves", exact: true }).click();
+  await expect(page.getByLabel("Return event")).toBeVisible();
+});
+
 test("landing page: Arabic and English, honest labels, comparison, pricing, and noindex", async ({ page }) => {
   await page.goto("/?lang=ar");
   await expect(page.locator("div[dir=rtl][lang=ar]").first()).toBeVisible();
