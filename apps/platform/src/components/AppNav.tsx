@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useSyncExternalStore } from "react";
 import { useT } from "@/i18n/client";
 import { activeHref, type NavGroup } from "@/modules/navigation/menu";
 
@@ -21,11 +22,52 @@ export function AppNav({ base, appName, menu, settings }: { base: string; appNam
   );
 }
 
+const FOLDED_KEY = "leanapp.nav.folded";
+
+function readFolded(): string {
+  try {
+    return localStorage.getItem(FOLDED_KEY) ?? "[]";
+  } catch {
+    return "[]";
+  }
+}
+
+function parseFolded(raw: string): string[] {
+  try {
+    const v: unknown = JSON.parse(raw);
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+function onFoldedChange(cb: () => void) {
+  window.addEventListener(FOLDED_KEY, cb);
+  window.addEventListener("storage", cb);
+  return () => {
+    window.removeEventListener(FOLDED_KEY, cb);
+    window.removeEventListener("storage", cb);
+  };
+}
+
 export function SideNav({ title, back, menu, path: given }: { title: string; back?: { href: string; label: string }; menu: NavGroup[]; path?: string }) {
   const current = usePathname();
   const t = useT();
   const path = given ?? current;
   const active = activeHref(menu, path);
+  // Folded sections are remembered per browser; the section holding the current page always opens.
+  const saved = useSyncExternalStore(onFoldedChange, readFolded, () => "[]");
+  const here = menu.find((g) => g.items.some((i) => i.href === active))?.label;
+  const closed = new Set(parseFolded(saved).filter((l) => l !== here));
+  const toggle = (label: string) => {
+    const next = new Set(parseFolded(readFolded()));
+    if (closed.has(label)) next.delete(label);
+    else next.add(label);
+    try {
+      localStorage.setItem(FOLDED_KEY, JSON.stringify([...next]));
+    } catch {}
+    window.dispatchEvent(new Event(FOLDED_KEY));
+  };
   const link = (href: string, label: string, sub = false) => (
     <Link
       href={href}
@@ -47,12 +89,18 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
         g.items.length === 0 && g.href ? (
           <div key={g.label} className="mb-1">{link(g.href, g.label)}</div>
         ) : (
-          <div key={g.label} className="mb-4 mt-3">
-            <p className="mb-1 flex items-center gap-2 px-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">
+          <div key={g.label} className="mb-3 mt-3">
+            <button
+              type="button"
+              onClick={() => toggle(g.label)}
+              aria-expanded={!closed.has(g.label)}
+              className="mb-1 flex w-full items-center gap-2 rounded-md px-2 py-0.5 text-start font-mono text-[11px] uppercase tracking-wide text-ink-3 hover:bg-paper-2 hover:text-ink"
+            >
+              <span aria-hidden className={`inline-block text-[9px] transition-transform ${closed.has(g.label) ? "-rotate-90 rtl:rotate-90" : ""}`}>▼</span>
               {t(g.label)}
               {g.beta && <span className="pill border-line text-[10px] normal-case">{t("Beta")}</span>}
-            </p>
-            <ul>
+            </button>
+            <ul hidden={closed.has(g.label)}>
               {g.items.map((i) => (
                 <li key={i.label}>
                   {i.href ? (

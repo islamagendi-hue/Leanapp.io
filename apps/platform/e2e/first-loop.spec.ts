@@ -233,6 +233,15 @@ test("product shell: Overview home, Dev Ops in Settings, old addresses and the r
   const menu = page.getByRole("navigation", { name: "Food Express" });
   for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Flows", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
   for (const name of ["SDK & API keys", "Debugger", "Tracking plan"]) await expect(menu.getByRole("link", { name })).toHaveCount(0);
+  // Menu sections fold and unfold, and stay folded on the next page.
+  const engagement = menu.getByRole("button", { name: "Engagement" });
+  await engagement.click();
+  await expect(engagement).toHaveAttribute("aria-expanded", "false");
+  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeHidden();
+  await page.reload();
+  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeHidden();
+  await menu.getByRole("button", { name: "Engagement" }).click();
+  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Get started" }).click();
   await page.waitForURL(/settings\/dev-ops\/get-started/);
   await expect(page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "SDK & API keys" })).toBeVisible();
