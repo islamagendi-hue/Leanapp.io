@@ -18,11 +18,12 @@ export interface AttributionOverview {
   range: { preset: number | null; from: string; to: string; label: string };
   /**
    * Installs + reinstalls by match type (docs/attribution.md): attributed = deterministic + reported +
-   * probabilistic. organic_ios is the iOS share of organic: it includes paid iOS installs, which
+   * probabilistic + provider_reported (Apple Search Ads installs Apple's AdServices API attributed). organic_ios is the iOS share of organic: it includes paid iOS installs, which
    * can't be attributed deterministically without SKAdNetwork / AdAttributionKit or Apple Search Ads.
    */
   totals: {
     clicks: number; installs: number; reinstalls: number; attributed: number; deterministic: number; reported: number; probabilistic: number;
+    provider_reported: number;
     organic: number; organic_ios: number; reengagements: number; conversions: number;
     /** Split of `organic` (no match): the store's organic referrer, direct parameters, organic from an unknown source; the rest is unattributed. */
     organic_store: number; direct: number; organic_unknown: number; unattributed: number;
@@ -57,6 +58,7 @@ export async function attributionOverview(ctx: TenantContext, scope: { environme
          count(*) filter (where kind in ('install', 'reinstall') and match_type = 'deterministic') as deterministic,
          count(*) filter (where kind in ('install', 'reinstall') and match_type = 'reported') as reported,
          count(*) filter (where kind in ('install', 'reinstall') and match_type = 'probabilistic') as probabilistic,
+         count(*) filter (where kind in ('install', 'reinstall') and match_type = 'provider_reported') as provider_reported,
          count(*) filter (where kind in ('install', 'reinstall') and match_type = 'organic') as organic,
          count(*) filter (where kind in ('install', 'reinstall') and match_type = 'organic' and platform = 'ios') as organic_ios,
          count(*) filter (where kind in ('install', 'reinstall') and match_type = 'organic' and match_key = 'store_organic') as organic_store,
@@ -117,6 +119,7 @@ export async function attributionOverview(ctx: TenantContext, scope: { environme
       totals: {
         clicks: n(totals?.clicks), installs: n(totals?.installs), reinstalls: n(totals?.reinstalls), attributed: n(totals?.attributed),
         deterministic: n(totals?.deterministic), reported: n(totals?.reported), probabilistic: n(totals?.probabilistic),
+        provider_reported: n(totals?.provider_reported),
         organic: n(totals?.organic), organic_ios: n(totals?.organic_ios), reengagements: n(totals?.reengagements), conversions: n(totals?.conversions),
         organic_store: n(totals?.organic_store), direct: n(totals?.direct), organic_unknown: n(totals?.organic_unknown),
         unattributed: n(totals?.organic) - n(totals?.organic_store) - n(totals?.direct) - n(totals?.organic_unknown),

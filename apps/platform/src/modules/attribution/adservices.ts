@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { withSystem, type Db } from "@/lib/db";
 import { log } from "@/lib/log";
 import { effectiveConsent, loadStateRows, userKeysOf } from "@/modules/privacy/consent";
+import { applyAdServicesAttribution } from "./engine";
 
 /**
  * Apple Search Ads attribution through Apple's AdServices framework.
@@ -27,8 +28,9 @@ import { effectiveConsent, loadStateRows, userKeysOf } from "@/modules/privacy/c
  * `attribution` consent purpose are never looked up.
  *
  * This is a data source: it stores what Apple reports (evidence level
- * provider_reported). It does not create touchpoints or change attribution
- * decisions; the attribution engine may read adServicesAttributionFor().
+ * provider_reported). An "attributed" answer is then handed to the attribution
+ * engine (applyAdServicesAttribution in ./engine.ts), which decides what it
+ * changes: an unattributed install becomes provider-reported Apple Search Ads.
  * The client follows Apple's published documentation and is NOT VERIFIED
  * against the live API from this codebase (tests use a fake fetch).
  * Operators can turn lookups off with APPLE_ADSERVICES_LOOKUP=off.
@@ -238,8 +240,15 @@ export async function processAdServicesLookups(opts: { limit?: number; deadline?
            a.conversionType, a.claimType, a.clickDate, JSON.stringify(r.raw)],
         ),
       );
-      if (a.attribution) out.attributed++;
-      else out.notAttributed++;
+      if (a.attribution) {
+        out.attributed++;
+        // The answer is stored either way; a failure to apply it is logged, never loses the answer.
+        try {
+          await withSystem((db) => applyAdServicesAttribution(db, d.id));
+        } catch (err) {
+          log.error("attribution.adservices_apply_failed", { lookup_id: d.id, error: String((err as Error).message).slice(0, 300) });
+        }
+      } else out.notAttributed++;
       continue;
     }
     const delay = r.kind === "retry" ? retryDelaySeconds(d.attempts) : null;

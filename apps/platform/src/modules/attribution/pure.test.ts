@@ -176,7 +176,8 @@ describe("matchTypeFor", () => {
     expect(matchTypeFor("install_context")).toBe("reported");
     expect(matchTypeFor("ip_os")).toBe("probabilistic");
     expect(matchTypeFor("none")).toBe("organic");
-    expect([...MATCH_TYPES]).toEqual(["deterministic", "reported", "probabilistic", "organic"]);
+    expect(matchTypeFor("provider")).toBe("provider_reported");
+    expect([...MATCH_TYPES]).toEqual(["deterministic", "reported", "probabilistic", "organic", "provider_reported"]);
   });
 });
 

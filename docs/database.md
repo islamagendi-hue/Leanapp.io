@@ -9,6 +9,7 @@ Postgres, schema `platform`. Migrations live in `apps/platform/db/migrations` an
 | `0033_viewer_attribution.sql` | Viewer gets `attribution.read` and `deep_links.read` (read-only Acquisition and Attribution, so the public demo shows them) and a matching role description. |
 | `0034_growth_channels.sql` | Growth channels ([channels](channels.md)): `channel_definitions` (custom channels per app) and `channel_rules` (per-app classification rules), both RLS-scoped; `attribution_settings.reporting_model` (last / first touch); `attribution_conversions.first_attribution_event_id` and `first_touch_recorded` (first-touch credit). Additive. |
 | `0039_attribution_engine.sql` | Attribution engine ([attribution](attribution.md#attribution-engine-web-touches-three-credit-views-windows-and-evidence-migration-0039)): web touches (`attribution_touchpoints.kind` web, `attribution_events.kind` web_touch), `method` / `confidence` / `evidence` / `referrer_host` / `session_id` / `touch_signature` on `attribution_events`, last non-direct credit on `attribution_conversions` (+ `credit_evidence`), `attribution_settings.window_overrides` and the `last_non_direct` reporting model, and `attribution_conversion_credits` (append-only credit history, RLS-scoped). Additive. |
+| `0039b_adservices_provider_reported.sql` | `attribution_events.match_type` also allows `provider_reported` (Apple Search Ads installs Apple's AdServices API attributed) and `attribution_conversion_credits.reason` allows `provider_reported`. Additive (constraints widened). |
 
 ## Conventions
 

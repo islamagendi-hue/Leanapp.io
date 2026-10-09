@@ -50,7 +50,7 @@ When the Play referrer reports `referrer_click_timestamp_seconds` older than the
 
 ### iOS paid installs
 
-iOS paid installs can't be attributed deterministically from the event stream: without App Tracking Transparency consent there is no IDFA, Apple forbids fingerprinting, and ad networks report iOS installs through SKAdNetwork / AdAttributionKit (aggregate, delayed, never per user) or, for Apple's own ads, Apple Search Ads attribution. LeanApp doesn't fake it: an iOS install is attributed only when it brings back a LeanApp click id (a universal link or a link the app passes on, step 1) or the opening URL's own parameters (reported, steps 2–3). Every other iOS install, paid or not, is **unattributed** (never counted as organic), and the Acquisition pages say so next to the numbers. SKAdNetwork / AdAttributionKit postback copies are reported separately (below) and never joined to installs; Apple Search Ads attribution isn't built.
+iOS paid installs can't be attributed deterministically from the event stream: without App Tracking Transparency consent there is no IDFA, Apple forbids fingerprinting, and ad networks report iOS installs through SKAdNetwork / AdAttributionKit (aggregate, delayed, never per user) or, for Apple's own ads, Apple Search Ads attribution. LeanApp doesn't fake it: an iOS install is attributed only when it brings back a LeanApp click id (a universal link or a link the app passes on, step 1) or the opening URL's own parameters (reported, steps 2–3). Every other iOS install, paid or not, is **unattributed** (never counted as organic), and the Acquisition pages say so next to the numbers. SKAdNetwork / AdAttributionKit postback copies are reported separately (below) and never joined to installs. Apple Search Ads installs are the exception Apple allows: when Apple's AdServices API attributes an install to one of its campaigns, the unattributed install becomes provider-reported Apple Search Ads ([Apple Search Ads (AdServices)](#apple-search-ads-adservices-provider-reported-installs-migration-0039b)).
 
 **Reinstall:** an install whose `context.device.id` or `user_id` already has an install in the environment is stored as `reinstall` (still matched as above). A second `app_installed` from the same `anonymous_id` is ignored.
 
@@ -109,6 +109,7 @@ Every touch records how it was established (`method`), a `confidence` level and 
 | `utm_parameters` | UTM parameters the install / visit carried | medium | `self_reported` |
 | `referrer` | only an external referring site | low | `referrer_only` (browsers strip or shorten referrers) |
 | `probabilistic_ip_os` | opt-in Android IP-hash + OS match | low | `modeled` |
+| `adservices` | Apple's AdServices API attributed the iOS install to an Apple Search Ads campaign (`match_type provider_reported`) | high (medium for an impression) | `provider_reported`, `view_through` for impressions |
 | `store_organic`, `direct`, `organic_parameters` | the store referrer / parameters say organic or direct | medium / medium / low | `self_reported` where the parameters are the only source |
 | `none` | nothing observed or matched (unattributed) | none | `no_evidence`, plus `ios_no_click_id` on iOS |
 
@@ -127,6 +128,19 @@ Each conversion gets three credits among the person's touches (installs, reinsta
 Postbacks for a conversion go to the network of its **last non-direct** touch: a later direct visit or organic reinstall no longer hides a paid conversion from the network that drove it. Sending a conversion to a network never guarantees the network attributes it to an ad.
 
 The reports offer all three (Sources & campaigns → Credit; Settings → Dev Ops → Attribution → Reports open with). Conversions recorded before 0039 have no last-non-direct record; that view credits them by last touch and counts them (`coverage.lastNonDirectFallback`).
+
+### Apple Search Ads (AdServices): provider-reported installs (migration 0039b)
+
+Apple's AdServices API is the only per-install signal Apple offers for its own ads. The iOS SDK sends the token, the worker looks it up and stores Apple's answer (`adservices_attributions`, see [integrations](integrations.md#apple-search-ads-attribution-adservices)), and the engine then applies an `attributed` answer (`applyAdServicesAttribution` in `engine.ts`, called by `processAdServicesLookups`):
+
+- **Which install.** The install / reinstall row of the same environment and `anonymous_id`. Only an install **nothing matched** (`match_type organic`: an unattributed iOS install) is changed. A LeanApp click match (deterministic), reported parameters or an earlier upgrade are **never overridden**; Apple's answer stays stored for them.
+- **Upgraded in place, once.** The install keeps its id, so installs are never double-counted. It becomes `match_type provider_reported`, `match_key adservices`, `method adservices`, `source apple_search_ads` (Apple Search Ads channel, paid), `campaign` = Apple's campaign id. A touchpoint (`provider apple_adservices`, `kind context`) holds Apple's campaign, ad group and ad ids; `evidence.apple` holds the campaign, ad group, keyword and ad ids, claim type, conversion type and country, and `evidence.upgraded_from` keeps what the row was before (match type, method, confidence, source, touchpoint) with `upgraded_at`. The update only applies while the row is still `organic`, so it happens once.
+- **Confidence.** `high` when Apple reports a tap (claim type Click, or none given), `medium` with the `view_through` limitation when Apple credits an impression. The limitation `provider_reported` is always recorded: LeanApp saw no click of its own. Evidence label: provider-reported.
+- **Conversions.** The person's conversions after the install (recorded since 0039) are re-credited through the late-touch path; each changed credit is appended to `attribution_conversion_credits` with reason `provider_reported`. Typically the last non-direct credit turns from a fallback on the unattributed install into Apple Search Ads. Postbacks are queued for conversions that get a known source this way (idempotent per postback).
+- **Order.** When Apple's answer is stored before the install is processed, the install step uses it directly (after LeanApp click ids and the install's own parameters, before anything modeled).
+- **"not_attributed"**, expired, failed or skipped lookups change nothing.
+
+Reports: Apple Search Ads installs count as attributed (`attributionOverview` totals gain `provider_reported`; in the channel report they carry the provider-reported evidence). This rests on Apple's documented API and is tested with a fake fetch; it is **not verified against the live AdServices API** (see [integrations](integrations.md) for the owner's verification step).
 
 ### Delayed and out-of-order events
 

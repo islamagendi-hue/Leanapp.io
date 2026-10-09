@@ -121,7 +121,7 @@ export type Confidence = (typeof CONFIDENCE)[number];
 /** How a touch was established. Stored in attribution_events.method. */
 export const METHODS = [
   "leanapp_click", "deferred_deep_link", "network_click_recorded", "network_click_reported", "play_install_referrer", "utm_parameters",
-  "referrer", "probabilistic_ip_os", "store_organic", "direct", "organic_parameters", "none",
+  "referrer", "probabilistic_ip_os", "adservices", "store_organic", "direct", "organic_parameters", "none",
 ] as const;
 export type Method = (typeof METHODS)[number];
 
@@ -133,8 +133,10 @@ export type Method = (typeof METHODS)[number];
  *   modeled                  inferred from network address and OS version, not observed
  *   ios_no_click_id          iOS install without a click id: paid installs can't be told from organic here
  *   no_evidence              nothing observed or matched
+ *   provider_reported        the provider attributed it on its side; LeanApp saw no click of its own
+ *   view_through             the provider credits an ad impression, not a tap
  */
-export type Limitation = "self_reported" | "click_id_not_proof_of_ad" | "referrer_only" | "modeled" | "ios_no_click_id" | "no_evidence";
+export type Limitation = "self_reported" | "click_id_not_proof_of_ad" | "referrer_only" | "modeled" | "ios_no_click_id" | "no_evidence" | "provider_reported" | "view_through";
 
 const NETWORK_CLICK_KEYS = new Set(["gclid", "gbraid", "wbraid", "dclid", "fbclid", "ttclid", "ScCid", "sccid", "twclid", "msclkid", "li_fat_id", "epik"]);
 /** Click ids that platforms also append to organic (unpaid) link shares. */
@@ -147,9 +149,14 @@ export interface Decision {
 }
 
 /** Method, confidence and limitations of a stored match (match_type + match_key, see ./pure.ts). */
-export function describeMatch(matchType: MatchType | string, matchKey: string | null, opts: { ios?: boolean; deferred?: boolean } = {}): Decision {
+export function describeMatch(matchType: MatchType | string, matchKey: string | null, opts: { ios?: boolean; deferred?: boolean; claimType?: string | null } = {}): Decision {
   const lim: Limitation[] = [];
   switch (matchType) {
+    case "provider_reported":
+      // Apple's AdServices answer: Apple's own record of the ad tap (or view, when it says Impression).
+      return /impression/i.test(opts.claimType ?? "")
+        ? { method: "adservices", confidence: "medium", limitations: ["provider_reported", "view_through"] }
+        : { method: "adservices", confidence: "high", limitations: ["provider_reported"] };
     case "deterministic": {
       if (matchKey && NETWORK_CLICK_KEYS.has(matchKey)) return { method: "network_click_recorded", confidence: "high", limitations: NOT_PROOF_OF_AD.has(matchKey) ? ["click_id_not_proof_of_ad"] : [] };
       return { method: opts.deferred ? "deferred_deep_link" : "leanapp_click", confidence: "high", limitations: [] };

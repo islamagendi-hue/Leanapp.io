@@ -193,6 +193,7 @@ export function evidenceOf(matchType: string, matchKey?: string | null): Evidenc
     case "deterministic": return "deterministic";
     case "reported": return "observed";
     case "probabilistic": return "modeled";
+    case "provider_reported": return "provider_reported";
     default: return matchKey === "store_organic" || matchKey === "direct" ? "observed" : "none";
   }
 }

@@ -149,6 +149,10 @@ interface Match {
   matchKey: string | null;
   /** Handed over by the deferred deep link API. */
   deferred?: boolean;
+  /** Apple AdServices: Click or Impression, as Apple reported it. */
+  claimType?: string | null;
+  /** Extra evidence for the decision (AdServices: Apple's ids and the lookup). */
+  evidence?: Record<string, unknown>;
 }
 
 /** The channel a recorded or reported click belongs to (built-in rules), for its lookback window. */
@@ -244,6 +248,13 @@ async function findMatch(db: Db, e: AttributableEvent, settings: AttributionSett
   if (s.utm.source && inWindow && !isOrganicUtm(s.utm)) {
     return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: matchTypeFor("install_context"), matchKey: s.installReferrer ? "install_referrer" : "utm_parameters" };
   }
+  // 3b. Apple Search Ads: Apple's AdServices API already answered that one of its campaigns
+  // drove this iOS install (provider-reported). Usually the answer comes after the install
+  // has been processed; applyAdServicesAttribution handles that order.
+  if (e.anonymous_id && eventOs(e) === "ios") {
+    const asa = await adServicesAnswer(db, e.environment_id, e.anonymous_id);
+    if (asa) return adServicesMatch(asa, await adServicesTouchpoint(db, e, asa));
+  }
   // 4a. The click a probabilistic deferred deep link lookup already handed this install.
   if (deferred) return deferred;
   // 4b. Probabilistic: opt-in, Android only (no fingerprinting on iOS), short window, unclaimed clicks only.
@@ -320,7 +331,7 @@ async function recordAttribution(
   const tp = m.touchpoint;
   const deviceId = ((e.context.device ?? {}) as { id?: unknown }).id;
   const network = tp ? tp.network ?? networkOfSource(tp.source) : null;
-  const decision = describeMatch(m.matchType, m.matchKey, { ios: e.platform === "ios", deferred: m.deferred });
+  const decision = describeMatch(m.matchType, m.matchKey, { ios: e.platform === "ios", deferred: m.deferred, claimType: m.claimType });
   const channel = engineChannel({
     source: tp?.source ?? null, medium: tp?.medium ?? null, network, match_type: m.matchType, match_key: m.matchKey, referrer_host: extra.referrerHost ?? null, campaign: tp?.campaign ?? null,
   });
@@ -329,6 +340,7 @@ async function recordAttribution(
     limitations: decision.limitations,
     ...(tp ? { touch_at: new Date(tp.touchpoint_at).toISOString(), touch_kind: kind === "web_touch" ? "web" : tp.click_id || tp.link_id ? "click" : "context" } : {}),
     ...(kind === "web_touch" ? {} : { click_lookback_days: clickLookbackDays(settings, channel), signals: signalKeys(clickSignals(e.context)) }),
+    ...m.evidence,
     ...extra.evidence,
   };
   const row = await db.one<{ id: string }>(
@@ -560,7 +572,7 @@ async function queueConversionPostbacks(
   });
 }
 
-async function recordCredit(db: Db, e: Pick<AttributableEvent, "organization_id" | "app_id" | "environment_id">, conversionId: string, reason: "initial" | "late_touch", c: Credits, evidence: Record<string, unknown>) {
+async function recordCredit(db: Db, e: Pick<AttributableEvent, "organization_id" | "app_id" | "environment_id">, conversionId: string, reason: "initial" | "late_touch" | "provider_reported", c: Credits, evidence: Record<string, unknown>) {
   await db.query(
     `insert into platform.attribution_conversion_credits
        (organization_id, app_id, environment_id, conversion_id, reason, last_touch_event_id, first_touch_event_id, last_non_direct_event_id, evidence)
@@ -597,7 +609,7 @@ async function attributeConversion(db: Db, e: AttributableEvent, name: string, s
  * conversion that had no credited touch before queues its postbacks now. Only
  * conversions recorded since migration 0039 are re-credited.
  */
-async function recreditLateConversions(db: Db, e: AttributableEvent, settings: AttributionSettings) {
+async function recreditLateConversions(db: Db, e: AttributableEvent, settings: AttributionSettings, reason: "late_touch" | "provider_reported" = "late_touch") {
   if (!e.anonymous_id && !e.user_id) return;
   const ids = await db.one<{ anons: string[]; users: string[] }>(
     `with u as (select $3::text as user_id where $3::text is not null
@@ -610,9 +622,11 @@ async function recreditLateConversions(db: Db, e: AttributableEvent, settings: A
   const later = await db.query<{
     id: string; event_name: string; occurred_at: Date; revenue: string | null; currency: string | null; anonymous_id: string | null; user_id: string | null;
     attribution_event_id: string | null; first_attribution_event_id: string | null; last_non_direct_attribution_event_id: string | null; last_non_direct_recorded: boolean;
+    lnd_fallback: boolean | null;
   }>(
     `select c.id, c.event_name, c.occurred_at, c.revenue::text, c.currency, ev.anonymous_id, ev.user_id,
-            c.attribution_event_id, c.first_attribution_event_id, c.last_non_direct_attribution_event_id, c.last_non_direct_recorded
+            c.attribution_event_id, c.first_attribution_event_id, c.last_non_direct_attribution_event_id, c.last_non_direct_recorded,
+            (c.credit_evidence->>'last_non_direct_fallback')::boolean as lnd_fallback
        from platform.events ev
        join platform.attribution_conversions c on c.environment_id = ev.environment_id and c.event_row_id = ev.id
       where ev.environment_id = $1 and ev."timestamp" >= $2 and ev."timestamp" <= $3 and ev.id <> $6
@@ -625,17 +639,20 @@ async function recreditLateConversions(db: Db, e: AttributableEvent, settings: A
   for (const c of later) {
     const credits = await creditsFor(db, e.environment_id, c.anonymous_id, c.user_id, new Date(c.occurred_at), settings);
     const same = (credits.lastTouch?.id ?? null) === c.attribution_event_id && (credits.firstTouch?.id ?? null) === c.first_attribution_event_id
-      && (credits.lastNonDirect?.id ?? null) === c.last_non_direct_attribution_event_id;
+      && (credits.lastNonDirect?.id ?? null) === c.last_non_direct_attribution_event_id
+      // The same touch can turn from weak to known (an install Apple attributed after the fact).
+      && (c.lnd_fallback === null || c.lnd_fallback === credits.lastNonDirectFallback);
     if (same) continue;
-    const evidence = { ...creditEvidence(credits, settings), recredited_by_event_row: e.id };
+    const evidence = { ...creditEvidence(credits, settings), recredited_by_event_row: e.id, reason };
     await db.query(
       `update platform.attribution_conversions
           set attribution_event_id = $2, first_attribution_event_id = $3, last_non_direct_attribution_event_id = $4, credit_evidence = $5
         where id = $1`,
       [c.id, credits.lastTouch?.id ?? null, credits.firstTouch?.id ?? null, credits.lastNonDirect?.id ?? null, JSON.stringify(evidence)],
     );
-    await recordCredit(db, e, c.id, "late_touch", credits, evidence);
-    if (!c.last_non_direct_attribution_event_id && credits.lastNonDirect) {
+    await recordCredit(db, e, c.id, reason, credits, evidence);
+    // Postbacks once the conversion has a known source for the first time (idempotent per postback).
+    if ((!c.last_non_direct_attribution_event_id || c.lnd_fallback) && credits.lastNonDirect && !credits.lastNonDirectFallback) {
       const money = { revenue: c.revenue === null ? null : Number(c.revenue), currency: c.currency };
       await queueConversionPostbacks(db, { ...e, timestamp: new Date(c.occurred_at) }, c.event_name, c.id, credits.lastNonDirect.id, money);
     }
@@ -695,4 +712,135 @@ async function enqueuePostbacks(
      on conflict (postback_id, idempotency_key) do nothing`,
     [q.environmentId, q.eventName, q.attributionEventId, q.conversionId, q.idempotencyKey, JSON.stringify(q.payload), q.matchType, q.source, q.network],
   );
+}
+
+// ── Apple Search Ads (AdServices) ───────────────────────────────────────────
+
+interface AdServicesAnswer {
+  id: string;
+  apple_org_id: string | null;
+  campaign_id: string | null;
+  ad_group_id: string | null;
+  keyword_id: string | null;
+  ad_id: string | null;
+  country_or_region: string | null;
+  conversion_type: string | null;
+  claim_type: string | null;
+  click_date: Date | null;
+}
+
+const ADS_COLUMNS = `id, apple_org_id::text, campaign_id::text, ad_group_id::text, keyword_id::text, ad_id::text, country_or_region, conversion_type, claim_type, click_date`;
+
+/** Apple's "attributed" answer for an install, if one is stored (modules/attribution/adservices.ts writes them). */
+async function adServicesAnswer(db: Db, environmentId: string, anonymousId: string): Promise<AdServicesAnswer | null> {
+  return db.one<AdServicesAnswer>(
+    `select ${ADS_COLUMNS} from platform.adservices_attributions
+      where environment_id = $1 and anonymous_id = $2 and status = 'attributed'
+      order by looked_up_at desc nulls last, created_at desc limit 1`,
+    [environmentId, anonymousId],
+  );
+}
+
+/** A touchpoint holding what Apple reported (campaign data only; ids as Apple sent them). */
+async function adServicesTouchpoint(
+  db: Db, e: Pick<AttributableEvent, "organization_id" | "app_id" | "environment_id" | "anonymous_id" | "user_id" | "timestamp">, a: AdServicesAnswer,
+): Promise<TouchpointRow> {
+  const at = a.click_date && new Date(a.click_date) <= e.timestamp ? new Date(a.click_date) : e.timestamp;
+  const raw = {
+    adservices_lookup_id: a.id, apple_org_id: a.apple_org_id, keyword_id: a.keyword_id, conversion_type: a.conversion_type, claim_type: a.claim_type,
+  };
+  const row = await db.one<{ id: string }>(
+    `insert into platform.attribution_touchpoints
+       (organization_id, app_id, environment_id, anonymous_id, user_id, provider, kind, source, campaign, campaign_id, ad_group_id, creative_id,
+        country, touchpoint_at, raw)
+     values ($1, $2, $3, $4, $5, 'apple_adservices', 'context', 'apple_search_ads', $6, $6, $7, $8, $9, $10, $11)
+     returning id`,
+    [e.organization_id, e.app_id, e.environment_id, e.anonymous_id, e.user_id, a.campaign_id, a.ad_group_id, a.ad_id,
+     a.country_or_region && /^[A-Z]{2}$/.test(a.country_or_region) ? a.country_or_region : null, at, JSON.stringify(raw)],
+  );
+  return {
+    id: row!.id, source: "apple_search_ads", medium: null, campaign: a.campaign_id, click_id: null, network_click_id: null, network: null,
+    link_id: null, link_code: null, country: null, touchpoint_at: at, raw,
+  };
+}
+
+function adServicesEvidence(a: AdServicesAnswer): Record<string, unknown> {
+  return {
+    provider: "apple_adservices", evidence_level: "provider_reported", adservices_lookup_id: a.id,
+    apple: {
+      org_id: a.apple_org_id, campaign_id: a.campaign_id, ad_group_id: a.ad_group_id, keyword_id: a.keyword_id, ad_id: a.ad_id,
+      claim_type: a.claim_type, conversion_type: a.conversion_type, country_or_region: a.country_or_region,
+    },
+  };
+}
+
+function adServicesMatch(a: AdServicesAnswer, tp: TouchpointRow): Match {
+  return { touchpoint: tp, matchType: matchTypeFor("provider"), matchKey: "adservices", claimType: a.claim_type, evidence: adServicesEvidence(a) };
+}
+
+export type AdServicesApplyOutcome = "upgraded" | "no_install" | "kept_existing_match" | "not_attributed";
+
+/**
+ * Applies a stored AdServices answer to the install it belongs to (same
+ * environment and anonymous id). Called by processAdServicesLookups once
+ * Apple answered.
+ *
+ * Only an install nothing matched (match_type organic: unattributed on iOS)
+ * is upgraded, in place and once: it becomes provider_reported (source
+ * apple_search_ads, Apple's campaign / ad group / keyword / ad ids, method
+ * adservices), and evidence.upgraded_from keeps what it was. A LeanApp click
+ * match, reported parameters or an earlier upgrade are never overridden. The
+ * install stays one row, so installs are never double-counted. The person's
+ * conversions after the install are then re-credited (credit history reason
+ * provider_reported). A "not_attributed" answer changes nothing. When the
+ * install hasn't been processed yet, the install step finds the answer itself.
+ */
+export async function applyAdServicesAttribution(db: Db, lookupId: string): Promise<AdServicesApplyOutcome> {
+  const a = await db.one<AdServicesAnswer & { status: string; environment_id: string; anonymous_id: string | null }>(
+    `select ${ADS_COLUMNS}, status, environment_id, anonymous_id from platform.adservices_attributions where id = $1`,
+    [lookupId],
+  );
+  if (!a || a.status !== "attributed") return "not_attributed";
+  if (!a.anonymous_id) return "no_install";
+  const ae = await db.one<{
+    id: string; organization_id: string; app_id: string; environment_id: string; anonymous_id: string; user_id: string | null; occurred_at: Date;
+    event_row_id: string | null; platform: string | null; match_type: string; match_key: string | null; method: string | null; confidence: string | null;
+    source: string | null; medium: string | null; campaign: string | null; touchpoint_id: string | null; evidence: Record<string, unknown>;
+  }>(
+    `select id, organization_id, app_id, environment_id, anonymous_id, user_id, occurred_at, event_row_id::text, platform, match_type, match_key, method,
+            confidence, source, medium, campaign, touchpoint_id, evidence
+       from platform.attribution_events
+      where environment_id = $1 and anonymous_id = $2 and kind in ('install', 'reinstall')
+      for update`,
+    [a.environment_id, a.anonymous_id],
+  );
+  if (!ae) return "no_install";
+  if (ae.match_type !== "organic") return "kept_existing_match";
+  const e: AttributableEvent = {
+    id: ae.event_row_id ?? "0", organization_id: ae.organization_id, app_id: ae.app_id, environment_id: ae.environment_id, event_name: "app_installed",
+    timestamp: new Date(ae.occurred_at), anonymous_id: ae.anonymous_id, user_id: ae.user_id, platform: ae.platform, properties: {}, context: {},
+  };
+  const m = adServicesMatch(a, await adServicesTouchpoint(db, e, a));
+  const decision = describeMatch(m.matchType, m.matchKey, { claimType: a.claim_type });
+  const channel = engineChannel({ source: "apple_search_ads", medium: null, network: null, match_type: m.matchType, match_key: m.matchKey });
+  const evidence = {
+    ...ae.evidence, ...m.evidence, channel, limitations: decision.limitations, touch_at: new Date(m.touchpoint!.touchpoint_at).toISOString(), touch_kind: "provider",
+    upgraded_at: new Date().toISOString(),
+    upgraded_from: {
+      match_type: ae.match_type, match_key: ae.match_key, method: ae.method, confidence: ae.confidence, source: ae.source, medium: ae.medium,
+      campaign: ae.campaign, touchpoint_id: ae.touchpoint_id, limitations: ae.evidence?.limitations ?? null,
+    },
+  };
+  const upgraded = await db.one(
+    `update platform.attribution_events
+        set match_type = $2, match_key = $3, method = $4, confidence = $5, source = 'apple_search_ads', medium = null, campaign = $6, network = null,
+            touchpoint_id = $7, evidence = $8
+      where id = $1 and match_type = 'organic'
+      returning id`,
+    [ae.id, m.matchType, m.matchKey, decision.method, decision.confidence, a.campaign_id, m.touchpoint!.id, JSON.stringify(evidence)],
+  );
+  if (!upgraded) return "kept_existing_match";
+  await db.query("update platform.attribution_touchpoints set matched_at = coalesce(matched_at, $2) where id = $1", [m.touchpoint!.id, e.timestamp]);
+  await recreditLateConversions(db, e, await loadSettings(db, ae.app_id), "provider_reported");
+  return "upgraded";
 }
