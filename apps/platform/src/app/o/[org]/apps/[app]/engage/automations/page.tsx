@@ -1,5 +1,6 @@
 import Link from "next/link";
-import { StatusPill } from "@/components/engage/shared";
+import { FlowLibrary } from "@/components/engage/FlowLibrary";
+import { knownEvents, StatusPill } from "@/components/engage/shared";
 import { getT } from "@/i18n/server";
 import { describeTrigger } from "@/modules/automation/definition";
 import { listAutomations } from "@/modules/automation/service";
@@ -18,7 +19,12 @@ export default async function AutomationsPage(props: PageProps<"/o/[org]/apps/[a
   requirePermission(ctx, "automations.read");
   const env = await pickEnvironment(environments, sp.env);
   const automations = await listAutomations(ctx, env.id);
-  const audiences = can(ctx.role, "audiences.read") ? await listAudiences(ctx, env.id, { includeArchived: true }) : [];
+  const [audiences, events] = await Promise.all([
+    can(ctx.role, "audiences.read") ? listAudiences(ctx, env.id, { includeArchived: true }) : Promise.resolve([]),
+    // The library marks the events this environment hasn't seen (unknown when the member can't read analytics).
+    can(ctx.role, "analytics.read") ? knownEvents(ctx, env.id) : Promise.resolve(null),
+  ]);
+  const manage = can(ctx.role, "automations.manage");
   const t = await getT();
   const audienceName = (id: string) => audiences.find((a) => a.id === id)?.name ?? t("an audience");
   const base = `/o/${org}/apps/${app}/engage/automations`;
@@ -31,7 +37,8 @@ export default async function AutomationsPage(props: PageProps<"/o/[org]/apps/[a
           <p className="mt-1 max-w-2xl text-ink-2">{t("Journeys that start on an event, an audience change or a schedule, with waits, conditions, branches and messages in between, and an optional conversion goal. For one message to an audience, use Campaigns.")}</p>
         </div>
         <div className="flex items-center gap-3">
-          {can(ctx.role, "automations.manage") && <Link className="btn" href={`${base}/new?env=${env.type}`}>{t("New flow")}</Link>}
+          <a className="btn-secondary" href="#library">{t("Flows library")}</a>
+          {manage && <Link className="btn" href={`${base}/new?env=${env.type}`}>{t("New flow")}</Link>}
         </div>
       </div>
       <section className="card">
@@ -56,6 +63,7 @@ export default async function AutomationsPage(props: PageProps<"/o/[org]/apps/[a
           </div>
         )}
       </section>
+      <FlowLibrary org={org} app={app} environmentId={env.id} envLabel={t(env.type)} knownEvents={events} canCreate={manage} />
     </div>
   );
 }

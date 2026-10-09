@@ -6,7 +6,7 @@ import { getT } from "@/i18n/server";
 import { msg } from "@/i18n/translate";
 import { activateAudience, archiveAudience, createAudience, previewAudience, updateAudience } from "@/modules/audiences/service";
 import { translateMessage } from "@/modules/automation/messages";
-import { activateAutomation, archiveAutomation, createAutomation, pauseAutomation, updateAutomation } from "@/modules/automation/service";
+import { activateAutomation, archiveAutomation, createAutomation, createAutomationFromTemplate, pauseAutomation, updateAutomation } from "@/modules/automation/service";
 import { addEmailDomain, deleteEmailTemplate, refreshEmailDomain, removeEmailDomain, saveEmailTemplate } from "@/modules/messaging/email";
 import { configureApns, configureFcm, configureResend, configureWhatsApp, removeIntegration, rotateWhatsAppVerifyToken } from "@/modules/messaging/integrations";
 import { syncTemplates } from "@/modules/whatsapp/service";
@@ -83,6 +83,21 @@ export async function saveAutomationAction(orgSlug: string, appSlug: string, env
   revalidatePath(`${appBase(orgSlug, appSlug)}/engage/automations`);
   if (!automationId) redirect(`${appBase(orgSlug, appSlug)}/engage/automations/${id}`);
   return { ok: true, message };
+}
+
+/** Creates a draft flow from the library, with the events chosen on its card, and opens it. */
+export async function applyFlowTemplateAction(orgSlug: string, appSlug: string, environmentId: string, templateId: string, _: ActionState, form: FormData): Promise<ActionState> {
+  let id: string;
+  try {
+    const ctx = await requireTenant(orgSlug);
+    const events: Record<string, string> = {};
+    for (const [k, v] of form.entries()) if (k.startsWith("event.") && typeof v === "string") events[k.slice(6)] = v;
+    id = (await createAutomationFromTemplate(ctx, environmentId, templateId, { events }, { t: await getT() })).id;
+  } catch (err) {
+    return failed(err);
+  }
+  revalidatePath(`${appBase(orgSlug, appSlug)}/engage/automations`);
+  redirect(`${appBase(orgSlug, appSlug)}/engage/automations/${id}`);
 }
 
 export async function automationLifecycleAction(orgSlug: string, appSlug: string, automationId: string, op: "activate" | "pause" | "archive", _: ActionState): Promise<ActionState> {

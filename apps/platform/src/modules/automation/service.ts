@@ -1,12 +1,13 @@
 import "server-only";
 import { z } from "zod";
-import { msg } from "@/i18n/translate";
+import { msg, type T } from "@/i18n/translate";
 import type { Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { COUNTED_EVENTS, PERSON } from "@/modules/analytics/sql";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, referencedWhatsAppTemplates, type AutomationDefinition } from "./definition";
+import { FLOW_TEMPLATE_IDS, planFlowTemplate } from "./library";
 import { fill } from "./messages";
 import { nextScheduled } from "./time";
 
@@ -145,7 +146,7 @@ export async function createAutomation(
   ctx: TenantContext,
   environmentId: string,
   input: { name?: unknown; definition?: unknown },
-  opts: { kind?: AutomationRow["kind"] } = {},
+  opts: { kind?: AutomationRow["kind"]; template?: string } = {},
 ): Promise<{ id: string }> {
   const name = parseName(input.name);
   const definition = parseDef(input.definition);
@@ -162,9 +163,29 @@ export async function createAutomation(
       "insert into platform.automation_versions (organization_id, automation_id, version, definition, created_by) values ($1, $2, 1, $3, $4)",
       [ctx.organizationId, row!.id, JSON.stringify(definition), ctx.userId],
     );
-    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata: { environment_id: environmentId, name, kind: opts.kind ?? "automation" } });
+    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata: { environment_id: environmentId, name, kind: opts.kind ?? "automation", ...(opts.template ? { template: opts.template } : {}) } });
     return { id: row!.id };
   });
+}
+
+/**
+ * A flow from the library (./library.ts), with `events` mapping the
+ * template's event slots to this app's event names (defaults otherwise).
+ * Always created as a draft: nothing is sent until someone activates it.
+ * Events the app doesn't send yet are allowed; the flow just won't start
+ * until they arrive.
+ */
+export async function createAutomationFromTemplate(
+  ctx: TenantContext,
+  environmentId: string,
+  templateId: unknown,
+  input: { events?: Record<string, unknown> } = {},
+  opts: { t?: T } = {},
+): Promise<{ id: string }> {
+  const id = z.enum(FLOW_TEMPLATE_IDS).safeParse(templateId);
+  if (!id.success) throw new ValidationError(msg("Choose a flow from the library."));
+  const plan = planFlowTemplate(id.data, input.events ?? {}, opts.t);
+  return createAutomation(ctx, environmentId, plan, { template: id.data });
 }
 
 /** Saves a new version. Runs in progress continue on the version they started with. */
