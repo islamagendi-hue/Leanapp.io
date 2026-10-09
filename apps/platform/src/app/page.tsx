@@ -237,7 +237,10 @@ export default async function Home(props: PageProps<"/">) {
                   {p.price === null ? (
                     <a href={`mailto:${CONTACT_EMAIL}?subject=LeanApp%20Enterprise`} className="btn-secondary w-full">{t.pricing.contact}</a>
                   ) : (
-                    <Link href={start} className={`${p.featured ? "btn" : "btn-secondary"} w-full`}>{t.pricing.start}</Link>
+                    <div className="flex flex-col gap-2">
+                      <Link href={start} className={`${p.featured ? "btn" : "btn-secondary"} w-full`}>{t.pricing.start}</Link>
+                      <a href={`mailto:${CONTACT_EMAIL}?subject=LeanApp%20demo`} className="block py-2 text-center text-sm font-medium text-accent-ink hover:underline">{t.pricing.demo}</a>
+                    </div>
                   )}
                 </div>
               </li>

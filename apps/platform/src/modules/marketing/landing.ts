@@ -180,14 +180,14 @@ export interface Plan {
 const PLANS_EN: Plan[] = [
   {
     id: "starter",
-    price: 49,
+    price: 399,
     tagline: "For new apps",
     features: ["Core analytics and event tracking", "Basic funnels and retention", "Limited integrations and usage"],
     limits: "2M events / month and up to 3 apps. Free up to 100K events.",
   },
   {
     id: "growth",
-    price: 199,
+    price: 599,
     from: true,
     tagline: "For growing apps",
     features: ["Advanced analytics and cohorts", "Growth playbooks and A/B tests (beta)", "More integrations and automation"],
@@ -205,14 +205,14 @@ const PLANS_EN: Plan[] = [
 const PLANS_AR: Plan[] = [
   {
     id: "starter",
-    price: 49,
+    price: 399,
     tagline: "للتطبيقات الجديدة",
     features: ["التحليلات الأساسية وتتبّع الأحداث", "مسارات التحويل والاحتفاظ الأساسية", "تكاملات واستخدام محدودان"],
     limits: "2 مليون حدث شهريًا، وحتى 3 تطبيقات. مجانًا حتى 100 ألف حدث.",
   },
   {
     id: "growth",
-    price: 199,
+    price: 599,
     from: true,
     tagline: "للتطبيقات التي تنمو",
     features: ["تحليلات متقدمة وشرائح المستخدمين", "خطط نمو جاهزة واختبارات A/B (تجريبية)", "تكاملات وأتمتة أكثر"],
@@ -313,7 +313,7 @@ const EN = {
     labels: { yes: "Yes", beta: "Beta", partial: "Partly", no: "No" } as Record<Coverage, string>,
     value: [
       { title: "One tool instead of three", body: "Understand and reach users from the same data, without syncing audiences between products." },
-      { title: "Priced for the region", body: "Start free and grow from $49 a month, instead of enterprise contracts sized for global apps." },
+      { title: "Priced for the region", body: "Start free and grow from $399 a month, instead of enterprise contracts sized for global apps." },
       { title: "Set up with you", body: "We build your tracking plan with you and help your developers, in Arabic or English." },
     ],
     honest: "Need fraud prevention or automatic ad cost import? Use a full attribution partner like Adjust too.",
@@ -324,7 +324,8 @@ const EN = {
     lead: "Clear monthly prices you can start on yourself, or a custom plan for larger teams. Prices in US dollars.",
     month: "/ month",
     free: "Free",
-    start: "Start free",
+    start: "Start now",
+    demo: "Get a demo",
     contact: "Contact sales",
     custom: "Custom",
     from: "from",
@@ -410,7 +411,7 @@ const AR: typeof EN = {
     labels: { yes: "نعم", beta: "تجريبي", partial: "جزئيًا", no: "لا" },
     value: [
       { title: "أداة واحدة بدل ثلاث", body: "افهم المستخدمين وتواصل معهم من البيانات نفسها، دون مزامنة الجماهير بين منتجات مختلفة." },
-      { title: "أسعار تناسب المنطقة", body: "ابدأ مجانًا وتوسّع بدءًا من 49$ شهريًا، بدل عقود الشركات المصممة للتطبيقات العالمية." },
+      { title: "أسعار تناسب المنطقة", body: "ابدأ مجانًا وتوسّع بدءًا من 399 $ شهريًا، بدل عقود الشركات المصممة للتطبيقات العالمية." },
       { title: "نُعدّه معك", body: "نبني معك خطة التتبّع، ونساعد مطوّريك في تنفيذها خطوة بخطوة، بالعربية أو بالإنجليزية." },
     ],
     honest: "هل تحتاج إلى منع الاحتيال، أو استيراد تكلفة الإعلانات تلقائيًا؟ استخدم لذلك شريك إسناد كاملًا مثل Adjust إلى جانب LeanApp.",
@@ -422,7 +423,8 @@ const AR: typeof EN = {
     lead: "أسعار شهرية واضحة تبدأ بها بنفسك، أو باقة مخصصة للفرق الكبيرة. الأسعار بالدولار الأمريكي.",
     month: "/ شهريًا",
     free: "مجانًا",
-    start: "ابدأ مجانًا",
+    start: "ابدأ الآن",
+    demo: "اطلب عرضًا توضيحيًا",
     contact: "تواصل مع المبيعات",
     custom: "سعر مخصص",
     from: "يبدأ من",

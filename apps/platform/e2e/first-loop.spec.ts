@@ -763,7 +763,7 @@ test("landing page: Arabic and English, honest labels, comparison, pricing, and 
   const compare = page.getByRole("table");
   await expect(compare.getByRole("columnheader")).toHaveText(["What you need", "LeanApp", "Mixpanel", "Adjust", "MoEngage"]);
   await expect(compare.getByRole("row", { name: /Install attribution/ }).getByRole("cell").first()).toContainText("Beta");
-  await expect(page.getByRole("listitem", { name: "Growth" })).toContainText("$199");
+  await expect(page.getByRole("listitem", { name: "Growth" })).toContainText("$599");
   await expect(page.getByRole("listitem", { name: "Enterprise" })).toContainText("Contact sales");
   await expect(page.getByRole("heading", { name: "Who we are" })).toBeVisible();
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
