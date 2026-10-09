@@ -15,8 +15,8 @@ export async function generateMetadata() {
   return { title: (await getT())("Channels & delivery") };
 }
 
-const PROVIDERS: Record<DeliveryChannel, IntegrationRow["provider"][]> = { push: ["fcm", "apns"], email: ["resend"], whatsapp: ["whatsapp"], in_app: [] };
-const PROVIDER_NAMES: Record<string, string> = { fcm: "FCM", apns: "APNs", resend: "Resend", whatsapp: "WhatsApp Cloud API" };
+const PROVIDERS: Record<DeliveryChannel, IntegrationRow["provider"][]> = { push: ["fcm", "apns"], email: ["resend"], whatsapp: ["whatsapp", "twilio"], sms: ["twilio"], in_app: [] };
+const PROVIDER_NAMES: Record<string, string> = { fcm: "FCM", apns: "APNs", resend: "Resend", whatsapp: "WhatsApp Cloud API", twilio: "Twilio" };
 const RANGES = [7, 30] as const;
 const pct = (x: number | null) => (x === null ? "" : ` (${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%)`);
 
@@ -36,6 +36,7 @@ const TEST_HELP: Record<DeliveryChannel, string> = {
   email: msg("Goes to the person's email user property, with an unsubscribe link."),
   in_app: msg("Queued for the person; your app shows it when it next asks for messages."),
   whatsapp: msg("WhatsApp only allows approved templates to start a conversation."),
+  sms: msg("Goes to the person's phone number property through Twilio. Text only."),
 };
 const TONE = { ok: "border-accent/40 bg-accent-soft text-accent-ink", warn: "border-warn/40 bg-warn-soft text-warn", bad: "border-alert/40 bg-alert-soft text-alert", none: "border-line text-ink-3" };
 
@@ -53,7 +54,7 @@ export default async function ChannelsPage(props: PageProps<"/o/[org]/apps/[app]
     manage ? listTemplates(ctx, env.id) : Promise.resolve([]),
   ]);
   const base = `/o/${org}/apps/${app}`;
-  const waTemplates = templates.filter((w) => w.status === "APPROVED" && w.header_params === 0);
+  const waTemplates = templates.filter((w) => w.status === "APPROVED" && w.header_params === 0 && !["IMAGE", "VIDEO", "DOCUMENT", "LOCATION"].includes(w.header_format ?? ""));
   const [t, lang] = await Promise.all([getT(), getLang()]);
 
   return (
@@ -103,11 +104,12 @@ export default async function ChannelsPage(props: PageProps<"/o/[org]/apps/[app]
                 <summary className="cursor-pointer text-sm font-medium">{t("Send a test")}</summary>
                 <ActionForm action={testSendAction.bind(null, org, env.id, c)} submitLabel={t("Send {channel} test", { channel: t(DELIVERY_CHANNEL_LABELS[c]) })} className="mt-3 max-w-xl space-y-3">
                   <label className="block"><span className="label">{t("User ID (a person your app identified in {env})", { env: t(env.type) })}</span><input name="userId" className="input" required maxLength={200} /></label>
+                  {c === "sms" && <label className="block max-w-xs"><span className="label">{t("Phone number property")}</span><input name="phoneProperty" className="input" defaultValue="phone" /></label>}
                   {c === "whatsapp" && (
                     waTemplates.length ? (
                       <>
                         <label className="block"><span className="label">{t("Approved template")}</span>
-                          <select name="whatsappTemplate" className="input">{waTemplates.map((w) => <option key={w.id} value={`${w.name}|${w.language}`}>{t("{name} ({language}, {n} variables)", { name: w.name, language: w.language, n: w.body_params })}</option>)}</select>
+                          <select name="whatsappTemplate" className="input">{waTemplates.map((w) => <option key={w.id} value={`${w.name}|${w.language}|${w.provider}`}>{t("{name} ({language}, {n} variables)", { name: w.name, language: w.language, n: w.body_params })}{w.provider === "twilio" ? " · Twilio" : ""}</option>)}</select>
                         </label>
                         <label className="block"><span className="label">{t("Variables, one per line")}</span><textarea name="whatsappParams" className="input min-h-16" /></label>
                         <label className="block max-w-xs"><span className="label">{t("Phone number property")}</span><input name="phoneProperty" className="input" defaultValue="phone" /></label>

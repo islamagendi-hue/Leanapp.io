@@ -1,6 +1,7 @@
 import "server-only";
 import { withSystem } from "@/lib/db";
 import { recomputeDueAudiences } from "@/modules/audiences/service";
+import { refreshTemplates } from "@/modules/messaging/templates";
 import { deliverWebhooks } from "@/modules/webhooks/service";
 import { enqueueTriggers, stepRuns } from "./engine";
 
@@ -18,6 +19,7 @@ export async function runEngagement(opts: { deadline: number }): Promise<Record<
   if (left()) out.triggers = await enqueueTriggers({ deadline: opts.deadline });
   if (left()) out.runs = await stepRuns({ limit: 200, deadline: opts.deadline });
   if (left()) out.webhooks = (await deliverWebhooks({ limit: 200, deadline: opts.deadline })).length;
+  if (left()) out.templates = await refreshTemplates({ limit: 10, deadline: opts.deadline });
   if (left()) out.purged = await purgeEngagementData();
   return out;
 }
@@ -29,6 +31,8 @@ export async function purgeEngagementData(): Promise<Record<string, number>> {
     webhook_deliveries: "delete from platform.webhook_deliveries where status <> 'pending' and created_at < now() - interval '30 days'",
     audience_snapshots: "delete from platform.audience_snapshots where computed_at < now() - interval '90 days'",
     audience_events: "delete from platform.audience_events where occurred_at < now() - interval '90 days'",
+    inbound_messages: "delete from platform.inbound_messages where received_at < now() - interval '90 days'",
+    messaging_sessions: "delete from platform.messaging_sessions where last_inbound_at < now() - interval '30 days'",
   };
   const out: Record<string, number> = {};
   for (const [label, sql] of Object.entries(steps)) {

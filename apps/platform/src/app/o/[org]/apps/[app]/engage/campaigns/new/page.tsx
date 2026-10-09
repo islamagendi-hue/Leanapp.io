@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { saveCampaignAction } from "@/app/actions/campaigns";
+import { campaignTestAction, checkCampaignAction } from "@/app/actions/messaging";
+import { composerContext } from "@/components/engage/composer-context";
 import { CampaignForm } from "@/components/engage/CampaignForm";
 import { getT } from "@/i18n/server";
 import { listAudiences } from "@/modules/audiences/service";
@@ -16,14 +18,15 @@ export async function generateMetadata() {
 export default async function NewCampaignPage(props: PageProps<"/o/[org]/apps/[app]/engage/campaigns/new">) {
   const { org, app } = await props.params;
   const sp = await props.searchParams;
-  const { ctx, environments } = await loadApp(org, app);
+  const { ctx, app: project, environments } = await loadApp(org, app);
   requirePermission(ctx, "automations.manage");
   const env = await pickEnvironment(environments, sp.env);
-  const [audiences, organization, whatsappTemplates, emailTemplates] = await Promise.all([
+  const [audiences, organization, whatsappTemplates, emailTemplates, composer] = await Promise.all([
     can(ctx.role, "audiences.read") ? listAudiences(ctx, env.id) : Promise.resolve([]),
     getOrganization(ctx),
     listTemplates(ctx, env.id),
     listEmailTemplates(ctx, env.id),
+    composerContext(ctx, project.id, env.id),
   ]);
   const t = await getT();
   return (
@@ -34,7 +37,8 @@ export default async function NewCampaignPage(props: PageProps<"/o/[org]/apps/[a
       </div>
       <section className="card">
         <CampaignForm action={saveCampaignAction.bind(null, org, app, env.id, null)} name="" initial={{}} submitLabel={t("Save draft")}
-          audiences={audiences} emailTemplates={emailTemplates} whatsappTemplates={whatsappTemplates.filter((w) => w.header_params === 0)} timezone={organization.timezone} />
+          audiences={audiences} emailTemplates={emailTemplates} whatsappTemplates={whatsappTemplates} timezone={organization.timezone}
+          connected={composer.connected} userProperties={composer.userProperties} checkAction={checkCampaignAction.bind(null, org, env.id)} testAction={campaignTestAction.bind(null, org, env.id)} />
       </section>
     </div>
   );

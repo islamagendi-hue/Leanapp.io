@@ -4,15 +4,18 @@ import { log } from "@/lib/log";
 import { PERSON } from "@/modules/analytics/service";
 import { personMatches } from "@/modules/audiences/service";
 import { messagingBlocked, splitUserKey } from "@/modules/messaging/consent";
-import { deliverEmail, deliverPush, deliverWhatsApp } from "@/modules/messaging/deliver";
+import { deliverEmail, deliverMessage, deliverPush } from "@/modules/messaging/deliver";
+import { lastInboundAt } from "@/modules/messaging/inbound";
+import { resolveMedia } from "@/modules/messaging/media";
+import { HEADER_MEDIA, mmsAllowed } from "@/modules/messaging/providers/media";
 import { getEmailTemplate } from "@/modules/messaging/email";
 import { loadDeliveryCredentials, type DeliveryCredentials } from "@/modules/messaging/integrations";
 import type { PushContent } from "@/modules/push/messages";
-import { toE164 } from "@/modules/whatsapp/messages";
+import { sessionOpen, toE164 } from "@/modules/whatsapp/messages";
 import { findTemplate } from "@/modules/whatsapp/service";
 import { recordUsage } from "@/modules/usage/service";
 import { enqueueDelivery } from "@/modules/webhooks/service";
-import { MESSAGE_STEPS, parseAutomation, renderTemplate, type AutomationDefinition, type Step } from "./definition";
+import { MESSAGE_STEPS, OUTCOME_LABELS, parseAutomation, renderTemplate, type AutomationDefinition, type Step } from "./definition";
 import { fill } from "./messages";
 import { RUN_LOG } from "./run-log";
 import type { RunLogEntry } from "./service";
@@ -133,6 +136,26 @@ async function triggerOne(db: Db, a: AutomationClaim): Promise<number> {
          from platform.audience_events ae
         where ae.audience_id = $1 and ae.id > $2 and ae.id <= $3 and ae.kind = $4 and not ae.initial`,
       [t.audienceId, a.trigger_cursor ?? "0", last.id, kind],
+    );
+    await db.query("update platform.automations set trigger_cursor = $2 where id = $1", [a.id, last.id]);
+    return created;
+  }
+  if (t.type === "inbound_message") {
+    // Replies from people we can identify (we messaged that number), never opt-outs.
+    const last = await db.one<{ id: string | null }>(
+      `select max(id) as id from (select id from platform.inbound_messages where environment_id = $1 and id > $2 order by id limit $3) x`,
+      [a.environment_id, a.trigger_cursor ?? "0", EVENT_BATCH],
+    );
+    if (!last?.id) return 0;
+    const created = await insertRuns(
+      db, a,
+      `select im.user_key as person, 'inbound:' || im.id as trigger_key, im.id as sort,
+              jsonb_build_object('channel', im.channel, 'occurred_at', im.received_at, 'message_type', im.message_type,
+                                 'properties', jsonb_build_object('text', left(coalesce(im.body, ''), 500), 'channel', im.channel)) as trigger_data
+         from platform.inbound_messages im
+        where im.environment_id = $1 and im.id > $2 and im.id <= $3 and im.channel = $4 and im.user_key is not null and not im.opt_out
+          and ($5::text is null or lower(btrim(coalesce(im.body, ''))) = lower($5))`,
+      [a.environment_id, a.trigger_cursor ?? "0", last.id, t.channel, t.keyword ?? null],
     );
     await db.query("update platform.automations set trigger_cursor = $2 where id = $1", [a.id, last.id]);
     return created;
@@ -384,6 +407,11 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
       return sendEmailStep(env, s, index, vars);
     case "whatsapp":
       return sendWhatsAppStep(env, s, index, vars);
+    case "whatsapp_session":
+    case "sms":
+      return sendTextStep(env, s, index, vars);
+    case "wait_outcome":
+      return waitOutcome(env, s);
     case "in_app": {
       const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "in_app");
       if (blocked) return { next: "continue", entry: { type: "in_app", outcome: "skipped", detail: fill(RUN_LOG.notSent, { message: blocked }) } };
@@ -444,7 +472,30 @@ async function exitReason(env: RunEnv, d: AutomationDefinition): Promise<string 
   return null;
 }
 
-const target = (run: RunClaim, step: number) => ({ organizationId: run.organization_id, environmentId: run.environment_id, userKey: run.user_key, runId: run.id, step });
+/** A test send has no run (empty id): its notification has no run or step and is flagged as a test. */
+const target = (run: RunClaim, step: number) => ({ organizationId: run.organization_id, environmentId: run.environment_id, userKey: run.user_key, runId: run.id || null, step: run.id ? step : null });
+
+/**
+ * Sends one message step to one person now, through exactly the code a flow
+ * or campaign run uses (consent and suppression, the 24-hour window,
+ * template approval, media, the provider adapter), but without a run:
+ * no quiet hours or frequency cap, and the notification is a test send.
+ */
+export async function sendStepNow(
+  db: Db,
+  creds: DeliveryCredentials,
+  who: { organizationId: string; environmentId: string; userKey: string; profile: Record<string, unknown>; timezone: string },
+  s: Extract<Step, { type: "whatsapp" | "whatsapp_session" | "sms" }>,
+): Promise<{ outcome: string; detail: string }> {
+  const run: RunClaim = {
+    id: "", organization_id: who.organizationId, automation_id: "", environment_id: who.environmentId, user_key: who.userKey, current_step: 0, version: 0,
+    trigger_data: {}, started_at: new Date(), attempts: 0,
+  };
+  const env: RunEnv = { db, run, automation: { name: "test", definition: {} as AutomationDefinition, status: "draft" }, timezone: who.timezone, creds, now: () => new Date(), profile: who.profile };
+  const vars = { user: who.profile, event: {} };
+  const r = s.type === "whatsapp" ? await sendWhatsAppStep(env, s, 0, vars) : await sendTextStep(env, s, 0, vars);
+  return { outcome: r.entry.outcome, detail: r.entry.detail ?? "" };
+}
 
 async function sendPush(env: RunEnv, s: Extract<Step, { type: "push" }>, index: number, vars: Parameters<typeof renderTemplate>[1]): Promise<StepResult> {
   const { db, run, creds } = env;
@@ -482,21 +533,106 @@ async function sendEmailStep(env: RunEnv, s: Extract<Step, { type: "email" }>, i
   return { next: "continue", entry: { type: "email", outcome: r.ok ? "done" : "failed", detail: r.ok ? RUN_LOG.sent : r.error ?? RUN_LOG.failed } };
 }
 
+async function appOf(db: Db, environmentId: string): Promise<string> {
+  return (await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [environmentId]))!.app_id;
+}
+
+/** The media file's public URL, or why it can't be attached (the step then fails with that reason). */
+async function mediaFor(env: RunEnv, assetId: string, channel: "whatsapp" | "sms"): Promise<{ link: string } | { error: string }> {
+  const r = await resolveMedia(env.db, { organizationId: env.run.organization_id, appId: await appOf(env.db, env.run.environment_id), assetId, channel });
+  return r.available ? { link: r.media.url } : { error: fill(RUN_LOG.mediaUnavailable, { message: r.reason }) };
+}
+
 async function sendWhatsAppStep(env: RunEnv, s: Extract<Step, { type: "whatsapp" }>, index: number, vars: Parameters<typeof renderTemplate>[1]): Promise<StepResult> {
   const { db, run, creds } = env;
   const to = toE164(env.profile[s.phoneProperty]);
   if (!to) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: fill(RUN_LOG.noPhone, { property: s.phoneProperty }) } };
   const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "whatsapp");
   if (blocked) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: fill(RUN_LOG.notSent, { message: blocked }) } };
-  const template = await findTemplate(db, run.environment_id, s.template, s.language);
+  const template = await findTemplate(db, run.environment_id, s.template, s.language, s.provider);
   if (!template || template.status !== "APPROVED") {
     return { next: "continue", entry: { type: "whatsapp", outcome: "failed", detail: template ? fill(RUN_LOG.templateNotApproved, { template: s.template, status: template.status.toLowerCase() }) : fill(RUN_LOG.templateNotSynced, { template: s.template, language: s.language }) } };
   }
-  const r = await deliverWhatsApp(db, creds, target(run, index), {
-    to, template: s.template, language: s.language,
-    bodyParams: s.bodyParams.map((p) => renderTemplate(p, vars).trim() || "-"),
-    headerParams: s.headerParams.map((p) => renderTemplate(p, vars).trim() || "-"),
+  const kind = template.header_format ? (HEADER_MEDIA[template.header_format] as "image" | "video" | "document" | undefined) : undefined;
+  let headerMedia: { kind: "image" | "video" | "document"; link: string } | undefined;
+  if (kind) {
+    const m = s.mediaAssetId ? await mediaFor(env, s.mediaAssetId, "whatsapp") : { error: fill(RUN_LOG.mediaUnavailable, { message: "no media file chosen" }) };
+    if ("error" in m) return { next: "continue", entry: { type: "whatsapp", outcome: "failed", detail: m.error } };
+    headerMedia = { kind, link: m.link };
+  }
+  const render = (p: string) => renderTemplate(p, vars).trim() || "-";
+  const r = await deliverMessage(db, creds, target(run, index), s.provider, {
+    kind: "template", channel: "whatsapp", to,
+    // Meta sends by template name; Twilio by the Content SID it was synced from.
+    template: s.provider === "twilio" ? template.external_id ?? "" : s.template,
+    language: s.language,
+    bodyParams: s.bodyParams.map(render),
+    headerParams: s.headerParams.map(render),
+    variableKeys: template.variables ?? [],
+    headerMedia,
   });
   if (!r.attempted) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: RUN_LOG.alreadyAttempted } };
   return { next: "continue", entry: { type: "whatsapp", outcome: r.ok ? "done" : "failed", detail: r.ok ? RUN_LOG.sentTemplate : r.error ?? RUN_LOG.failed } };
+}
+
+/** A free-form WhatsApp message (only inside the 24-hour window) or an SMS (MMS only where the provider allows it). */
+async function sendTextStep(env: RunEnv, s: Extract<Step, { type: "whatsapp_session" | "sms" }>, index: number, vars: Parameters<typeof renderTemplate>[1]): Promise<StepResult> {
+  const { db, run, creds } = env;
+  const channel = s.type === "sms" ? "sms" : "whatsapp";
+  const to = toE164(env.profile[s.phoneProperty]);
+  if (!to) return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: fill(RUN_LOG.noPhone, { property: s.phoneProperty }) } };
+  const blocked = await messagingBlocked(db, run.environment_id, run.user_key, channel);
+  if (blocked) return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: fill(RUN_LOG.notSent, { message: blocked }) } };
+  if (channel === "whatsapp" && !sessionOpen(await lastInboundAt(db, run.environment_id, "whatsapp", to), env.now())) {
+    return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: RUN_LOG.outsideWindow } };
+  }
+  let media: { kind: "image" | "video" | "audio" | "document"; link: string } | undefined;
+  if (s.mediaAssetId) {
+    if (channel === "sms" && !mmsAllowed(s.provider, to)) return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: RUN_LOG.mmsNotAllowed } };
+    const m = await mediaFor(env, s.mediaAssetId, channel);
+    if ("error" in m) return { next: "continue", entry: { type: s.type, outcome: "failed", detail: m.error } };
+    media = { kind: "image", link: m.link };
+  }
+  const r = await deliverMessage(db, creds, target(run, index), s.provider, { kind: "text", channel, to, text: renderTemplate(s.text, vars), media });
+  if (!r.attempted) return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: RUN_LOG.alreadyAttempted } };
+  return { next: "continue", entry: { type: s.type, outcome: r.ok ? "done" : "failed", detail: r.ok ? RUN_LOG.sentMessage : r.error ?? RUN_LOG.failed } };
+}
+
+/** How long a run waits between checks of a delivery outcome. */
+const OUTCOME_POLL_MS = 10 * 60_000;
+
+/** Continues when an earlier message step reached the outcome; waits (re-checking) until its deadline; then takes the else path. */
+async function waitOutcome(env: RunEnv, s: Extract<Step, { type: "wait_outcome" }>): Promise<StepResult> {
+  const { db, run, now } = env;
+  const label = OUTCOME_LABELS[s.outcome];
+  const params = { step: s.step + 1, outcome: label };
+  const n = await db.one<{ created_at: Date; status: string; delivered_at: Date | null; read_at: Date | null; channel: string; recipient_hash: string | null }>(
+    `select created_at, status, delivered_at, read_at, channel, recipient_hash from platform.notifications
+      where automation_run_id = $1 and step = $2 order by created_at limit 1`,
+    [run.id, s.step],
+  );
+  const missed = (): StepResult => s.else === "exit"
+    ? { next: "exit", entry: { type: "wait_outcome", outcome: "exit", detail: fill(RUN_LOG.outcomeMissedEnd, params) } }
+    : { next: "goto", to: s.else.goto, entry: { type: "wait_outcome", outcome: "done", detail: fill(RUN_LOG.outcomeMissedGoto, { ...params, n: s.else.goto + 1 }) } };
+  if (!n) {
+    const noMessage = fill(RUN_LOG.outcomeNoMessage, { step: s.step + 1 });
+    return s.else === "exit" ? { next: "exit", entry: { type: "wait_outcome", outcome: "exit", detail: noMessage } } : { next: "goto", to: s.else.goto, entry: { type: "wait_outcome", outcome: "done", detail: noMessage } };
+  }
+  let reached = false;
+  if (s.outcome === "failed") reached = n.status === "failed";
+  else if (s.outcome === "delivered") reached = Boolean(n.delivered_at) || n.status === "delivered" || n.status === "read";
+  else if (s.outcome === "read") reached = Boolean(n.read_at) || n.status === "read";
+  else if (n.recipient_hash) {
+    const reply = await db.one(
+      "select 1 from platform.inbound_messages where environment_id = $1 and channel = $2 and sender_hash = $3 and received_at >= $4 and not opt_out limit 1",
+      [run.environment_id, n.channel, n.recipient_hash, n.created_at],
+    );
+    reached = Boolean(reply);
+  }
+  if (reached) return { next: "continue", entry: { type: "wait_outcome", outcome: "done", detail: fill(RUN_LOG.outcomeReached, params) } };
+  const deadline = new Date(n.created_at).getTime() + s.withinHours * 3_600_000;
+  const at = now().getTime();
+  if (at >= deadline || (s.outcome !== "failed" && n.status === "failed")) return missed();
+  const until = new Date(Math.min(deadline, at + OUTCOME_POLL_MS));
+  return { next: "wait", until, advance: false, entry: { type: "wait_outcome", outcome: "waiting", detail: fill(RUN_LOG.outcomeWaiting, { ...params, until: new Date(deadline).toISOString() }) } };
 }

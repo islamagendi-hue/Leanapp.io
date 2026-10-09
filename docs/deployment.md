@@ -89,7 +89,7 @@ webhooks). It needs a schedule:
    - `DATABASE_URL` (transaction pooler URL), `DATABASE_SSL=require`
    - `CRON_SECRET` (`openssl rand -base64 32`, different per environment)
    - `PUBLIC_API_URL`, `PUBLIC_APP_URL` (`https://api.leanapp.io`, `https://app.leanapp.io` in production)
-   - `INTEGRATIONS_ENCRYPTION_KEY` (`openssl rand -hex 32`, keep stable)
+   - `INTEGRATIONS_ENCRYPTION_KEY` (`openssl rand -hex 32`, keep stable). Customers' WhatsApp (Meta) and Twilio credentials are entered per environment in the dashboard and encrypted with it. No platform-level Meta or Twilio variable exists; the `*_API_BASE_URL` mock overrides (`WHATSAPP_API_BASE_URL`, `TWILIO_API_BASE_URL`, `TWILIO_CONTENT_API_BASE_URL`) are ignored on deployments. See [messaging](messaging.md#owner-actions-live-use).
    - `ATTRIBUTION_IP_HASH_SECRET` (`openssl rand -base64 32`)
    - `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `LeanApp <no-reply@leanapp.io>`)
    - Optional: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` ([billing](billing.md)); `EVENT_RETENTION` stays unset (deletion is off until paid plans are final); `DEMO_ENABLED=1` turns on the public read-only demo (sample data with installs by source and daily ad spend for the paid ones, plus the journeys of people who installed up to 150 days ago, stored directly so Churn and RFM segments have history; refreshed by the scheduled worker; an existing demo gets its spend and history filled in on the next refresh). With `EVENT_RETENTION=enforce`, plan retention would delete the older demo history.

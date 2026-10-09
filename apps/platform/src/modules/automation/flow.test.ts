@@ -35,4 +35,12 @@ describe("flow editing keeps branches pointing at the same step", () => {
     expect(flowNodes(flow)).toEqual([{ index: 0, type: "branch", no: 4, broken: false }, { index: 1, type: "push" }, { index: 2, type: "exit" }, { index: 3, type: "push" }]);
     expect(flowNodes(moveStep(flow, 0, 3))[3]).toMatchObject({ type: "branch", broken: true });
   });
+
+  it("renumbers wait-for-outcome steps like branches", () => {
+    // 0 push, 1 wait for step 0 (no → 3), 2 push, 3 exit
+    const f: FlowStep[] = [{ type: "push" }, { type: "wait_outcome", step: 0, else: { goto: 3 } }, { type: "push" }, { type: "exit" }];
+    expect(insertStep(f, 0, { type: "delay" })[2]).toMatchObject({ step: 1, else: { goto: 4 } });
+    expect(removeStep(f, 2)[1]).toMatchObject({ step: 0, else: { goto: 2 } });
+    expect(flowNodes(f)[1]).toEqual({ index: 1, type: "wait_outcome", no: 4, broken: false });
+  });
 });

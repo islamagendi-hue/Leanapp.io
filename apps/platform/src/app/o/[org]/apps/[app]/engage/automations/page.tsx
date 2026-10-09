@@ -80,7 +80,7 @@ export default async function AutomationsPage(props: PageProps<"/o/[org]/apps/[a
         known={{ seen: events ? new Set(events) : null, planned: planned ? new Set(planned) : null }}
         eventNames={[...new Set([...(events ?? []), ...(planned ?? [])])]}
         channels={channels}
-        whatsappTemplates={whatsappTemplates.filter((w) => w.status === "APPROVED" && w.header_params === 0)}
+        whatsappTemplates={whatsappTemplates.filter((w) => w.provider === "whatsapp_cloud" && w.status === "APPROVED" && w.header_params === 0 && (!w.header_format || w.header_format === "TEXT"))}
         canCreate={manage} canManageAudiences={can(ctx.role, "audiences.manage")}
         filters={{ q: one(sp.q), category: one(sp.category), goal: one(sp.goal) }}
         copyLang={(copy === "ar" || copy === "en" ? copy : lang) as Lang}

@@ -36,7 +36,7 @@ import { msg } from "@/i18n/translate";
 
 export const PURPOSES = ["analytics", "marketing", "push", "attribution"] as const;
 export type Purpose = (typeof PURPOSES)[number];
-export const CHANNELS = ["marketing", "push", "email", "whatsapp"] as const;
+export const CHANNELS = ["marketing", "push", "email", "whatsapp", "sms"] as const;
 export type Channel = (typeof CHANNELS)[number];
 export type ConsentSource = "sdk" | "api" | "dashboard";
 
@@ -367,7 +367,7 @@ const suppressionInput = z
   .object({
     userId: z.string().trim().max(256).optional().transform((v) => v || undefined),
     anonymousId: z.string().trim().max(256).optional().transform((v) => v || undefined),
-    channels: z.array(z.enum(CHANNELS)).min(1, msg("Choose at least one channel: marketing, push, email or whatsapp.")).max(4),
+    channels: z.array(z.enum(CHANNELS)).min(1, msg("Choose at least one channel: marketing, push, email, whatsapp or sms.")).max(5),
     reason: z.string().trim().max(500).optional().transform((v) => v || undefined),
   })
   .refine((s) => s.userId || s.anonymousId, msg("Provide a user_id or an anonymous_id."));
@@ -449,7 +449,7 @@ export async function listSuppressions(
   environmentId: string,
   opts: { channel?: string; userKey?: string; limit?: number; before?: string } = {},
 ): Promise<{ rows: SuppressionRow[]; cursor: string | null }> {
-  if (opts.channel && !(CHANNELS as readonly string[]).includes(opts.channel)) throw new ValidationError(msg("channel must be marketing, push, email or whatsapp."));
+  if (opts.channel && !(CHANNELS as readonly string[]).includes(opts.channel)) throw new ValidationError(msg("channel must be marketing, push, email, whatsapp or sms."));
   const limit = Math.min(Math.max(Math.trunc(opts.limit ?? 100) || 100, 1), SUPPRESSION_PAGE_MAX);
   let after: { at: string; id: string } | null = null;
   if (opts.before) {
@@ -485,7 +485,7 @@ export async function suppressionCounts(ctx: TenantContext, environmentId: strin
       [environmentId],
     ),
   );
-  const out: Record<Channel, number> = { marketing: 0, push: 0, email: 0, whatsapp: 0 };
+  const out: Record<Channel, number> = { marketing: 0, push: 0, email: 0, whatsapp: 0, sms: 0 };
   for (const r of rows) out[r.channel] = Number(r.n);
   return out;
 }

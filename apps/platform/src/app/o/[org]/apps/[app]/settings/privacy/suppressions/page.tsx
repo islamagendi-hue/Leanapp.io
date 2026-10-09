@@ -20,10 +20,11 @@ const CHANNEL_INFO: Record<(typeof CHANNELS)[number], string> = {
   push: msg("No push notifications at all"),
   email: msg("No email at all"),
   whatsapp: msg("No WhatsApp messages at all"),
+  sms: msg("No SMS at all"),
 };
 // "API" and "whatsapp" are names and stay as they are.
 const SOURCE_LABEL: Record<string, string> = { manual: msg("Dashboard"), api: "API", consent: msg("Consent denied"), unsubscribe: msg("Unsubscribed") };
-const CHANNEL_LABEL: Record<string, string> = { marketing: msg("marketing"), push: msg("push"), email: msg("email"), whatsapp: "whatsapp" };
+const CHANNEL_LABEL: Record<string, string> = { marketing: msg("marketing"), push: msg("push"), email: msg("email"), whatsapp: "whatsapp", sms: "SMS" };
 
 export default async function SuppressionsPage(props: PageProps<"/o/[org]/apps/[app]/settings/privacy/suppressions">) {
   const { org, app } = await props.params;

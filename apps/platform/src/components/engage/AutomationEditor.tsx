@@ -4,7 +4,10 @@ import { useState } from "react";
 import { ActionForm, type FormState } from "@/components/ActionForm";
 import { useT } from "@/i18n/client";
 import { msg } from "@/i18n/translate";
+import { OUTCOME_LABELS, OUTCOMES } from "@/modules/automation/definition";
 import { flowNodes, insertStep, moveStep, removeStep } from "@/modules/automation/flow";
+import { messagingProvider, WHATSAPP_PROVIDERS } from "@/modules/messaging/providers/registry";
+import { smsSegments } from "@/modules/messaging/variables";
 import { ConditionBuilder, ParsedInput, parseValue, type Json, type PropertyLists } from "./ConditionBuilder";
 
 type Step = Json & { type: string };
@@ -27,6 +30,9 @@ const STEP_TYPES: [string, string][] = [
   ["in_app", msg("In-app message")],
   ["email", msg("Email")],
   ["whatsapp", msg("WhatsApp template")],
+  ["whatsapp_session", msg("WhatsApp message (24-hour window)")],
+  ["sms", msg("SMS")],
+  ["wait_outcome", msg("Wait for delivery outcome")],
   ["webhook", msg("Webhook")],
   ["update_user_property", msg("Update user property")],
   ["send_event", msg("Send event")],
@@ -40,6 +46,9 @@ const KIND: Record<string, { label: string; tone: string }> = {
   in_app: { label: msg("Message"), tone: "border-s-accent" },
   email: { label: msg("Message"), tone: "border-s-accent" },
   whatsapp: { label: msg("Message"), tone: "border-s-accent" },
+  whatsapp_session: { label: msg("Message"), tone: "border-s-accent" },
+  sms: { label: msg("Message"), tone: "border-s-accent" },
+  wait_outcome: { label: msg("Wait"), tone: "border-s-warn" },
   webhook: { label: msg("Action"), tone: "border-s-line-strong" },
   update_user_property: { label: msg("Action"), tone: "border-s-line-strong" },
   send_event: { label: msg("Action"), tone: "border-s-line-strong" },
@@ -59,7 +68,10 @@ function defaultStep(type: string, at = 0, total = 1): Step {
     case "push": return { type, title: "", body: "" };
     case "in_app": return { type, title: "", body: "", expiresInHours: 72 };
     case "email": return { type, subject: "", body: "" };
-    case "whatsapp": return { type, template: "", language: "", bodyParams: [], headerParams: [], phoneProperty: "phone" };
+    case "whatsapp": return { type, template: "", language: "", bodyParams: [], headerParams: [], phoneProperty: "phone", provider: "whatsapp_cloud" };
+    case "whatsapp_session": return { type, text: "", phoneProperty: "phone", provider: "whatsapp_cloud" };
+    case "sms": return { type, text: "", phoneProperty: "phone", provider: "twilio" };
+    case "wait_outcome": return { type, step: Math.max(0, at - 1), outcome: "delivered", withinHours: 24, else: "exit" };
     case "webhook": return { type, webhookId: "" };
     case "update_user_property": return { type, property: "", value: "" };
     default: return { type: "send_event", event: "", properties: {} };
@@ -76,7 +88,7 @@ export const DEFAULT_DEFINITION: Definition = {
   exitEvent: null,
 };
 
-export interface WhatsAppTemplateOption { name: string; language: string; status: string; body_params: number; header_params: number; body_text: string | null }
+export interface WhatsAppTemplateOption { name: string; language: string; status: string; body_params: number; header_params: number; body_text: string | null; provider?: string; header_format?: string | null }
 export interface EmailTemplateOption { id: string; name: string; subject: string }
 type Channels = { whatsappTemplates: WhatsAppTemplateOption[]; emailTemplates: EmailTemplateOption[] };
 
@@ -118,15 +130,25 @@ export function AutomationEditor({
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <select className="input w-auto" value={tg.type} onChange={(e) => {
             const type = e.target.value;
-            set({ trigger: type === "event" ? { type, event: "" } : type === "schedule" ? { type, audienceId: tg.audienceId ?? "", every: "day", at: "10:00" } : { type, audienceId: tg.audienceId ?? "" } });
+            set({ trigger: type === "event" ? { type, event: "" } : type === "schedule" ? { type, audienceId: tg.audienceId ?? "", every: "day", at: "10:00" } : type === "inbound_message" ? { type, channel: "whatsapp" } : { type, audienceId: tg.audienceId ?? "" } });
           }}>
             <option value="event">{t("When someone does an event")}</option>
             <option value="audience_entered">{t("When someone enters an audience")}</option>
             <option value="audience_exited">{t("When someone leaves an audience")}</option>
             <option value="schedule">{t("On a schedule, for an audience")}</option>
+            <option value="inbound_message">{t("When someone replies on WhatsApp or SMS")}</option>
           </select>
           {tg.type === "event" && <input className="input w-60" list="automation-events" placeholder={t("event name")} value={String(tg.event ?? "")} onChange={(e) => set({ trigger: { ...tg, event: e.target.value } })} aria-label={t("Event")} dir="ltr" />}
-          {tg.type !== "event" && audienceSelect}
+          {tg.type !== "event" && tg.type !== "inbound_message" && audienceSelect}
+          {tg.type === "inbound_message" && (
+            <>
+              <select className="input w-auto" value={String(tg.channel ?? "whatsapp")} onChange={(e) => set({ trigger: { ...tg, channel: e.target.value } })} aria-label={t("Channel")}>
+                <option value="whatsapp">WhatsApp</option>
+                <option value="sms">{t("SMS")}</option>
+              </select>
+              <input className="input w-44" maxLength={100} placeholder={t("keyword (optional)")} value={String(tg.keyword ?? "")} onChange={(e) => set({ trigger: { ...tg, keyword: e.target.value || undefined } })} aria-label={t("Keyword")} dir="auto" />
+            </>
+          )}
           {tg.type === "schedule" && (
             <>
               <select className="input w-auto" value={String(tg.every)} onChange={(e) => set({ trigger: { ...tg, every: e.target.value, weekday: e.target.value === "week" ? (tg.weekday ?? 0) : undefined } })}>
@@ -170,7 +192,7 @@ export function AutomationEditor({
                     </span>
                   </div>
                   <StepFields step={s} index={i} total={d.steps.length} onChange={(x) => setStep(i, x)} events={events} properties={properties} webhooks={webhooks} whatsappTemplates={whatsappTemplates} emailTemplates={emailTemplates} />
-                  {s.type === "branch" && (
+                  {(s.type === "branch" || s.type === "wait_outcome") && (
                     <p className="flex flex-wrap gap-2 text-xs">
                       <span className="pill border-accent/40 text-accent-ink">{i + 2 <= d.steps.length ? t("Yes → step {n}", { n: i + 2 }) : t("Yes → step end")}</span>
                       <span className={`pill ${n.broken ? "border-alert/40 text-alert" : "border-warn/40 text-warn"}`}>{n.no === "exit" ? t("No → exit") : n.broken ? t("No → step {n} (must be a later step)", { n: String(n.no) }) : t("No → step {n}", { n: String(n.no) })}</span>
@@ -234,7 +256,7 @@ export function AutomationEditor({
               <input className="input w-20" type="number" min={1} max={720} value={d.frequencyCap.hours} onChange={(e) => set({ frequencyCap: { ...d.frequencyCap!, hours: Number(e.target.value) } })} /> {t("h")}
             </div>
           )}
-          <p className="help">{t("Counts push, email, WhatsApp and in-app messages to the person from all automations here; over the cap, the message is skipped.")}</p>
+          <p className="help">{t("Counts push, email, WhatsApp, SMS and in-app messages to the person from all automations here; over the cap, the message is skipped.")}</p>
         </div>
         <div className="space-y-2 text-sm">
           <label className="flex items-center gap-2 font-medium"><input type="checkbox" checked={d.quietHours !== null} onChange={(e) => set({ quietHours: e.target.checked ? { start: "22:00", end: "08:00" } : null })} /> {t("Quiet hours")}</label>
@@ -244,7 +266,7 @@ export function AutomationEditor({
               <input className="input w-28" type="time" value={d.quietHours.end} onChange={(e) => set({ quietHours: { ...d.quietHours!, end: e.target.value } })} />
             </div>
           )}
-          <p className="help">{t("Push, email and WhatsApp wait until quiet hours end ({timezone}, the organization's timezone).", { timezone })}</p>
+          <p className="help">{t("Push, email, WhatsApp and SMS wait until quiet hours end ({timezone}, the organization's timezone).", { timezone })}</p>
         </div>
       </fieldset>
     </ActionForm>
@@ -261,6 +283,19 @@ function StepFields({ step: s, index, total, onChange, events, properties, webho
       {area
         ? <textarea className="input min-h-24 py-2" maxLength={max} value={String(s[k] ?? "")} onChange={(e) => onChange({ ...s, [k]: e.target.value })} />
         : <input className="input" maxLength={max} value={String(s[k] ?? "")} onChange={(e) => onChange({ ...s, [k]: e.target.value || (k === "deepLink" || k === "buttonText" ? undefined : "") })} />}
+    </label>
+  );
+  const providerSelect = (providers: readonly string[], set: (p: string) => void) => (
+    <label className="block"><span className="label">{t("Provider")}</span>
+      <select className="input" value={String(s.provider ?? providers[0])} onChange={(e) => set(e.target.value)}>
+        {providers.map((p) => <option key={p} value={p}>{messagingProvider(p)?.name ?? p}</option>)}
+      </select>
+    </label>
+  );
+  // MERGE: replace with <MediaPicker name="mediaAssetId" channel=… /> from the media library (workstream D).
+  const mediaField = (label: string) => (
+    <label className="block text-sm"><span className="label">{t(label)}</span>
+      <input className="input font-mono" dir="ltr" maxLength={36} placeholder="00000000-0000-0000-0000-000000000000" value={String(s.mediaAssetId ?? "")} onChange={(e) => onChange({ ...s, mediaAssetId: e.target.value.trim() || undefined })} />
     </label>
   );
   switch (s.type) {
@@ -317,8 +352,11 @@ function StepFields({ step: s, index, total, onChange, events, properties, webho
       );
     }
     case "whatsapp": {
+      const provider = String(s.provider ?? "whatsapp_cloud");
+      const options = whatsappTemplates.filter((w) => (w.provider ?? "whatsapp_cloud") === provider);
       const key = s.template ? `${String(s.template)}|${String(s.language)}` : "";
-      const tpl = whatsappTemplates.find((w) => `${w.name}|${w.language}` === key);
+      const tpl = options.find((w) => `${w.name}|${w.language}` === key);
+      const mediaHeader = Boolean(tpl?.header_format && tpl.header_format !== "TEXT");
       const params = (k: "bodyParams" | "headerParams") => (Array.isArray(s[k]) ? (s[k] as string[]) : []);
       const setParam = (k: "bodyParams" | "headerParams", j: number, v: string) => {
         const next = [...params(k)];
@@ -328,13 +366,14 @@ function StepFields({ step: s, index, total, onChange, events, properties, webho
       return (
         <div className="space-y-2 text-sm">
           <div className="grid gap-2 md:grid-cols-2">
+            {providerSelect(WHATSAPP_PROVIDERS, (p) => onChange({ ...s, provider: p, template: "", language: "", bodyParams: [], headerParams: [], mediaAssetId: undefined }))}
             <label className="block"><span className="label">{t("Approved template")}</span>
               <select className="input" value={key} onChange={(e) => {
-                const w = whatsappTemplates.find((x) => `${x.name}|${x.language}` === e.target.value);
-                onChange({ ...s, template: w?.name ?? "", language: w?.language ?? "", bodyParams: Array(w?.body_params ?? 0).fill(""), headerParams: Array(w?.header_params ?? 0).fill("") });
+                const w = options.find((x) => `${x.name}|${x.language}` === e.target.value);
+                onChange({ ...s, template: w?.name ?? "", language: w?.language ?? "", bodyParams: Array(w?.body_params ?? 0).fill(""), headerParams: Array(w?.header_params ?? 0).fill(""), mediaAssetId: undefined });
               }}>
-                <option value="">{whatsappTemplates.length ? t("Choose a template") : t("No templates synced (Engage → Integrations)")}</option>
-                {whatsappTemplates.map((w) => <option key={`${w.name}|${w.language}`} value={`${w.name}|${w.language}`} disabled={w.status !== "APPROVED"}>{w.name} ({w.language}){w.status !== "APPROVED" ? ` · ${w.status.toLowerCase()}` : ""}</option>)}
+                <option value="">{options.length ? t("Choose a template") : t("No templates synced (Engage → Integrations)")}</option>
+                {options.map((w) => <option key={`${w.name}|${w.language}`} value={`${w.name}|${w.language}`} disabled={w.status !== "APPROVED"}>{w.name} ({w.language}){w.status !== "APPROVED" ? ` · ${w.status.toLowerCase()}` : ""}</option>)}
               </select>
             </label>
             <label className="block"><span className="label">{t("Phone number user property (E.164)")}</span>
@@ -342,6 +381,7 @@ function StepFields({ step: s, index, total, onChange, events, properties, webho
             </label>
           </div>
           {tpl?.body_text && <p className="whitespace-pre-wrap rounded-lg bg-paper-2 p-2 text-ink-2">{tpl.body_text}</p>}
+          {mediaHeader && mediaField(msg("Header media asset ID"))}
           {params("headerParams").map((v, j) => (
             <label key={`h${j}`} className="block"><span className="label">{t("Header {variable}", { variable: `{{${j + 1}}}` })}</span><input className="input" maxLength={60} value={v} onChange={(e) => setParam("headerParams", j, e.target.value)} /></label>
           ))}
@@ -349,6 +389,56 @@ function StepFields({ step: s, index, total, onChange, events, properties, webho
             <label key={`b${j}`} className="block"><span className="label">{t("Body {variable}", { variable: `{{${j + 1}}}` })}</span><input className="input" maxLength={1024} placeholder="{{user.name}}" value={v} onChange={(e) => setParam("bodyParams", j, e.target.value)} /></label>
           ))}
           <p className="help">{t("Only templates approved by WhatsApp can be sent. Skipped for people without a valid number, who denied marketing consent, or who replied STOP.")}</p>
+        </div>
+      );
+    }
+    case "whatsapp_session":
+    case "sms":
+      return (
+        <div className="space-y-2 text-sm">
+          <div className="grid gap-2 md:grid-cols-2">
+            {s.type === "whatsapp_session"
+              ? providerSelect(WHATSAPP_PROVIDERS, (p) => onChange({ ...s, provider: p }))
+              : <p className="self-end text-ink-2">{t("Sent through Twilio.")}</p>}
+            <label className="block"><span className="label">{t("Phone number user property (E.164)")}</span>
+              <input className="input font-mono" value={String(s.phoneProperty ?? "phone")} onChange={(e) => onChange({ ...s, phoneProperty: e.target.value })} />
+            </label>
+          </div>
+          {text("text", msg("Message"), s.type === "sms" ? 1600 : 4096, true)}
+          {s.type === "sms" && <p className="help">{t("{n} SMS segment(s)", { n: smsSegments(String(s.text ?? "")).segments })}</p>}
+          {mediaField(s.type === "sms" ? msg("Image asset ID (MMS, US and Canada numbers only)") : msg("Media asset ID (optional)"))}
+          <p className="help">{s.type === "sms"
+            ? t("Skipped for people without a valid number, who denied marketing consent, or who replied STOP.")
+            : t("Free-form WhatsApp messages are only allowed within 24 hours of the person's last message to you; outside that window the step is skipped. Use a template to start a conversation.")}</p>
+        </div>
+      );
+    case "wait_outcome": {
+      const outcome = String(s.outcome ?? "delivered");
+      const sources = Array.from({ length: index }, (_, j) => j);
+      const elseValue = s.else === "exit" ? "exit" : String((s.else as { goto: number }).goto);
+      return (
+        <div className="space-y-2 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{t("Wait until the message in")}</span>
+            <select className="input w-auto" value={String(s.step ?? 0)} onChange={(e) => onChange({ ...s, step: Number(e.target.value) })} aria-label={t("Message step")}>
+              {sources.length === 0 && <option value="0">{t("no earlier step")}</option>}
+              {sources.map((j) => <option key={j} value={j}>{t("step {n}", { n: j + 1 })}</option>)}
+            </select>
+            <span>{t("is")}</span>
+            <select className="input w-auto" value={outcome} onChange={(e) => onChange({ ...s, outcome: e.target.value })} aria-label={t("Outcome")}>
+              {OUTCOMES.map((o) => <option key={o} value={o}>{t(OUTCOME_LABELS[o])}</option>)}
+            </select>
+            <span>{t("within")}</span>
+            <input className="input w-20" type="number" min={1} max={720} value={Number(s.withinHours ?? 24)} onChange={(e) => onChange({ ...s, withinHours: Number(e.target.value) })} aria-label={t("Hours")} />
+            <span>{t("h")}</span>
+          </div>
+          <label className="flex flex-wrap items-center gap-2">{t("Otherwise")}
+            <select className="input w-auto" value={elseValue} onChange={(e) => onChange({ ...s, else: e.target.value === "exit" ? "exit" : { goto: Number(e.target.value) } })}>
+              <option value="exit">{t("end the run")}</option>
+              {Array.from({ length: total }, (_, j) => j).filter((j) => j > index + 1).map((j) => <option key={j} value={j}>{t("skip to step {n}", { n: j + 1 })}</option>)}
+            </select>
+          </label>
+          <p className="help">{t("Delivered and read come from the provider's status callbacks; replied means an inbound message from the person's number. Read is reported for WhatsApp only.")}</p>
         </div>
       );
     }
