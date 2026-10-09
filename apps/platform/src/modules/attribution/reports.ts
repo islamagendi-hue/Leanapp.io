@@ -91,6 +91,7 @@ export async function attributionOverview(ctx: TenantContext, scope: { environme
               count(*) filter (where kind in ('install', 'reinstall') and match_type = 'probabilistic') as probabilistic,
               count(*) filter (where kind = 're_engagement') as reengagements
          from platform.attribution_events where environment_id = $1 and occurred_at >= $2 and occurred_at < $3
+          and kind in ('install', 'reinstall', 're_engagement')
         group by 1, 2 order by 3 desc, 7 desc limit 100`,
       [env, range.start, range.end],
     );

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildChannelReport, type ChannelReportInput } from "./report-pure";
 
-const key = (o: Partial<{ source: string | null; medium: string | null; network: string | null; match_type: string; match_key: string | null }> = {}) => ({
+const key = (o: Partial<{ source: string | null; medium: string | null; network: string | null; match_type: string; match_key: string | null; referrer_host: string | null }> = {}) => ({
   source: null, medium: null, network: null, match_type: "organic", match_key: null, ...o,
 });
 const fresh = { lastClickAt: null, lastAttributionAt: null, lastProcessedAt: null, lastConversionAt: null, lastSpendDay: null, lastSpendSavedAt: null };
@@ -82,5 +82,42 @@ describe("buildChannelReport", () => {
     expect(r.channels.find((c) => c.key === "custom_radio")).toMatchObject({ label: "Radio", reinstalls: 1, builtIn: false });
     expect(r.coverage.firstTouchFallback).toBe(3);
     expect(buildChannelReport({ ...base, firstTouchFallback: 3 }).coverage.firstTouchFallback).toBe(0);
+  });
+});
+
+describe("web touches, last non-direct and source classes", () => {
+  it("counts web touches per channel apart from installs, classifying referrers", () => {
+    const r = buildChannelReport(input({
+      attributions: [
+        { ...key({ source: "newsletter", medium: "email", match_type: "reported", match_key: "utm_parameters" }), kind: "web_touch", n: 4, ios: 0 },
+        { ...key({ match_type: "reported", match_key: "referrer", referrer_host: "www.google.com" }), kind: "web_touch", n: 3, ios: 0 },
+        { ...key({ match_type: "reported", match_key: "referrer", referrer_host: "blog.partner.io" }), kind: "web_touch", n: 2, ios: 0 },
+        { ...key({ source: "direct", match_key: "direct" }), kind: "web_touch", n: 5, ios: 0 },
+        { ...key({ source: "zz_unrecognised", match_type: "reported", match_key: "utm_parameters" }), kind: "web_touch", n: 1, ios: 0 },
+      ],
+    }));
+    const by = (k: string) => r.channels.find((c) => c.key === k)!;
+    expect(by("email")).toMatchObject({ webTouches: 4, installs: 0, sourceClass: "owned" });
+    expect(by("organic_search")).toMatchObject({ webTouches: 3, sourceClass: "organic" });
+    expect(by("referral_site")).toMatchObject({ webTouches: 2, sourceClass: "referral" });
+    expect(by("direct")).toMatchObject({ webTouches: 5, sourceClass: "direct" });
+    expect(by("unknown")).toMatchObject({ webTouches: 1, sourceClass: "unknown" });
+    expect(r.totals.webTouches).toBe(15);
+    expect(r.coverage).toMatchObject({ webTouches: 15, installs: 0 });
+  });
+
+  it("reports the last non-direct fallback only under that model", () => {
+    const conv = { ...key({ source: "tiktok", network: "tiktok", match_type: "deterministic" }), credited: true, kind: "purchase" as const, currency: "SAR", n: 2, revenue: 50 };
+    const lnd = buildChannelReport(input({ model: "last_non_direct", conversions: [conv], lastNonDirectFallback: 3, firstTouchFallback: 9 }));
+    expect(lnd.model).toBe("last_non_direct");
+    expect(lnd.coverage).toMatchObject({ lastNonDirectFallback: 3, firstTouchFallback: 0, conversionsCredited: 2 });
+    expect(lnd.channels.find((c) => c.key === "tiktok_ads")).toMatchObject({ purchases: 2, sourceClass: "paid" });
+    expect(buildChannelReport(input({ conversions: [conv], lastNonDirectFallback: 3 })).coverage.lastNonDirectFallback).toBe(0);
+  });
+
+  it("shows conversions with no touch as unattributed", () => {
+    const r = buildChannelReport(input({ conversions: [{ ...key(), credited: false, kind: "signup", currency: null, n: 4, revenue: 0 }] }));
+    expect(r.channels.find((c) => c.key === "unattributed")).toMatchObject({ signups: 4, sourceClass: "unattributed" });
+    expect(r.coverage).toMatchObject({ conversions: 4, conversionsCredited: 0 });
   });
 });

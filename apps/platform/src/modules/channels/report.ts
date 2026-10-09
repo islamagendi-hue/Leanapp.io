@@ -13,10 +13,12 @@ import { loadClassifyContext } from "./service";
  *
  *   clicks          tracking-link clicks (attribution_touchpoints, kind click), bots excluded at the edge
  *   installs        attribution_events install / reinstall, with how each was matched (evidence)
+ *   web touches     attribution_events web_touch: web visits with campaign evidence
  *   new users       people whose first install on record is in the range (stitched as in Analytics)
  *   activation and  growth_state (only when the app's growth model is on; otherwise "not measured")
  *   retention       D1 / D7 / D30 of the new users, counting only people who have had that long
- *   signups,        attribution_conversions in the range credited by the chosen model; signups are
+ *   signups,        attribution_conversions in the range credited by the chosen model (last touch,
+ *                   first touch or last non-direct touch); signups are
  *   purchases,      sign-up / registration events, purchases are conversions with positive revenue
  *   revenue         (per currency, refunds negative)
  *   spend, CPI, CPA ad_spend_daily, reconciled (reconcile.ts) and matched to channels by source
@@ -50,17 +52,18 @@ export async function channelReport(
   return tenantTx(ctx, "attribution.read", async (db: Db) => {
     await db.query("set local statement_timeout = '20s'");
     const settings = await db.one<{ reporting_model: CreditModel }>("select reporting_model from platform.attribution_settings where app_id = $1", [scope.appId]);
-    const model: CreditModel = input.model === "first_touch" || input.model === "last_touch" ? input.model : settings?.reporting_model ?? "last_touch";
+    const model: CreditModel = input.model === "first_touch" || input.model === "last_touch" || input.model === "last_non_direct" ? input.model : settings?.reporting_model ?? "last_touch";
     const classify = await loadClassifyContext(db, scope.appId);
     const growthMeasured = await featureOn(db, scope.appId, "growth_model");
     const p = [scope.environmentId, range.start, range.end];
 
     const attributions = await db.query<AttributionRow>(
-      `select kind, lower(source) as source, lower(medium) as medium, network, match_type, match_key,
+      `select kind, lower(source) as source, lower(medium) as medium, network, match_type, match_key, referrer_host,
+              case when source is null then campaign end as campaign,
               count(*)::int as n, count(*) filter (where platform = 'ios')::int as ios
          from platform.attribution_events
         where environment_id = $1 and occurred_at >= $2 and occurred_at < $3
-        group by 1, 2, 3, 4, 5, 6`,
+        group by 1, 2, 3, 4, 5, 6, 7, 8`,
       p,
     );
     const clicks = await db.query<ClickRow>(
@@ -88,21 +91,25 @@ export async function channelReport(
         group by 1, 2, 3, 4, 5`,
       p,
     );
-    const credit = model === "first_touch" ? "case when c.first_touch_recorded then c.first_attribution_event_id else c.attribution_event_id end" : "c.attribution_event_id";
+    const credit = model === "first_touch" ? "case when c.first_touch_recorded then c.first_attribution_event_id else c.attribution_event_id end"
+      : model === "last_non_direct" ? "case when c.last_non_direct_recorded then c.last_non_direct_attribution_event_id else c.attribution_event_id end"
+      : "c.attribution_event_id";
     const conversions = await db.query<ConversionRow>(
-      `select lower(ae.source) as source, lower(ae.medium) as medium, ae.network, coalesce(ae.match_type, 'organic') as match_type, ae.match_key,
+      `select lower(ae.source) as source, lower(ae.medium) as medium, ae.network, coalesce(ae.match_type, 'organic') as match_type, ae.match_key, ae.referrer_host,
+              case when ae.source is null then ae.campaign end as campaign,
               ae.id is not null as credited,
               case when c.revenue > 0 then 'purchase' when c.event_name ~ '${SIGNUP}' then 'signup' else 'other' end as kind,
               c.currency, count(*)::int as n, coalesce(sum(c.revenue), 0)::float8 as revenue
          from platform.attribution_conversions c
          left join platform.attribution_events ae on ae.id = ${credit}
         where c.environment_id = $1 and c.occurred_at >= $2 and c.occurred_at < $3
-        group by 1, 2, 3, 4, 5, 6, 7, 8`,
+        group by 1, 2, 3, 4, 5, 6, 7, 8, 9, 10`,
       p,
     );
-    const fallback = await db.one<{ n: string }>(
-      `select count(*) as n from platform.attribution_conversions
-        where environment_id = $1 and occurred_at >= $2 and occurred_at < $3 and not first_touch_recorded and attribution_event_id is not null`,
+    const fallback = await db.one<{ n: string; lnd: string }>(
+      `select count(*) filter (where not first_touch_recorded) as n, count(*) filter (where not last_non_direct_recorded) as lnd
+         from platform.attribution_conversions
+        where environment_id = $1 and occurred_at >= $2 and occurred_at < $3 and attribution_event_id is not null`,
       p,
     );
     const skan = await db.one<{ n: string }>(
@@ -138,6 +145,7 @@ export async function channelReport(
       conversions: conversions.map((r) => ({ ...r, n: num(r.n), revenue: num(r.revenue) })),
       spend: spend.map((s): SpendEntry => ({ day: s.day, source: s.source, campaign: s.campaign, currency: s.currency, amount: num(s.amount) })),
       firstTouchFallback: num(fallback?.n),
+      lastNonDirectFallback: num(fallback?.lnd),
       providerReported: num(skan?.n),
       freshness: {
         lastClickAt: fresh?.click ?? null, lastAttributionAt: fresh?.attribution ?? null, lastProcessedAt: fresh?.processed ?? null,

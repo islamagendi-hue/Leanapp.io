@@ -7,7 +7,13 @@ import { classifyAttribution, evidenceOf, EVIDENCE, type ClassifyContext, type E
 import { costPer, reconcileSpend, type SpendEntry, type SpendIssue } from "./reconcile";
 import { channelInfo, type ChannelGroup } from "./registry";
 
-export type CreditModel = "last_touch" | "first_touch";
+/**
+ * last_touch       the latest touch in the conversion window
+ * first_touch      the earliest touch in the conversion window
+ * last_non_direct  the latest touch with a known source (direct, organic and unattributed
+ *                  touches never take credit from a known earlier source)
+ */
+export type CreditModel = "last_touch" | "first_touch" | "last_non_direct";
 
 /** The attribution columns every grouped row carries. */
 export interface TouchKey {
@@ -16,9 +22,13 @@ export interface TouchKey {
   network: string | null;
   match_type: string;
   match_key: string | null;
+  /** Web touches: the referring site (classified like a referrer). */
+  referrer_host?: string | null;
+  /** Only sent when there is no source: a campaign name alone makes the touch an unknown source rather than unattributed. */
+  campaign?: string | null;
 }
 
-export interface AttributionRow extends TouchKey { kind: "install" | "reinstall" | "re_engagement"; n: number; ios: number }
+export interface AttributionRow extends TouchKey { kind: "install" | "reinstall" | "re_engagement" | "web_touch"; n: number; ios: number }
 export interface ClickRow { source: string | null; medium: string | null; network: string | null; n: number }
 export interface CohortRow extends TouchKey {
   people: number;
@@ -27,7 +37,7 @@ export interface CohortRow extends TouchKey {
   d7_eligible: number; d7: number;
   d30_eligible: number; d30: number;
 }
-/** Conversions credited under the chosen model; `credited` false = no install on record for the person. */
+/** Conversions credited under the chosen model; `credited` false = no touch (install, re-engagement or web touch) on record. */
 export interface ConversionRow extends TouchKey { credited: boolean; kind: "signup" | "purchase" | "other"; currency: string | null; n: number; revenue: number }
 
 export interface Freshness {
@@ -51,6 +61,8 @@ export interface ChannelReportInput {
   spend: SpendEntry[];
   /** Conversions in the range processed before first-touch recording (rule C3). */
   firstTouchFallback: number;
+  /** Conversions in the range processed before last-non-direct recording (credited by last touch instead). */
+  lastNonDirectFallback?: number;
   /** SKAdNetwork / AdAttributionKit postbacks in the range (provider-reported, rule R2). */
   providerReported: number;
   freshness: Freshness;
@@ -59,12 +71,28 @@ export interface ChannelReportInput {
 export interface Money { currency: string; amount: number }
 export interface Retention { day: 1 | 7 | 30; eligible: number; retained: number }
 
+/**
+ * The kind of source a channel is, in the terms of the attribution engine:
+ * paid, organic, referral, owned, custom, direct, unknown (data no rule
+ * recognises) or unattributed (nothing observed).
+ */
+export type SourceClass = "paid" | "organic" | "referral" | "owned" | "custom" | "direct" | "unknown" | "unattributed";
+
+export function sourceClassOf(key: string, group: ChannelGroup): SourceClass {
+  if (group === "none") return key === "direct" ? "direct" : key === "unattributed" ? "unattributed" : "unknown";
+  if (key === "referral_site") return "referral";
+  return group;
+}
+
 export interface ChannelPerformance {
   key: string;
   label: string;
   group: ChannelGroup;
+  sourceClass: SourceClass;
   builtIn: boolean;
   clicks: number;
+  /** Web visits that carried campaign evidence (UTM, click id or external referrer). */
+  webTouches: number;
   installs: number;
   reinstalls: number;
   reengagements: number;
@@ -87,7 +115,7 @@ export interface ChannelPerformance {
 export interface ChannelReport {
   model: CreditModel;
   channels: ChannelPerformance[];
-  totals: Omit<ChannelPerformance, "key" | "label" | "group" | "builtIn" | "cpi" | "cpa" | "retention" | "activated"> & { activated: number | null; retention: Retention[] | null };
+  totals: Omit<ChannelPerformance, "key" | "label" | "group" | "sourceClass" | "builtIn" | "cpi" | "cpa" | "retention" | "activated"> & { activated: number | null; retention: Retention[] | null };
   coverage: {
     /** Installs + reinstalls in the range. */
     installs: number;
@@ -97,9 +125,13 @@ export interface ChannelReport {
     /** Unattributed iOS installs (paid iOS installs without a click id land here). */
     iosUnattributed: number;
     conversions: number;
-    /** Conversions whose person has an install on record. */
+    /** Conversions whose person has a touch (install, re-engagement or web touch) on record. */
     conversionsCredited: number;
     firstTouchFallback: number;
+    /** Last non-direct view only: conversions recorded before it existed, credited by last touch. */
+    lastNonDirectFallback: number;
+    /** Web touches in the range. */
+    webTouches: number;
     providerReported: number;
     growthMeasured: boolean;
   };
@@ -112,7 +144,7 @@ const emptyEvidence = (): Record<Evidence, number> => Object.fromEntries(EVIDENC
 function blank(key: string, ctx: ClassifyContext): ChannelPerformance {
   const info = channelInfo(key, ctx.customChannels ?? []);
   return {
-    key, label: info.label, group: info.group, builtIn: info.builtIn, clicks: 0, installs: 0, reinstalls: 0, reengagements: 0, evidence: emptyEvidence(),
+    key, label: info.label, group: info.group, sourceClass: sourceClassOf(key, info.group), builtIn: info.builtIn, clicks: 0, webTouches: 0, installs: 0, reinstalls: 0, reengagements: 0, evidence: emptyEvidence(),
     newUsers: 0, activated: null, retention: null, signups: 0, purchases: 0, conversions: 0, revenue: [], spend: [], cpi: [], cpa: [],
   };
 }
@@ -132,7 +164,7 @@ export function buildChannelReport(input: ChannelReportInput): ChannelReport {
   };
   const cache = new Map<string, string>();
   const channelOf = (r: TouchKey) => {
-    const k = [r.source, r.medium, r.network, r.match_type, r.match_key].join("\u0000");
+    const k = [r.source, r.medium, r.network, r.match_type, r.match_key, r.referrer_host ?? "", r.campaign ?? ""].join("\u0000");
     if (!cache.has(k)) cache.set(k, classifyAttribution(r, ctx).channel);
     return cache.get(k)!;
   };
@@ -143,6 +175,10 @@ export function buildChannelReport(input: ChannelReportInput): ChannelReport {
     const c = at(key);
     if (r.kind === "re_engagement") {
       c.reengagements += r.n;
+      continue;
+    }
+    if (r.kind === "web_touch") {
+      c.webTouches += r.n;
       continue;
     }
     if (r.kind === "install") c.installs += r.n;
@@ -206,7 +242,7 @@ export function buildChannelReport(input: ChannelReportInput): ChannelReport {
     model: input.model,
     channels: list,
     totals: {
-      clicks: sum((c) => c.clicks), installs: sum((c) => c.installs), reinstalls: sum((c) => c.reinstalls), reengagements: sum((c) => c.reengagements),
+      clicks: sum((c) => c.clicks), webTouches: sum((c) => c.webTouches), installs: sum((c) => c.installs), reinstalls: sum((c) => c.reinstalls), reengagements: sum((c) => c.reengagements),
       evidence, newUsers: sum((c) => c.newUsers), activated: input.growthMeasured ? sum((c) => c.activated ?? 0) : null, retention,
       signups: sum((c) => c.signups), purchases: sum((c) => c.purchases), conversions, revenue: revenue.sort((a, b) => a.currency.localeCompare(b.currency)),
       spend: spendTotal.sort((a, b) => a.currency.localeCompare(b.currency)),
@@ -219,6 +255,8 @@ export function buildChannelReport(input: ChannelReportInput): ChannelReport {
       conversions,
       conversionsCredited: credited,
       firstTouchFallback: input.model === "first_touch" ? input.firstTouchFallback : 0,
+      lastNonDirectFallback: input.model === "last_non_direct" ? input.lastNonDirectFallback ?? 0 : 0,
+      webTouches: sum((c) => c.webTouches),
       providerReported: input.providerReported,
       growthMeasured: input.growthMeasured,
     },

@@ -101,6 +101,7 @@ export async function ChannelTable({ report, compact = false }: { report: Channe
 const MODEL_NOTES: Record<string, string> = {
   last_touch: msg("Last touch: each conversion counts for the person's latest install or re-engagement before it, within the conversion window."),
   first_touch: msg("First touch: each conversion counts for the person's earliest install or re-engagement within the conversion window."),
+  last_non_direct: msg("Last non-direct touch: each conversion counts for the person's latest install, re-engagement or web touch with a known source within the conversion window; a later direct, organic or unattributed touch never takes it away."),
 };
 
 /** What the table rests on: model, definitions and what isn't measured. */

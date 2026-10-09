@@ -2,7 +2,7 @@
 
 LeanApp attributes installs from its own event stream and its own tracking links; it does not import AppsFlyer, Adjust or Branch data. In the product this is **Acquisition (Beta)**, and it is not presented as a full mobile measurement partner (ad spend is entered by hand, by CSV, or imported from Meta, Google Ads, TikTok and Snapchat reporting APIs once a customer connects them, not yet verified live; no fraud prevention, multi-touch, view-through or ad-network-reported installs). The target design (installs and attribution as first-class records, the go.leanapp.io link service, deferred deep links, SKAN, network integrations, MVP vs later and what can't be replicated) is in [attribution architecture](attribution-architecture.md). This page describes what is built today.
 
-**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, settings, ad spend entered by hand or by CSV (shown with return and ROAS in Revenue by channel, and with CAC, observed LTV and LTV:CAC on Acquisition → CAC & LTV), and SKAdNetwork / AdAttributionKit postback copies with conversion value schemas (server side). Also built (migration 0034, [growth channels](channels.md)): one channel registry with customer-defined channels and rules per app, first-touch credit next to last touch, evidence labels (deterministic, observed, provider-reported, modeled) and channel performance with coverage, freshness and spend reconciliation. Ad cost import from Meta, Google Ads, TikTok and Snapchat is built in the [Integrations Center](integrations.md) (simulated tests only, not verified live). Not built: the iOS SDK applying conversion values, view-through (impression) attribution, MMP import (AppsFlyer / Adjust / Branch), linear and multi-touch models.
+**Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, settings, ad spend entered by hand or by CSV (shown with return and ROAS in Revenue by channel, and with CAC, observed LTV and LTV:CAC on Acquisition → CAC & LTV), and SKAdNetwork / AdAttributionKit postback copies with conversion value schemas (server side). Also built (migration 0034, [growth channels](channels.md)): one channel registry with customer-defined channels and rules per app, first-touch credit next to last touch, evidence labels (deterministic, observed, provider-reported, modeled) and channel performance with coverage, freshness and spend reconciliation. Ad cost import from Meta, Google Ads, TikTok and Snapchat is built in the [Integrations Center](integrations.md) (simulated tests only, not verified live). Also built (migration 0039, [attribution engine](#attribution-engine-web-touches-three-credit-views-windows-and-evidence-migration-0039)): web touches and web conversions without an install, a last non-direct touch view next to last and first touch, lookback and conversion windows per channel, method / evidence / confidence on every decision, an append-only credit history and re-crediting when touches arrive late. Not built: the iOS SDK applying conversion values, view-through (impression) attribution, MMP import (AppsFlyer / Adjust / Branch, deliberately out of scope), linear and multi-touch models.
 
 Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migrations `0012_attribution.sql`, `0030_attribution_match_methods.sql` (match types), `0031_ad_spend.sql` (ad spend, `spend.ts`), `0035_integrations_center.sql` (imported spend `origin`, delivery skip reasons and provider error details; outbound checks in `conversions.ts`). Dashboard: app → Acquisition (Beta): Overview, Sources & campaigns, Ad spend, CAC & LTV, Attribution, Tracking links & QR, Deep links. Settings live in Settings → Dev Ops → Attribution.
 
@@ -64,11 +64,90 @@ The design rule is "probabilistic only where allowed and disclosed; no fingerpri
 
 ## Conversions
 
-Events the published tracking plan marks as conversion or revenue (or, without a plan entry, the event library's conversion/revenue events; `ad_impression` excluded) are stored in `attribution_conversions` with revenue and currency (`revenue`, else `value`, `amount`, `price`; refunds count negative). Each conversion is credited to the **last touch**: the latest install, reinstall or re-engagement of that install, or of any install linked to the event's `user_id`, within the **conversion window** (default 90 days). Backend events with only a `user_id` are attributed through identity links. Conversions with no install on record are stored and reported as such.
+Events the published tracking plan marks as conversion or revenue (or, without a plan entry, the event library's conversion/revenue events; `ad_impression` excluded) are stored in `attribution_conversions` with revenue and currency (`revenue`, else `value`, `amount`, `price`; refunds count negative). Each conversion is credited to the **last touch**: the latest install, reinstall, re-engagement or web touch of that install, or of any install linked to the event's `user_id`, within the **conversion window** (default 90 days, per channel when set). Backend events with only a `user_id` are attributed through identity links. Conversions with no touch on record are stored and reported as unattributed. First touch and last non-direct touch are recorded next to it; see [three credit views](#three-credit-views).
 
 Revenue is reported per currency as sent; no FX conversion yet.
 
 Since migration 0034 each conversion also records its **first touch** (`first_attribution_event_id`): the person's earliest install, reinstall or re-engagement within the same conversion window. Reports offer both models; see [growth channels](channels.md#attribution-models-and-windows).
+
+## Attribution engine: web touches, three credit views, windows and evidence (migration 0039)
+
+LeanApp's own analytics are the source of truth: everything below runs on the event stream LeanApp collects, with no ad account connected. Ad platforms are optional integrations ([integrations](integrations.md)); their reports are imported as provider-reported numbers and never decide LeanApp's attribution.
+
+Code: `attribution/pure-credit.ts` (pure decisions, unit-tested in `pure-credit.test.ts`) and `attribution/engine.ts` (database steps, run once per event in event processing). Migration `0039_attribution_engine.sql` is additive: new columns, one new table, widened check constraints.
+
+### Touches
+
+A **touch** is one stored row in `attribution_events`, always appended, never overwritten:
+
+| Kind | When | Raw touchpoint |
+| --- | --- | --- |
+| `install` / `reinstall` | `app_installed` (see [Matching](#matching-installs)) | the recorded link click, or a `context` touchpoint made from what the install carried |
+| `re_engagement` | `app_opened` / `deep_link_opened` with a newer LeanApp click | the recorded link click |
+| `web_touch` (new) | a web event (`platform = web`) whose `context.attribution` carries a UTM parameter, a click id, or an **external** referrer (another site than the landing page) | `attribution_touchpoints.kind = 'web'`: landing page **without its query string or fragment**, referring host only, campaign / ad set / ad ids, the click ids, and the names of the keys that were present |
+
+Web touch rules:
+
+- **No evidence, no touch.** A web event with no UTM parameter, no click id and no external referrer creates nothing. LeanApp never invents a source or a click id.
+- **Matching.** A LeanApp click id (`click_id`, appended by tracking links to the web destination) or an ad-network click id that a LeanApp link recorded makes the touch `deterministic`; the link's own labels win. Otherwise the touch is `reported` (`match_key` = the click id parameter, `utm_parameters`, or `referrer` for a referrer alone). UTM parameters that say direct (`utm_source=(direct)`, `utm_medium=(none)`) make a `direct` touch (`match_type organic`, `match_key direct`).
+- **De-duplication.** The same campaign evidence (a hash of source, medium, campaign, term, content, `utm_id` and click ids, or the referring host when there is nothing else: `touch_signature`) from the same visitor in the same session or within 30 minutes is one visit. The SDK repeats the context on the first event of each session and on its landing event; that is counted once. A re-sent first touch (`touch=first`) is recorded once ever. Duplicate events (same `event_id`) are already dropped at ingestion.
+- **Consent.** Attribution context is removed at ingestion when the person denied the `attribution` purpose; an event that itself says `context.consent.attribution = false` makes no touch either.
+- **Postbacks.** A web touch queues no postback of its own; conversions credited to it do (below).
+
+The SDK side (automatic capture of the landing URL, referrer, UTMs and click ids in the JS SDK, typed `context.attribution` keys) is described in [SDK](sdk.md) and [events](events.md).
+
+### Method, evidence and confidence
+
+Every touch records how it was established (`method`), a `confidence` level and an `evidence` object (`describeMatch` in `pure-credit.ts`):
+
+| Method | Match | Confidence | Limitations recorded |
+| --- | --- | --- | --- |
+| `leanapp_click`, `deferred_deep_link` | a LeanApp click id of a click LeanApp's link recorded | high | none |
+| `network_click_recorded` | an ad-network click id our link recorded on the click | high | `click_id_not_proof_of_ad` for fbclid / twclid |
+| `network_click_reported` | an ad-network click id only the install / visit carried | medium (low for fbclid / twclid) | `self_reported`, `click_id_not_proof_of_ad` |
+| `play_install_referrer` | campaign parameters from the Play Install Referrer | medium | none |
+| `utm_parameters` | UTM parameters the install / visit carried | medium | `self_reported` |
+| `referrer` | only an external referring site | low | `referrer_only` (browsers strip or shorten referrers) |
+| `probabilistic_ip_os` | opt-in Android IP-hash + OS match | low | `modeled` |
+| `store_organic`, `direct`, `organic_parameters` | the store referrer / parameters say organic or direct | medium / medium / low | `self_reported` where the parameters are the only source |
+| `none` | nothing observed or matched (unattributed) | none | `no_evidence`, plus `ios_no_click_id` on iOS |
+
+`evidence` holds the channel under the built-in rules, the click lookback applied, the names of the signals seen (never their values), the time of the underlying click or visit, the landing and referring hosts of web touches and the limitations. It never holds raw IPs, secrets or full URLs. fbclid is appended by Facebook and Instagram to organic link shares too, so a touch resting on fbclid alone is low confidence and says so. Rows stored before 0039 have no method; their `match_type` / `match_key` still say how they were matched.
+
+### Three credit views
+
+Each conversion gets three credits among the person's touches (installs, reinstalls, re-engagements and web touches; the person is found by install id, `user_id` and identity links, so a web visit before sign-up and an app purchase after it are joined), each touch counting only within its channel's conversion window:
+
+- **Last touch** (`attribution_event_id`): the latest touch, whatever it was.
+- **First touch** (`first_attribution_event_id`): the earliest touch.
+- **Last non-direct touch** (`last_non_direct_attribution_event_id`, new): the latest touch with a known source. **Direct, organic-without-campaign and unattributed touches** (match type `organic`, or a touch that classifies as `direct` / `unattributed`) never take this credit from a known earlier source. When no touch in the window has a known source, it falls back to the last touch and the evidence says `last_non_direct_fallback: true`. An unrecognised source (campaign data no rule knows) is an explicit **unknown** source and keeps its credit; it is not treated as direct.
+
+`credit_evidence` on the conversion says which touches were credited, their channels and windows, how many touches were considered or fell outside their window, and the status: `credited`, `outside_window` or `no_touch`. Conversions with no touch are stored and reported as **Unattributed**, never as organic or direct. Every credit is also appended to `attribution_conversion_credits` (reason `initial`).
+
+Postbacks for a conversion go to the network of its **last non-direct** touch: a later direct visit or organic reinstall no longer hides a paid conversion from the network that drove it. Sending a conversion to a network never guarantees the network attributes it to an ad.
+
+The reports offer all three (Sources & campaigns → Credit; Settings → Dev Ops → Attribution → Reports open with). Conversions recorded before 0039 have no last-non-direct record; that view credits them by last touch and counts them (`coverage.lastNonDirectFallback`).
+
+### Delayed and out-of-order events
+
+Events are processed in arrival order, not event-time order. When a touch arrives after conversions it precedes (an install batch flushed late, a web touch replayed by the SDK), the engine re-credits the person's conversions recorded since 0039 whose credits change, and appends the new credit to `attribution_conversion_credits` with reason `late_touch`; the earlier credit stays in the history. A conversion that had no credited touch before queues its postbacks then. Ingestion still rejects events more than 31 days old and clamps future timestamps ([events](events.md)); re-crediting is bounded by the longest conversion window.
+
+### Windows per channel
+
+The app-wide click lookback (1–90 days) and conversion window (1–730 days) apply to every channel unless Settings → Dev Ops → Attribution → **Windows per channel** sets a different one for a channel (the paid networks are listed; `attribution_settings.window_overrides`, validated by `validateWindowOverrides`, unknown channels and out-of-range values refused). The engine searches with the longest window and then holds each click or touch to its own channel's window (channel by the built-in rules). Ad networks count conversions in their own reports with their own windows; LeanApp neither reads nor changes those, and never assumes they match its own.
+
+### Source classes
+
+Every channel in the report carries a `sourceClass`: `paid`, `organic` (search, social, store discovery, content), `referral` (referral sites, referral programs, partners, affiliates, offline), `owned` (email, SMS, push, WhatsApp, in-app, website), `custom`, `direct`, `unknown` (data no rule recognises) or `unattributed` (nothing observed).
+
+### Tests
+
+- Unit: `attribution/pure-credit.test.ts` (windows per channel, weak touches, credit picking incl. ties and skew, decision descriptions, web touch parsing incl. missing UTMs, internal referrers, consent and de-duplication signatures), `channels/report-pure.test.ts` (web touches by channel, last non-direct fallback, source classes, unattributed conversions).
+- Integration (`test/attribution.int.test.ts`, describe "attribution engine"): web sign-ups and purchases without an install; precedence (direct visit and organic reinstall vs a paid source); method / evidence / confidence; missing UTMs; unknown sources; duplicates; delayed and out-of-order events with credit history and the 31-day rejection; per-channel click lookback and window validation; tenant isolation of touches, conversions, credit history, reports and settings.
+
+### Owner actions
+
+None to use it: the migration runs with the others (`npm run db:migrate`), and the engine needs no credentials or environment variables. Optional: choose **Last non-direct touch** under Settings → Dev Ops → Attribution → Reports open with, and set windows per channel there if a channel needs one different from the app-wide window. Web touches need the web SDK to send `context.attribution` (landing URL, referrer, UTMs and click ids) and `platform: web`.
 
 ## Postbacks
 
@@ -151,6 +230,7 @@ See [SDK: attribution context](sdk.md#attribution-context): `app_installed` with
 - iOS SDK support for conversion values (calling `SKAdNetwork.updatePostbackConversionValue` / AdAttributionKit per the schema).
 - View-through attribution: needs impression data from ad networks. `attribution_settings.view_lookback_hours` exists but is **not used** by anything yet; the settings page says so.
 - Live verification of ad cost import (built, tested against mocked APIs only), CPI, predicted LTV; FX conversion of revenue and spend.
-- Linear and multi-touch models (last touch and first touch are built).
+- Linear and multi-touch models (last touch, first touch and last non-direct touch are built).
+- Re-crediting conversions recorded before migration 0039 when a late touch arrives (they keep their stored credit).
 - Live verification of the TikTok, Snap, Meta and Google postbacks: needs a customer's ad accounts, app ids and tokens.
 - Management API endpoints for links and postbacks (dashboard only for now).

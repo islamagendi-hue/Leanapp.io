@@ -12,8 +12,10 @@ import { withSystem } from "@/lib/db";
 import { ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { deliverPostbacks, purgeClickFingerprints } from "@/modules/attribution/delivery";
 import { attributionOverview } from "@/modules/attribution/reports";
+import { channelReport } from "@/modules/channels/report";
+import { tenantTx } from "@/modules/tenancy/context";
 import {
-  CLICKS_PER_IP_PER_MINUTE, createLink, createPostback, handleClick, listLinks, listPostbacks, setLinkStatus, setPostbackStatus, updateSettings, type LinkRow,
+  CLICKS_PER_IP_PER_MINUTE, createLink, createPostback, getSettings, handleClick, listLinks, listPostbacks, setLinkStatus, setPostbackStatus, updateSettings, type LinkRow,
 } from "@/modules/attribution/service";
 import { authenticateIngestionKey } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
@@ -449,5 +451,235 @@ describe("reports, permissions and isolation", () => {
     expect(await purgeClickFingerprints()).toBeGreaterThanOrEqual(1);
     const row = await withSystem((db) => db.one("select ip_hash, user_agent from platform.attribution_touchpoints where click_id = $1", [c.clickId]));
     expect(row).toEqual({ ip_hash: null, user_agent: null });
+  });
+});
+
+// ── Attribution engine (0039): web touches, credit models, windows, evidence ─
+describe("attribution engine", () => {
+  let w: T;
+  let wLink: LinkRow;
+  const minutes = (n: number) => new Date(Date.now() - n * 60_000).toISOString();
+  const webEv = (name: string, anon: string, attribution: Record<string, string> | null, o: Record<string, unknown> = {}) =>
+    ev(name, anon, { context: { platform: "web", ...(attribution ? { attribution } : {}) }, ...o });
+  const sendW = (events: Record<string, unknown>[]) => send(events, { key: w.sdkKey });
+
+  async function touches(anon: string) {
+    return withSystem((db) =>
+      db.query<{ id: string; kind: string; source: string | null; match_type: string; match_key: string | null; method: string; confidence: string; evidence: Record<string, unknown>; referrer_host: string | null }>(
+        `select id, kind, source, match_type, match_key, method, confidence, evidence, referrer_host from platform.attribution_events
+          where environment_id = $1 and anonymous_id = $2 order by occurred_at, id`,
+        [w.dev.id, anon],
+      ),
+    );
+  }
+  async function conversionOf(anon: string, name = "purchase_completed") {
+    return withSystem((db) =>
+      db.one<{ id: string; attribution_event_id: string | null; first_attribution_event_id: string | null; last_non_direct_attribution_event_id: string | null; credit_evidence: Record<string, unknown> }>(
+        `select c.id, c.attribution_event_id, c.first_attribution_event_id, c.last_non_direct_attribution_event_id, c.credit_evidence
+           from platform.attribution_conversions c join platform.events e on e.id = c.event_row_id
+          where c.environment_id = $1 and e.anonymous_id = $2 and c.event_name = $3`,
+        [w.dev.id, anon, name],
+      ),
+    );
+  }
+  const report = (model: string, ctx = w.ctx) =>
+    channelReport(ctx, { appId: w.app.id, environmentId: w.dev.id, timezone: "UTC", includeSpend: false }, { days: 30, model });
+
+  beforeAll(async () => {
+    w = await makeTenant("attr-engine");
+    wLink = await createLink(w.ctx, w.app.id, {
+      environmentId: w.dev.id, name: "Meta prospecting", source: "facebook", medium: "paid_social", campaign: "launch",
+      androidUrl: "https://play.google.com/store/apps/details?id=com.example", webUrl: "https://example.com/launch",
+    });
+  });
+
+  it("credits web sign-ups and purchases to the web touch without an install", async () => {
+    await sendW([
+      webEv("page_viewed", "web-1", { utm_source: "newsletter", utm_medium: "email", utm_campaign: "june", landing_url: "https://example.com/?utm_source=newsletter&token=secret-123", referrer: "https://mail.example.org/" }, { timestamp: minutes(30) }),
+      webEv("signup_completed", "web-1", null, { timestamp: minutes(20) }),
+      webEv("purchase_completed", "web-1", null, { timestamp: minutes(10), properties: { transaction_id: "w1", revenue: 120, currency: "SAR" } }),
+    ]);
+    const [touch] = await touches("web-1");
+    expect(touch).toMatchObject({ kind: "web_touch", source: "newsletter", match_type: "reported", match_key: "utm_parameters", method: "utm_parameters", confidence: "medium" });
+    const tp = await withSystem((db) => db.one<{ kind: string; landing_page: string; referrer: string }>(
+      "select t.kind, t.landing_page, t.referrer from platform.attribution_touchpoints t join platform.attribution_events ae on ae.touchpoint_id = t.id where ae.id = $1", [touch.id]));
+    expect(tp).toEqual({ kind: "web", landing_page: "https://example.com/", referrer: "mail.example.org" });
+    expect(JSON.stringify(tp)).not.toContain("secret-123");
+    for (const name of ["signup_completed", "purchase_completed"]) {
+      expect(await conversionOf("web-1", name)).toMatchObject({ attribution_event_id: touch.id, first_attribution_event_id: touch.id, last_non_direct_attribution_event_id: touch.id });
+    }
+    const r = await report("last_touch");
+    expect(r.channels.find((c) => c.key === "email")).toMatchObject({ webTouches: 1, installs: 0, signups: 1, purchases: 1, revenue: [{ currency: "SAR", amount: 120 }] });
+  });
+
+  it("precedence: direct visits and organic reinstalls never take last-non-direct credit from a paid source", async () => {
+    await sendW([
+      webEv("page_viewed", "web-2", { gclid: "Cj0-paid-1", utm_source: "google", utm_medium: "cpc", utm_campaign: "brand" }, { timestamp: minutes(300) }),
+      webEv("page_viewed", "web-2", { utm_source: "(direct)", utm_medium: "(none)" }, { timestamp: minutes(120) }),
+      webEv("purchase_completed", "web-2", null, { timestamp: minutes(60), properties: { transaction_id: "w2", revenue: 80, currency: "SAR" } }),
+    ]);
+    const [paid, direct] = await touches("web-2");
+    expect(paid).toMatchObject({ source: "google", match_type: "reported", match_key: "gclid", method: "network_click_reported" });
+    expect(direct).toMatchObject({ match_type: "organic", match_key: "direct", method: "direct" });
+    expect(await conversionOf("web-2")).toMatchObject({ attribution_event_id: direct.id, first_attribution_event_id: paid.id, last_non_direct_attribution_event_id: paid.id });
+
+    // An app install with nothing to match (organic), after a paid install, by the same user.
+    const c = await recorded(wLink.code);
+    await withSystem((db) => db.query("update platform.attribution_touchpoints set touchpoint_at = now() - interval '5 hours' where click_id = $1", [c.clickId]));
+    await sendW([
+      ev("app_installed", "app-2a", { user_id: "u-prec", timestamp: minutes(240), context: { platform: "android", attribution: { click_id: c.clickId } } }),
+      ev("app_installed", "app-2b", { user_id: "u-prec", timestamp: minutes(100), context: { platform: "android" } }),
+      ev("purchase_completed", "app-2b", { user_id: "u-prec", timestamp: minutes(50), properties: { transaction_id: "w2b", revenue: 40, currency: "SAR" } }),
+    ]);
+    const conv = await conversionOf("app-2b");
+    const [first] = await touches("app-2a");
+    const [reinstall] = await touches("app-2b");
+    expect(first).toMatchObject({ kind: "install", match_type: "deterministic", method: "leanapp_click", confidence: "high" });
+    expect(reinstall).toMatchObject({ kind: "reinstall", match_type: "organic", method: "none", confidence: "none" });
+    expect(conv).toMatchObject({ attribution_event_id: reinstall.id, last_non_direct_attribution_event_id: first.id });
+
+    const lnd = await report("last_non_direct");
+    expect(lnd.model).toBe("last_non_direct");
+    expect(lnd.channels.find((x) => x.key === "google_ads")?.purchases).toBe(1);
+    expect(lnd.channels.find((x) => x.key === "meta_ads")?.purchases).toBe(1);
+    const last = await report("last_touch");
+    expect(last.channels.find((x) => x.key === "direct")?.purchases).toBe(1);
+  });
+
+  it("records method, evidence and confidence on every decision", async () => {
+    const [install] = await touches("app-2a");
+    expect(install.evidence).toMatchObject({ channel: "meta_ads", click_lookback_days: 7, limitations: [], touch_kind: "click" });
+    expect((install.evidence.signals as string[])).toContain("click_id");
+    const [paid] = await touches("web-2");
+    expect(paid.evidence).toMatchObject({ channel: "google_ads", limitations: ["self_reported"], landing_host: null });
+    const conv = await conversionOf("web-2");
+    expect(conv!.credit_evidence).toMatchObject({ status: "credited", last_non_direct: { channel: "google_ads" }, last_touch: { channel: "direct" }, last_non_direct_fallback: false });
+    const history = await withSystem((db) => db.query<{ reason: string }>("select reason from platform.attribution_conversion_credits where conversion_id = $1", [conv!.id]));
+    expect(history).toEqual([{ reason: "initial" }]);
+  });
+
+  it("missing UTMs: a visit without campaign evidence is no touch, and its conversion is explicitly unattributed", async () => {
+    await sendW([
+      webEv("page_viewed", "web-3", { landing_url: "https://example.com/pricing", referrer: "https://example.com/" }, { timestamp: minutes(30) }),
+      webEv("purchase_completed", "web-3", null, { timestamp: minutes(20), properties: { transaction_id: "w3", revenue: 10, currency: "SAR" } }),
+    ]);
+    expect(await touches("web-3")).toEqual([]);
+    const conv = await conversionOf("web-3");
+    expect(conv).toMatchObject({ attribution_event_id: null, last_non_direct_attribution_event_id: null });
+    expect(conv!.credit_evidence).toMatchObject({ status: "no_touch", touches_considered: 0 });
+    const r = await report("last_non_direct");
+    expect(r.channels.find((c) => c.key === "unattributed")).toMatchObject({ purchases: 1, sourceClass: "unattributed" });
+  });
+
+  it("unknown sources: campaign data no rule recognises is an explicit unknown source, never direct", async () => {
+    await sendW([
+      webEv("page_viewed", "web-4", { utm_campaign: "mystery_campaign" }, { timestamp: minutes(30) }),
+      webEv("page_viewed", "web-4", { utm_source: "(direct)" }, { timestamp: minutes(25) }),
+      webEv("purchase_completed", "web-4", null, { timestamp: minutes(20), properties: { transaction_id: "w4", revenue: 5, currency: "SAR" } }),
+    ]);
+    const [unknown] = await touches("web-4");
+    expect(unknown).toMatchObject({ source: null, match_type: "reported", match_key: "utm_parameters" });
+    expect(await conversionOf("web-4")).toMatchObject({ last_non_direct_attribution_event_id: unknown.id });
+    const r = await report("last_non_direct");
+    expect(r.channels.find((c) => c.key === "unknown")).toMatchObject({ purchases: 1, webTouches: 1, sourceClass: "unknown" });
+  });
+
+  it("duplicates: a re-sent event and the same evidence in one visit are counted once", async () => {
+    const page = webEv("page_viewed", "web-5", { utm_source: "partner_blog", utm_medium: "referral" }, { session_id: "s-5", timestamp: minutes(40) });
+    await sendW([page]);
+    const sdk = (await authenticateIngestionKey(w.sdkKey))!;
+    const again = await ingest(sdk, { batch: [page] }, { mode: "batch" });
+    expect((again.body as { accepted: number }).accepted).toBe(0);
+    await sendW([
+      // The SDK repeats the context on its landing event and on the first event of the next session.
+      webEv("landing_viewed", "web-5", { utm_source: "partner_blog", utm_medium: "referral" }, { session_id: "s-5", timestamp: minutes(39) }),
+      webEv("page_viewed", "web-5", { utm_source: "partner_blog", utm_medium: "referral", touch: "first" }, { session_id: "s-6", timestamp: minutes(5) }),
+    ]);
+    await processPendingEvents({ environmentId: w.dev.id });
+    expect((await touches("web-5")).length).toBe(1);
+    // The same evidence in a later session, 35 minutes on, is a new visit.
+    await sendW([webEv("page_viewed", "web-5", { utm_source: "partner_blog", utm_medium: "referral" }, { session_id: "s-7", timestamp: minutes(4) })]);
+    expect((await touches("web-5")).length).toBe(2);
+  });
+
+  it("delayed and out-of-order events: a touch processed after the conversion it precedes re-credits it, keeping history", async () => {
+    await sendW([ev("purchase_completed", "late-1", { timestamp: minutes(10), context: { platform: "android" }, properties: { transaction_id: "l1", revenue: 60, currency: "SAR" } })]);
+    const before = await conversionOf("late-1");
+    expect(before).toMatchObject({ attribution_event_id: null, last_non_direct_attribution_event_id: null });
+    // The install (an hour earlier on the device) arrives late.
+    const c = await recorded(wLink.code);
+    await withSystem((db) => db.query("update platform.attribution_touchpoints set touchpoint_at = now() - interval '2 hours' where click_id = $1", [c.clickId]));
+    await sendW([ev("app_installed", "late-1", { timestamp: minutes(70), context: { platform: "android", attribution: { click_id: c.clickId } } })]);
+    const [install] = await touches("late-1");
+    const after = await conversionOf("late-1");
+    expect(after).toMatchObject({ id: before!.id, attribution_event_id: install.id, first_attribution_event_id: install.id, last_non_direct_attribution_event_id: install.id });
+    const history = await withSystem((db) => db.query<{ reason: string; last_non_direct_event_id: string | null }>(
+      "select reason, last_non_direct_event_id from platform.attribution_conversion_credits where conversion_id = $1 order by decided_at, reason", [before!.id]));
+    expect(history).toEqual([{ reason: "initial", last_non_direct_event_id: null }, { reason: "late_touch", last_non_direct_event_id: install.id }]);
+
+    // A late direct visit changes the last touch but never the last non-direct credit.
+    await sendW([webEv("page_viewed", "late-1", { utm_source: "direct" }, { timestamp: minutes(30) })]);
+    const direct = (await touches("late-1")).find((x) => x.kind === "web_touch")!;
+    expect(await conversionOf("late-1")).toMatchObject({ attribution_event_id: direct.id, last_non_direct_attribution_event_id: install.id });
+    // Events older than the ingestion limit (31 days) are rejected, not attributed.
+    const sdk = (await authenticateIngestionKey(w.sdkKey))!;
+    const old = await ingest(sdk, { batch: [ev("app_installed", "late-2", { timestamp: new Date(Date.now() - 40 * 86_400_000).toISOString() })] }, { mode: "batch" });
+    expect((old.body as { accepted: number }).accepted).toBe(0);
+  });
+
+  it("uses a channel's own click lookback and refuses invalid windows", async () => {
+    const base = { clickLookbackDays: 7, probabilisticWindowHours: 24, conversionWindowDays: 90, reengagementEnabled: "on" };
+    const c = await recorded(wLink.code);
+    await withSystem((db) => db.query("update platform.attribution_touchpoints set touchpoint_at = now() - interval '10 days' where click_id = $1", [c.clickId]));
+    await sendW([ev("app_installed", "win-1", { context: { platform: "android", attribution: { click_id: c.clickId } } })]);
+    expect((await touches("win-1"))[0]).toMatchObject({ match_type: "organic" });
+
+    await updateSettings(w.ctx, w.app.id, { ...base, windowOverrides: { meta_ads: { click_lookback_days: "14", conversion_window_days: "" } } });
+    expect((await getSettings(w.ctx, w.app.id)).window_overrides).toEqual({ meta_ads: { click_lookback_days: 14 } });
+    await sendW([ev("app_installed", "win-2", { context: { platform: "android", attribution: { click_id: c.clickId } } })]);
+    const [matched] = await touches("win-2");
+    expect(matched).toMatchObject({ match_type: "deterministic", source: "facebook" });
+    expect(matched.evidence).toMatchObject({ channel: "meta_ads", click_lookback_days: 14 });
+    // Other channels keep the app-wide window.
+    const tiktok = await createLink(w.ctx, w.app.id, { environmentId: w.dev.id, name: "TikTok", source: "tiktok", androidUrl: "https://play.google.com/store/apps/details?id=com.example" });
+    const t2 = await recorded(tiktok.code);
+    await withSystem((db) => db.query("update platform.attribution_touchpoints set touchpoint_at = now() - interval '10 days' where click_id = $1", [t2.clickId]));
+    await sendW([ev("app_installed", "win-3", { context: { platform: "android", attribution: { click_id: t2.clickId } } })]);
+    expect((await touches("win-3"))[0]).toMatchObject({ match_type: "organic" });
+
+    await expect(updateSettings(w.ctx, w.app.id, { ...base, windowOverrides: { meta_ads: { click_lookback_days: "120" } } })).rejects.toBeInstanceOf(ValidationError);
+    await expect(updateSettings(w.ctx, w.app.id, { ...base, windowOverrides: { not_a_channel: { click_lookback_days: "3" } } })).rejects.toBeInstanceOf(ValidationError);
+    await expect(updateSettings(w.ctx, w.app.id, { ...base, reportingModel: "last_non_direct" })).resolves.toBeUndefined();
+    const s = await getSettings(w.ctx, w.app.id);
+    expect(s).toMatchObject({ reporting_model: "last_non_direct", window_overrides: { meta_ads: { click_lookback_days: 14 } } });
+    expect((await channelReport(w.ctx, { appId: w.app.id, environmentId: w.dev.id, timezone: "UTC", includeSpend: false }, { days: 30 })).model).toBe("last_non_direct");
+  });
+
+  it("keeps attribution data of tenants apart", async () => {
+    // Another tenant's web visit carrying this tenant's LeanApp click id never matches it.
+    const c = await recorded(wLink.code, { ua: DESKTOP });
+    await send([webEv("page_viewed", "x-web", { click_id: c.clickId, utm_source: "facebook" })], { key: other.sdkKey });
+    const row = await withSystem((db) => db.one<{ match_type: string; link_id: string | null }>(
+      "select match_type, link_id from platform.attribution_events where environment_id = $1 and anonymous_id = 'x-web'", [other.dev.id]));
+    expect(row).toEqual({ match_type: "reported", link_id: null });
+    // This tenant's own web visit with it is deterministic.
+    await sendW([webEv("page_viewed", "own-web", { click_id: c.clickId, utm_source: "facebook" })]);
+    expect((await touches("own-web"))[0]).toMatchObject({ match_type: "deterministic", match_key: "click_id", method: "leanapp_click" });
+
+    // Reports, settings and credit history of one tenant are invisible to another.
+    const r = await report("last_non_direct", other.ctx);
+    expect(r.totals).toMatchObject({ webTouches: 0, installs: 0, conversions: 0 });
+    await expect(updateSettings(other.ctx, w.app.id, { clickLookbackDays: 7, probabilisticWindowHours: 24, conversionWindowDays: 90 })).rejects.toBeInstanceOf(NotFoundError);
+    const visible = await tenantTx(other.ctx, "attribution.read", (db) =>
+      db.one<{ credits: string; events: string; conversions: string }>(
+        `select (select count(*) from platform.attribution_conversion_credits where environment_id = $1) as credits,
+                (select count(*) from platform.attribution_events where environment_id = $1) as events,
+                (select count(*) from platform.attribution_conversions where environment_id = $1) as conversions`,
+        [w.dev.id],
+      ));
+    expect(visible).toEqual({ credits: "0", events: "0", conversions: "0" });
+    const own = await tenantTx(w.ctx, "attribution.read", (db) =>
+      db.one<{ credits: string }>("select count(*) as credits from platform.attribution_conversion_credits where environment_id = $1", [w.dev.id]));
+    expect(Number(own!.credits)).toBeGreaterThan(5);
   });
 });
