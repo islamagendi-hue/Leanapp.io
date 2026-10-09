@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { configureIntegrationAction, emailDomainAction, removeIntegrationAction, whatsappAction } from "@/app/actions/engage";
+import { configureTwilioAction, verifyConnectionAction } from "@/app/actions/messaging";
 import { ActionForm } from "@/components/ActionForm";
 import { fmtDate } from "@/components/engage/shared";
 import { encryptionAvailable } from "@/lib/secret-box";
@@ -20,6 +22,7 @@ const NOT_LIVE = {
   push: msg("Built to the FCM HTTP v1 and APNs token-auth specifications and tested against local mocks. Not yet verified with live FCM/APNs: this changes once a real send succeeds."),
   whatsapp: msg("Built to the WhatsApp Business Cloud API (Graph API) and tested against a local mock. Not verified with the live WhatsApp API: this changes once a real send succeeds."),
   resend: msg("Tested against a local mock of the Resend API. Not yet verified with live Resend: this changes once a real send succeeds."),
+  twilio: msg("Built to Twilio's Messages and Content APIs and tested against a local mock. Not verified with live Twilio: this changes once a real send succeeds."),
 };
 
 export default async function IntegrationsPage(props: PageProps<"/o/[org]/apps/[app]/settings/dev-ops/channels">) {
@@ -39,6 +42,7 @@ export default async function IntegrationsPage(props: PageProps<"/o/[org]/apps/[
   const configure = (p: "fcm" | "apns" | "resend" | "whatsapp") => configureIntegrationAction.bind(null, org, app, env.id, p);
   const wa = by("whatsapp");
   const resend = by("resend");
+  const twilio = by("twilio");
   const t = await getT();
   const lang = await getLang();
 
@@ -90,7 +94,13 @@ export default async function IntegrationsPage(props: PageProps<"/o/[org]/apps/[
           <div className="space-y-2 rounded-lg bg-paper-2 px-3 py-2 text-sm">
             <p><span className="font-medium">{t("Webhook callback URL:")}</span> <code dir="ltr" className="break-all font-mono text-xs">{publicBaseUrl()}/v1/whatsapp/webhook/{wa.id}</code></p>
             <p className="help">{t("In your Meta app → WhatsApp → Configuration, paste this URL with the verify token shown when you connected, and subscribe to the {field} field. Delivery and read receipts and opt-out replies then update LeanApp.", { field: "messages" })}</p>
-            {manage && <ActionForm action={whatsappAction.bind(null, org, app, env.id, "rotate")} submitLabel={t("New verify token")} buttonClass="btn-secondary" confirm={t("Issue a new verify token? Update it in your Meta app too.")} />}
+            {manage && (
+              <div className="flex flex-wrap gap-2">
+                <ActionForm action={whatsappAction.bind(null, org, app, env.id, "rotate")} submitLabel={t("New verify token")} buttonClass="btn-secondary" confirm={t("Issue a new verify token? Update it in your Meta app too.")} />
+                <ActionForm action={verifyConnectionAction.bind(null, org, app, env.id, "whatsapp")} submitLabel={t("Check connection")} buttonClass="btn-secondary" />
+              </div>
+            )}
+            <p className="help">{t("Free-form WhatsApp messages (flows) go only to people who messaged you in the last 24 hours; replies, delivery and read receipts arrive through this webhook.")} <Link className="underline" href={`/o/${org}/apps/${app}/engage/templates?env=${env.type}`}>{t("Manage templates")}</Link></p>
           </div>
         )}
         {manage && (
@@ -125,6 +135,27 @@ export default async function IntegrationsPage(props: PageProps<"/o/[org]/apps/[
               </div>
             ) : <p className="text-sm text-ink-3">{t("No templates synced yet. Create templates and get them approved in WhatsApp Manager, then sync.")}</p>}
           </div>
+        )}
+      </Provider>
+
+      <Provider title={t("Twilio (SMS, MMS and WhatsApp through Twilio)")} row={twilio} note={t(NOT_LIVE.twilio)} manage={manage} org={org} app={app} t={t} lang={lang}>
+        <p className="text-sm text-ink-2">{t("SMS goes to the phone number in a user property (E.164). SMS is text only; images (MMS) only to US and Canadian numbers. WhatsApp through Twilio uses Content templates approved for WhatsApp. People who reply STOP, denied marketing consent or are on the SMS / WhatsApp suppression list are skipped.")}</p>
+        {twilio && (
+          <div className="space-y-2 rounded-lg bg-paper-2 px-3 py-2 text-sm">
+            <p><span className="font-medium">{t("Callback URL:")}</span> <code dir="ltr" className="break-all font-mono text-xs">{publicBaseUrl()}/v1/twilio/webhook/{twilio.id}</code></p>
+            <p className="help">{t("LeanApp sets it as the status callback on every message. Also set it as \"A message comes in\" on your Twilio number or Messaging Service (HTTP POST) to receive replies and STOP. Twilio signs each request with your auth token.")}</p>
+            {manage && <ActionForm action={verifyConnectionAction.bind(null, org, app, env.id, "twilio")} submitLabel={t("Check connection")} buttonClass="btn-secondary" />}
+          </div>
+        )}
+        {manage && (
+          <ActionForm action={configureTwilioAction.bind(null, org, app, env.id)} submitLabel={twilio ? t("Replace credentials") : t("Connect Twilio")} className="grid gap-3 sm:grid-cols-2">
+            <label className="block"><span className="label">{t("Account SID")}</span><input name="accountSid" className="input font-mono" placeholder="AC…" required /></label>
+            <label className="block"><span className="label">{t("Auth token")}</span><input name="authToken" type="password" className="input font-mono" autoComplete="off" required /></label>
+            <label className="block"><span className="label">{t("Messaging Service SID (optional)")}</span><input name="messagingServiceSid" className="input font-mono" placeholder="MG…" /></label>
+            <label className="block"><span className="label">{t("SMS sender number (if no Messaging Service)")}</span><input name="fromNumber" className="input font-mono" placeholder="+14155550100" dir="ltr" /></label>
+            <label className="block"><span className="label">{t("WhatsApp sender (optional)")}</span><input name="whatsappFrom" className="input font-mono" placeholder="+14155550100" dir="ltr" /></label>
+            <p className="help sm:col-span-2">{t("From the Twilio Console → Account info. The auth token also verifies Twilio's callback signatures.")}</p>
+          </ActionForm>
         )}
       </Provider>
 

@@ -10,11 +10,20 @@ export type FlowStep = { type: string; else?: Jump | unknown; [k: string]: unkno
 
 const isGoto = (j: unknown): j is { goto: number } => typeof j === "object" && j !== null && typeof (j as { goto?: unknown }).goto === "number";
 
+/** Steps whose `else` can jump forward: branches and wait-for-outcome steps. */
+const JUMPS = new Set(["branch", "wait_outcome"]);
+
 function remap<S extends FlowStep>(steps: S[], map: (target: number) => number | "exit"): S[] {
   return steps.map((s) => {
-    if (s.type !== "branch" || !isGoto(s.else)) return s;
+    let next: S = s;
+    // A wait-for-outcome step follows the earlier message step it watches.
+    if (s.type === "wait_outcome" && typeof s.step === "number") {
+      const to = map(s.step);
+      next = { ...next, step: to === "exit" ? s.step : to };
+    }
+    if (!JUMPS.has(s.type) || !isGoto(s.else)) return next;
     const to = map(s.else.goto);
-    return { ...s, else: to === "exit" ? "exit" : { goto: to } };
+    return { ...next, else: to === "exit" ? "exit" : { goto: to } };
   });
 }
 
@@ -51,7 +60,7 @@ export interface FlowNode {
 /** The nodes of a flow for drawing it top to bottom. */
 export function flowNodes(steps: FlowStep[]): FlowNode[] {
   return steps.map((s, i) => {
-    if (s.type !== "branch") return { index: i, type: s.type };
+    if (!JUMPS.has(s.type)) return { index: i, type: s.type };
     if (!isGoto(s.else)) return { index: i, type: s.type, no: "exit" };
     return { index: i, type: s.type, no: s.else.goto + 1, broken: s.else.goto <= i || s.else.goto >= steps.length };
   });

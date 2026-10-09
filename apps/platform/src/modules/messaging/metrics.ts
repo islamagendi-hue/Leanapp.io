@@ -6,9 +6,9 @@
  */
 import { msg } from "@/i18n/translate";
 
-export const DELIVERY_CHANNELS = ["push", "email", "whatsapp", "in_app"] as const;
+export const DELIVERY_CHANNELS = ["push", "email", "whatsapp", "sms", "in_app"] as const;
 export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
-export const DELIVERY_CHANNEL_LABELS: Record<DeliveryChannel, string> = { push: msg("Push"), email: msg("Email"), whatsapp: "WhatsApp", in_app: msg("In-app") };
+export const DELIVERY_CHANNEL_LABELS: Record<DeliveryChannel, string> = { push: msg("Push"), email: msg("Email"), whatsapp: "WhatsApp", sms: "SMS", in_app: msg("In-app") };
 
 export const FUNNEL_METRICS = ["delivered", "opened", "clicked"] as const;
 export type FunnelMetric = (typeof FUNNEL_METRICS)[number];
@@ -29,6 +29,11 @@ export const UNAVAILABLE: Record<DeliveryChannel, Record<FunnelMetric, string | 
     delivered: null,
     opened: null,
     clicked: msg("WhatsApp doesn't report link clicks."),
+  },
+  sms: {
+    delivered: null,
+    opened: msg("SMS has no read receipts."),
+    clicked: msg("SMS link clicks aren't tracked."),
   },
   in_app: {
     delivered: msg("The app reports when a message is shown, not when it is fetched."),

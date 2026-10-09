@@ -40,7 +40,7 @@ describe("navigation menu", () => {
       "Attribution", "Attribution/Attribution report", "Attribution/Tracking links & QR", "Attribution/Deep links",
       "Analyze", "Analyze/Events & trends", "Analyze/Funnels", "Analyze/Dashboards", "Analyze/Saved reports",
       "Segments", "Segments/Users", "Segments/Audiences",
-      "Engage Lab", "Engage Lab/Campaigns", "Engage Lab/Flows", "Engage Lab/Templates", "Engage Lab/Media library", "Engage Lab/Channels & delivery",
+      "Engage Lab", "Engage Lab/Campaigns", "Engage Lab/Flows", "Engage Lab/Templates", "Engage Lab/WhatsApp templates", "Engage Lab/Media library", "Engage Lab/Channels & delivery",
       "A/B experiments", "Settings",
     ]);
     // Beta stays on what is in beta: attribution and the acquisition pages.

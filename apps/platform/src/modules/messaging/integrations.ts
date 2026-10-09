@@ -7,6 +7,8 @@ import { decryptSecret, encryptSecret, encryptionAvailable } from "@/lib/secret-
 import { audit } from "@/modules/audit/service";
 import { parseApnsKey, parseServiceAccount, type ApnsCredentials, type ServiceAccount } from "@/modules/push/messages";
 import { allowedTokenUri } from "@/modules/push/transport";
+import { ACCOUNT_SID, MESSAGING_SERVICE_SID, type TwilioCredentials } from "@/modules/twilio/messages";
+import { toE164 } from "@/modules/whatsapp/messages";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { deploymentOf } from "@/server/config";
 
@@ -17,7 +19,7 @@ import { deploymentOf } from "@/server/config";
  * secret). Secrets are encrypted at rest (lib/secret-box) and never
  * returned to the browser; `config` keeps only non-secret settings for display.
  */
-export const INTEGRATION_PROVIDERS = ["fcm", "apns", "resend", "whatsapp"] as const;
+export const INTEGRATION_PROVIDERS = ["fcm", "apns", "resend", "whatsapp", "twilio"] as const;
 export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
 
 export interface IntegrationRow {
@@ -156,6 +158,65 @@ export async function rotateWhatsAppVerifyToken(ctx: TenantContext, environmentI
   return verifyToken;
 }
 
+// ── Twilio (SMS, MMS and WhatsApp through Twilio) ──────────────────────────
+const optionalE164 = (label: string) =>
+  z.string().trim().optional().transform((v, ctx) => {
+    if (!v) return null;
+    const e = toE164(v);
+    if (!e) ctx.addIssue({ code: "custom", message: `${label} must be an E.164 number like +14155550100.` });
+    return e;
+  });
+
+const twilioSchema = z
+  .object({
+    accountSid: z.string().trim().regex(ACCOUNT_SID, "The Account SID starts with AC followed by 32 hexadecimal characters (Twilio Console → Account info)."),
+    authToken: z.string().trim().regex(/^[0-9a-f]{32}$/i, "The auth token is 32 hexadecimal characters (Twilio Console → Account info)."),
+    messagingServiceSid: z.string().trim().optional().transform((v) => v || null).refine((v) => !v || MESSAGING_SERVICE_SID.test(v), "A Messaging Service SID starts with MG followed by 32 hexadecimal characters."),
+    fromNumber: optionalE164("The SMS sender number"),
+    whatsappFrom: optionalE164("The WhatsApp sender"),
+  })
+  .refine((v) => v.messagingServiceSid || v.fromNumber || v.whatsappFrom, "Enter a Messaging Service SID or a sender number for SMS, or a WhatsApp sender.");
+
+function twilioCreds(config: Record<string, string>, authToken: string): TwilioCredentials {
+  return {
+    accountSid: config.account_sid, authToken,
+    messagingServiceSid: config.messaging_service_sid || null, fromNumber: config.from_number || null, whatsappFrom: config.whatsapp_from || null,
+  };
+}
+
+/** Twilio: the account SID and sender(s) are settings; the auth token is the secret (it also verifies Twilio's callback signatures). */
+export async function configureTwilio(ctx: TenantContext, environmentId: string, input: unknown): Promise<string> {
+  const r = twilioSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid Twilio settings.");
+  const { accountSid, authToken, messagingServiceSid, fromNumber, whatsappFrom } = r.data;
+  const config: Record<string, string> = { account_sid: accountSid };
+  if (messagingServiceSid) config.messaging_service_sid = messagingServiceSid;
+  if (fromNumber) config.from_number = fromNumber;
+  if (whatsappFrom) config.whatsapp_from = whatsappFrom;
+  return upsert(ctx, environmentId, "twilio", config, authToken);
+}
+
+/** Merges non-secret details the provider reported (e.g. the WhatsApp number's display name) into `config`. */
+export async function mergeIntegrationConfig(db: Db, id: string, patch: Record<string, string>): Promise<void> {
+  await db.query("update platform.integrations set config = config || $2::jsonb, updated_at = now() where id = $1", [id, JSON.stringify(patch)]);
+}
+
+/** One integration with its decrypted secret, for provider calls made from the dashboard (inside the caller's transaction). */
+export async function integrationSecret(db: Db, environmentId: string, provider: IntegrationProvider): Promise<{ id: string; config: Record<string, string>; secret: string } | null> {
+  const row = await db.one<{ id: string; config: Record<string, string>; secret_ciphertext: string | null }>(
+    "select id, config, secret_ciphertext from platform.integrations where environment_id = $1 and provider = $2",
+    [environmentId, provider],
+  );
+  if (!row) return null;
+  try {
+    return { id: row.id, config: row.config, secret: decryptSecret(row.secret_ciphertext ?? "", aad(row.id)) };
+  } catch {
+    throw new ValidationError("The stored credentials can't be read (the server's encryption key changed). Reconnect the provider.");
+  }
+}
+
+export { twilioCreds };
+
 export async function removeIntegration(ctx: TenantContext, id: string): Promise<void> {
   await tenantTx(ctx, "integrations.manage", async (db) => {
     const row = await db.one<{ provider: string; environment_id: string }>("delete from platform.integrations where id = $1 returning provider, environment_id", [id]);
@@ -179,6 +240,7 @@ export interface DeliveryCredentials {
   apns?: { id: string; creds: ApnsCredentials };
   resend?: { id: string; creds: ResendCredentials };
   whatsapp?: { id: string; creds: WhatsAppCredentials };
+  twilio?: { id: string; creds: TwilioCredentials };
   /** Providers configured but unreadable (e.g. encryption key missing or changed). */
   errors: Partial<Record<IntegrationProvider, string>>;
 }
@@ -202,6 +264,8 @@ export async function loadDeliveryCredentials(db: Db, environmentId: string): Pr
       } else if (r.provider === "whatsapp") {
         const w = JSON.parse(secret) as { accessToken: string; appSecret: string };
         out.whatsapp = { id: r.id, creds: { phoneNumberId: r.config.phone_number_id, wabaId: r.config.waba_id, accessToken: w.accessToken, appSecret: w.appSecret } };
+      } else if (r.provider === "twilio") {
+        out.twilio = { id: r.id, creds: twilioCreds(r.config, secret) };
       } else out.resend = { id: r.id, creds: { apiKey: secret, from: r.config.from } };
     } catch {
       out.errors[r.provider] = "credentials_unreadable";

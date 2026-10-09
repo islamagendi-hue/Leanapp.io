@@ -28,8 +28,13 @@ function messageStep(channel: Channel, f: CampaignForm): Step {
       return (f.emailTemplateId ? { type: "email", templateId: f.emailTemplateId } : { type: "email", subject: f.subject, body: f.body }) as Step;
     case "whatsapp": {
       const [template, language] = (f.whatsappTemplate ?? "").split("|");
-      return { type: "whatsapp", template: template ?? "", language: language ?? "", bodyParams: lines(f.whatsappParams), headerParams: [], phoneProperty: f.phoneProperty || "phone" } as Step;
+      return {
+        type: "whatsapp", template: template ?? "", language: language ?? "", bodyParams: lines(f.whatsappParams), headerParams: lines(f.whatsappHeaderParams),
+        phoneProperty: f.phoneProperty || "phone", provider: f.whatsappProvider || "whatsapp_cloud", mediaAssetId: f.mediaAssetId || undefined,
+      } as unknown as Step;
     }
+    case "sms":
+      return { type: "sms", text: f.body ?? "", mediaAssetId: f.mediaAssetId || undefined, phoneProperty: f.phoneProperty || "phone", provider: "twilio" } as Step;
   }
 }
 
@@ -122,7 +127,13 @@ export function formOf(d: AutomationDefinition, timezone: string, now = new Date
   };
   if (s?.type === "push" || s?.type === "in_app") Object.assign(f, { title: s.title, body: s.body, deepLink: s.deepLink, buttonText: s.type === "in_app" ? s.buttonText : undefined, imageAssetId: s.imageAssetId });
   if (s?.type === "email") Object.assign(f, { emailTemplateId: s.templateId, subject: s.subject, body: s.body });
-  if (s?.type === "whatsapp") Object.assign(f, { whatsappTemplate: `${s.template}|${s.language}`, whatsappParams: s.bodyParams.join("\n"), phoneProperty: s.phoneProperty });
+  if (s?.type === "whatsapp") {
+    Object.assign(f, {
+      whatsappTemplate: `${s.template}|${s.language}`, whatsappParams: s.bodyParams.join("\n"), whatsappHeaderParams: s.headerParams.join("\n") || undefined,
+      phoneProperty: s.phoneProperty, whatsappProvider: s.provider, mediaAssetId: s.mediaAssetId,
+    });
+  }
+  if (s?.type === "sms") Object.assign(f, { body: s.text, phoneProperty: s.phoneProperty, mediaAssetId: s.mediaAssetId });
   // An unsent one-time campaign whose time has passed was (or now is) "Send now".
   if (c.schedule?.mode === "once") Object.assign(f, Date.parse(c.schedule.at) <= now.getTime() ? { schedule: "now" } : { schedule: "later", sendAt: localInputValue(new Date(c.schedule.at), timezone) });
   else if (c.schedule) Object.assign(f, { schedule: c.schedule.mode, time: c.schedule.at, weekday: c.schedule.weekday === undefined ? undefined : String(c.schedule.weekday) });

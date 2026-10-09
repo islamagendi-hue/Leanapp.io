@@ -23,24 +23,12 @@ export function toE164(value: unknown): string | null {
 /** WhatsApp ids are the E.164 number without "+". */
 export const waId = (e164: string) => e164.replace(/^\+/, "");
 
-export interface TemplateComponent {
-  type: string;
-  format?: string;
-  text?: string;
-  buttons?: unknown[];
-}
+export { placeholderCount, placeholderKeys, renderTemplateText, templateParams, templateVariables, type TemplateComponent, type TemplateVariables } from "./template-text";
+import { placeholderCount } from "./template-text";
 
-/** Highest {{n}} placeholder in a text (WhatsApp numbers them from 1). */
-export function placeholderCount(text: string | undefined): number {
-  let max = 0;
-  for (const m of (text ?? "").matchAll(/\{\{\s*(\d{1,2})\s*\}\}/g)) max = Math.max(max, Number(m[1]));
-  return max;
-}
-
-export function templateParams(components: TemplateComponent[]): { body: number; header: number } {
-  const body = components.find((c) => c.type?.toUpperCase() === "BODY");
-  const header = components.find((c) => c.type?.toUpperCase() === "HEADER" && (c.format ?? "TEXT").toUpperCase() === "TEXT");
-  return { body: placeholderCount(body?.text), header: placeholderCount(header?.text) };
+export interface HeaderMedia {
+  kind: "image" | "video" | "document";
+  link: string;
 }
 
 export interface TemplateSend {
@@ -49,14 +37,19 @@ export interface TemplateSend {
   language: string;
   bodyParams: string[];
   headerParams?: string[];
+  /** For NAMED templates: the variable names, in the same order as the params. */
+  bodyNames?: string[];
+  headerNames?: string[];
+  headerMedia?: HeaderMedia;
 }
 
 /** Body for POST /{phone-number-id}/messages with an approved template. */
 export function templateMessageBody(m: TemplateSend): Record<string, unknown> {
-  const text = (v: string) => ({ type: "text", text: v.slice(0, 1024) });
+  const text = (names: string[] | undefined) => (v: string, i: number) => ({ type: "text", ...(names?.[i] ? { parameter_name: names[i] } : {}), text: v.slice(0, 1024) });
   const components: Record<string, unknown>[] = [];
-  if (m.headerParams?.length) components.push({ type: "header", parameters: m.headerParams.map(text) });
-  if (m.bodyParams.length) components.push({ type: "body", parameters: m.bodyParams.map(text) });
+  if (m.headerMedia) components.push({ type: "header", parameters: [{ type: m.headerMedia.kind, [m.headerMedia.kind]: { link: m.headerMedia.link } }] });
+  else if (m.headerParams?.length) components.push({ type: "header", parameters: m.headerParams.map(text(m.headerNames)) });
+  if (m.bodyParams.length) components.push({ type: "body", parameters: m.bodyParams.map(text(m.bodyNames)) });
   return {
     messaging_product: "whatsapp",
     recipient_type: "individual",
@@ -66,12 +59,91 @@ export function templateMessageBody(m: TemplateSend): Record<string, unknown> {
   };
 }
 
+export interface SessionSend {
+  to: string; // E.164
+  text?: string;
+  media?: { kind: "image" | "video" | "audio" | "document"; link: string };
+}
+
+/** Body for a free-form (session) message: text, or media with the text as caption (audio takes no caption). */
+export function sessionMessageBody(m: SessionSend): Record<string, unknown> {
+  const base = { messaging_product: "whatsapp", recipient_type: "individual", to: waId(m.to) };
+  if (m.media) {
+    const caption = m.text && m.media.kind !== "audio" ? { caption: m.text.slice(0, 1024) } : {};
+    return { ...base, type: m.media.kind, [m.media.kind]: { link: m.media.link, ...caption } };
+  }
+  return { ...base, type: "text", text: { preview_url: false, body: (m.text ?? "").slice(0, 4096) } };
+}
+
+/** The customer service window: free-form messages only within 24 hours of the person's last message. */
+export const SESSION_WINDOW_MS = 24 * 3_600_000;
+export function sessionOpen(lastInboundAt: Date | string | null | undefined, now = new Date()): boolean {
+  if (!lastInboundAt) return false;
+  return now.getTime() - new Date(lastInboundAt).getTime() < SESSION_WINDOW_MS;
+}
+
+export interface TemplateDraft {
+  name: string;
+  language: string;
+  category: "MARKETING" | "UTILITY" | "AUTHENTICATION";
+  headerText?: string | null;
+  body: string;
+  footer?: string | null;
+  examples: string[];
+}
+
+/** Body for POST /{waba-id}/message_templates (positional variables, with the example values Meta reviews). */
+export function templateCreateBody(d: TemplateDraft): Record<string, unknown> {
+  const components: Record<string, unknown>[] = [];
+  if (d.headerText) components.push({ type: "HEADER", format: "TEXT", text: d.headerText });
+  const n = placeholderCount(d.body);
+  components.push({ type: "BODY", text: d.body, ...(n ? { example: { body_text: [d.examples.slice(0, n)] } } : {}) });
+  if (d.footer) components.push({ type: "FOOTER", text: d.footer });
+  return { name: d.name, language: d.language, category: d.category, components };
+}
+
 export function messagesUrl(base: string, version: string, phoneNumberId: string): string {
   return `${base}/${version}/${encodeURIComponent(phoneNumberId)}/messages`;
 }
 
 export function templatesUrl(base: string, version: string, wabaId: string): string {
-  return `${base}/${version}/${encodeURIComponent(wabaId)}/message_templates?fields=id,name,language,status,category,components&limit=100`;
+  return `${base}/${version}/${encodeURIComponent(wabaId)}/message_templates?fields=id,name,language,status,category,components,rejected_reason,quality_score&limit=100`;
+}
+
+export function templateCreateUrl(base: string, version: string, wabaId: string): string {
+  return `${base}/${version}/${encodeURIComponent(wabaId)}/message_templates`;
+}
+
+/** DELETE by name (every language), or one language version with hsm_id (the template id). */
+export function templateDeleteUrl(base: string, version: string, wabaId: string, name: string, templateId?: string | null): string {
+  const q = new URLSearchParams({ name, ...(templateId ? { hsm_id: templateId } : {}) });
+  return `${base}/${version}/${encodeURIComponent(wabaId)}/message_templates?${q}`;
+}
+
+/** The phone number's details, to check the connection and show what is connected. */
+export function phoneNumberUrl(base: string, version: string, phoneNumberId: string): string {
+  return `${base}/${version}/${encodeURIComponent(phoneNumberId)}?fields=display_phone_number,verified_name,quality_rating,code_verification_status,name_status`;
+}
+
+/**
+ * What a Graph API error code means for the person fixing it, from Meta's
+ * WhatsApp Cloud API error codes reference. Unknown codes return null.
+ */
+export function explainGraphError(code: number | null): string | null {
+  switch (code) {
+    case 190: return "The access token is invalid or expired. Create a permanent system-user token and reconnect.";
+    case 10:
+    case 200:
+    case 294: return "The access token lacks a permission. It needs whatsapp_business_management (templates) and whatsapp_business_messaging (sending).";
+    case 100: return "WhatsApp rejected a parameter. Check the phone number ID, WhatsApp Business Account ID and template.";
+    case 131047: return "More than 24 hours have passed since the person last messaged you. Use an approved template.";
+    case 132000: return "The number of template variables doesn't match the template.";
+    case 132001: return "The template doesn't exist in this language, or isn't approved.";
+    case 131026: return "The message couldn't be delivered to this number (not on WhatsApp, or an old app version).";
+    case 131050: return "The person stopped marketing messages from businesses.";
+    case 133010: return "The phone number isn't registered with the Cloud API.";
+    default: return null;
+  }
 }
 
 /** Error codes meaning the person opted out of marketing messages from businesses (suppress them). */
@@ -127,6 +199,10 @@ export interface StatusUpdate {
 export interface InboundMessage {
   from: string;
   text: string | null;
+  id?: string;
+  type?: string;
+  /** Unix seconds, as sent by WhatsApp. */
+  timestamp?: number;
 }
 
 export interface WebhookBatch {
@@ -148,7 +224,10 @@ export function parseWebhook(payload: unknown): WebhookBatch[] {
       const v = change.value as {
         metadata?: { phone_number_id?: string };
         statuses?: { id?: string; status?: string; recipient_id?: string; errors?: { code?: number; title?: string; message?: string }[] }[];
-        messages?: { from?: string; type?: string; text?: { body?: string }; button?: { text?: string; payload?: string }; interactive?: { button_reply?: { title?: string } } }[];
+        messages?: {
+          id?: string; from?: string; timestamp?: string; type?: string; text?: { body?: string }; button?: { text?: string; payload?: string };
+          interactive?: { button_reply?: { title?: string }; list_reply?: { title?: string } }; image?: { caption?: string };
+        }[];
       };
       const batch: WebhookBatch = { phoneNumberId: String(v.metadata?.phone_number_id ?? ""), statuses: [], messages: [] };
       for (const s of v.statuses ?? []) {
@@ -161,8 +240,9 @@ export function parseWebhook(payload: unknown): WebhookBatch[] {
       }
       for (const m of v.messages ?? []) {
         if (!m?.from) continue;
-        const text = m.text?.body ?? m.button?.text ?? m.interactive?.button_reply?.title ?? null;
-        batch.messages.push({ from: m.from, text });
+        const text = m.text?.body ?? m.button?.text ?? m.interactive?.button_reply?.title ?? m.interactive?.list_reply?.title ?? m.image?.caption ?? null;
+        const ts = Number(m.timestamp);
+        batch.messages.push({ from: m.from, text, ...(m.id ? { id: m.id } : {}), type: String(m.type ?? "text"), ...(Number.isFinite(ts) && ts > 0 ? { timestamp: ts } : {}) });
       }
       out.push(batch);
     }

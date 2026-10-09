@@ -6,20 +6,30 @@ import { useT } from "@/i18n/client";
 import { msg } from "@/i18n/translate";
 import { MediaPicker } from "@/components/engage/MediaPicker";
 import { CHANNEL_LABELS, CHANNELS, type CampaignForm as Values, type Channel, type ScheduleMode } from "@/modules/campaigns/options";
+import { ComposerChecks, SmsComposer, WhatsAppComposer, type ComposerTemplate } from "./MessagingComposer";
 
 const WEEKDAYS = [msg("Sunday"), msg("Monday"), msg("Tuesday"), msg("Wednesday"), msg("Thursday"), msg("Friday"), msg("Saturday")];
 const SCHEDULE_OPTIONS = [["now", msg("Send now")], ["later", msg("At a date and time")], ["daily", msg("Every day")], ["weekly", msg("Every week")]] as const;
 
 /** Audience → Channel → Message → Schedule, plus the frequency cap and quiet hours. */
-export function CampaignForm({ action, name, initial, audiences, emailTemplates, whatsappTemplates, timezone, submitLabel }: {
+export function CampaignForm({
+  action, name, initial, audiences, emailTemplates, whatsappTemplates, timezone, submitLabel,
+  connected = { whatsapp: ["whatsapp_cloud"], sms: false }, userProperties = [], checkAction, testAction,
+}: {
   action: (state: FormState, form: FormData) => Promise<FormState>;
   name: string;
   initial: Values;
   audiences: { id: string; name: string; status: string; member_count: number }[];
   emailTemplates: { id: string; name: string }[];
-  whatsappTemplates: { name: string; language: string; status: string; body_params: number }[];
+  whatsappTemplates: ComposerTemplate[];
   timezone: string;
   submitLabel: string;
+  /** Providers connected in the environment, per channel. */
+  connected?: { whatsapp: ("whatsapp_cloud" | "twilio")[]; sms: boolean };
+  /** User attribute names for variable mapping. */
+  userProperties?: string[];
+  checkAction?: Parameters<typeof ComposerChecks>[0]["check"];
+  testAction?: Parameters<typeof ComposerChecks>[0]["test"];
 }) {
   const [channel, setChannel] = useState<Channel>((initial.channel as Channel) ?? "push");
   const [schedule, setSchedule] = useState<ScheduleMode>((initial.schedule as ScheduleMode) ?? "now");
@@ -83,27 +93,12 @@ export function CampaignForm({ action, name, initial, audiences, emailTemplates,
             <p className="text-xs text-ink-3">{t("Sent to the person's {email} user property, with an unsubscribe link.", { email: "email" })}</p>
           </>
         )}
-        {channel === "whatsapp" && (
-          whatsappTemplates.length === 0 ? (
-            <p className="text-sm text-warn">{t("No WhatsApp templates without a header variable are synced in this environment. Sync them on the WhatsApp integration.")}</p>
-          ) : (
-            <>
-              <label className="block"><span className="label">{t("Approved template")}</span>
-                <select name="whatsappTemplate" className="input" required defaultValue={v("whatsappTemplate")}>
-                  {whatsappTemplates.map((w) => (
-                    <option key={`${w.name}|${w.language}`} value={`${w.name}|${w.language}`}>{w.status === "APPROVED"
-                      ? t("{name} ({language}, {n} variables)", { name: w.name, language: w.language, n: w.body_params })
-                      : t("{name} ({language}, {n} variables, {status})", { name: w.name, language: w.language, n: w.body_params, status: w.status.toLowerCase() })}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="block"><span className="label">{t("Variables, one per line ({example} works)", { example: "{{user.first_name}}" })}</span><textarea name="whatsappParams" className="input min-h-20" defaultValue={v("whatsappParams")} /></label>
-              <label className="block max-w-xs"><span className="label">{t("Phone number property")}</span><input name="phoneProperty" className="input" defaultValue={v("phoneProperty") || "phone"} maxLength={64} /></label>
-            </>
-          )
-        )}
+        {channel === "whatsapp" && <WhatsAppComposer templates={whatsappTemplates} providers={connected.whatsapp} initial={initial} properties={userProperties} />}
+        {channel === "sms" && <SmsComposer connected={connected.sms} initial={initial} />}
         <p className="text-xs text-ink-3">{t("Use {example} to personalise.", { example: "{{user.property}}" })}</p>
       </fieldset>
+
+      {checkAction && testAction && <ComposerChecks check={checkAction} test={testAction} testable={channel === "whatsapp" || channel === "sms"} />}
 
       <fieldset className="space-y-3">
         <legend className="h2">{t("4. Schedule")}</legend>
@@ -133,7 +128,7 @@ export function CampaignForm({ action, name, initial, audiences, emailTemplates,
             <input name="capHours" type="number" min={1} max={720} className="input w-20" defaultValue={v("capHours") || "24"} aria-label={t("Hours")} /> {t("hours (from any campaign or flow)")}
           </div>
         )}
-        <label className="flex items-center gap-2"><input type="checkbox" name="quietHours" value="on" defaultChecked={initial.channel ? initial.quietHours === "on" : true} /> {t("Wait out quiet hours (22:00 to 08:00, {timezone}) for push, email and WhatsApp", { timezone })}</label>
+        <label className="flex items-center gap-2"><input type="checkbox" name="quietHours" value="on" defaultChecked={initial.channel ? initial.quietHours === "on" : true} /> {t("Wait out quiet hours (22:00 to 08:00, {timezone}) for push, email, WhatsApp and SMS", { timezone })}</label>
       </fieldset>
     </ActionForm>
   );

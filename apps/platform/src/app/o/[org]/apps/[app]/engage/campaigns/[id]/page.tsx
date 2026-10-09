@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { campaignLifecycleAction, saveCampaignAction } from "@/app/actions/campaigns";
 import { ActionForm } from "@/components/ActionForm";
+import { campaignTestAction, checkCampaignAction } from "@/app/actions/messaging";
 import { CampaignForm } from "@/components/engage/CampaignForm";
+import { composerContext } from "@/components/engage/composer-context";
 import { fmtDate, StatusPill } from "@/components/engage/shared";
 import { getLang, getT } from "@/i18n/server";
 import { msg } from "@/i18n/translate";
@@ -26,7 +28,7 @@ export async function generateMetadata() {
 }
 
 const METRIC_TEXT: Record<string, string> = { delivered: msg("Delivered"), opened: msg("Opened"), clicked: msg("Clicked") };
-const PROVIDERS: Record<string, string[]> = { push: ["fcm", "apns"], email: ["resend"], whatsapp: ["whatsapp"], in_app: [] };
+const PROVIDERS: Record<string, string[]> = { push: ["fcm", "apns"], email: ["resend"], whatsapp: ["whatsapp", "twilio"], sms: ["twilio"], in_app: [] };
 
 export default async function CampaignPage(props: PageProps<"/o/[org]/apps/[app]/engage/campaigns/[id]">) {
   const { org, app, id } = await props.params;
@@ -40,12 +42,13 @@ export default async function CampaignPage(props: PageProps<"/o/[org]/apps/[app]
   if (!env) notFound();
   const manage = can(ctx.role, "automations.manage");
   const editable = manage && !c.fired && c.status !== "archived";
-  const [audiences, organization, integrations, whatsappTemplates, emailTemplates] = await Promise.all([
+  const [audiences, organization, integrations, whatsappTemplates, emailTemplates, composer] = await Promise.all([
     can(ctx.role, "audiences.read") ? listAudiences(ctx, env.id, { includeArchived: true }) : Promise.resolve([]),
     getOrganization(ctx),
     can(ctx.role, "integrations.read") ? listIntegrations(ctx, env.id) : Promise.resolve(null),
     editable ? listTemplates(ctx, env.id) : Promise.resolve([]),
     editable ? listEmailTemplates(ctx, env.id) : Promise.resolve([]),
+    editable ? composerContext(ctx, env.app_id, env.id) : Promise.resolve(undefined),
   ]);
   const s = campaignOf(c.definition);
   const audience = audiences.find((a) => a.id === s.audienceId);
@@ -152,7 +155,8 @@ export default async function CampaignPage(props: PageProps<"/o/[org]/apps/[app]
         <section className="card space-y-3">
           <h2 className="h2">{t("Edit")}</h2>
           <CampaignForm action={saveCampaignAction.bind(null, org, app, env.id, c.id)} name={c.name} initial={formOf(c.definition, organization.timezone)} submitLabel={t("Save")}
-            audiences={audiences.filter((a) => a.status !== "archived")} emailTemplates={emailTemplates} whatsappTemplates={whatsappTemplates.filter((w) => w.header_params === 0)} timezone={organization.timezone} />
+            audiences={audiences.filter((a) => a.status !== "archived")} emailTemplates={emailTemplates} whatsappTemplates={whatsappTemplates} timezone={organization.timezone}
+            connected={composer?.connected} userProperties={composer?.userProperties} checkAction={checkCampaignAction.bind(null, org, env.id)} testAction={campaignTestAction.bind(null, org, env.id)} />
         </section>
       )}
     </div>

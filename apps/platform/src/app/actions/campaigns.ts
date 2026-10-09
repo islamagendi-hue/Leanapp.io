@@ -14,7 +14,8 @@ import { requireTenant } from "@/server/session";
 
 const base = (org: string, app: string) => `/o/${org}/apps/${app}/engage/campaigns`;
 const FIELDS = [
-  "audienceId", "channel", "title", "body", "deepLink", "buttonText", "emailTemplateId", "subject", "whatsappTemplate", "whatsappParams", "phoneProperty",
+  "audienceId", "channel", "title", "body", "deepLink", "buttonText", "emailTemplateId", "subject", "whatsappTemplate", "whatsappParams", "whatsappHeaderParams", "whatsappProvider",
+  "mediaAssetId", "phoneProperty",
   "schedule", "sendAt", "time", "weekday", "capMessages", "capHours", "quietHours",
   "imageAssetId", // media library (push, in-app)
 ] as const;

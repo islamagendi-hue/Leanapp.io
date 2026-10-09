@@ -8,7 +8,8 @@ import { COUNTED_EVENTS, PERSON } from "@/modules/analytics/sql";
 import { DefinitionError, parseDefinition } from "@/modules/audiences/definition";
 import { can } from "@/modules/rbac/authorize";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
-import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, referencedWhatsAppTemplates, type AutomationDefinition } from "./definition";
+import { checkMessagingStep } from "@/modules/messaging/step-checks";
+import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, type AutomationDefinition } from "./definition";
 import { FLOW_TEMPLATE_IDS, getFlowTemplate, needsWhatsApp, planFlowTemplate } from "./library";
 import { fill } from "./messages";
 import { nextScheduled } from "./time";
@@ -140,16 +141,12 @@ async function checkReferences(db: Db, environmentId: string, d: AutomationDefin
     const t = await db.one("select id from platform.email_templates where id = $1 and environment_id = $2", [id, environmentId]);
     if (!t) throw new ValidationError(msg("An email step points to a template that doesn't exist in this environment."));
   }
-  for (const s of referencedWhatsAppTemplates(d)) {
-    const t = await db.one<{ status: string; body_params: number; header_params: number }>(
-      "select status, body_params, header_params from platform.whatsapp_templates where environment_id = $1 and name = $2 and language = $3",
-      [environmentId, s.template, s.language],
-    );
-    if (!t) throw new ValidationError(fill(msg('The WhatsApp template "{template}" ({language}) isn\'t synced in this environment. Sync templates on Engage → Integrations.'), { template: s.template, language: s.language }));
-    if (t.body_params !== s.bodyParams.length || t.header_params !== s.headerParams.length) {
-      throw new ValidationError(fill(msg('The WhatsApp template "{template}" needs {body} body and {header} header variables.'), { template: s.template, body: t.body_params, header: t.header_params }));
-    }
-    if (opts.requireActive && t.status !== "APPROVED") throw new ValidationError(fill(msg('The WhatsApp template "{template}" is {status}, not approved by WhatsApp yet.'), { template: s.template, status: t.status.toLowerCase() }));
+  const env = await db.one<{ app_id: string; organization_id: string }>("select app_id, organization_id from platform.environments where id = $1", [environmentId]);
+  for (const s of d.steps) {
+    if (s.type !== "whatsapp" && s.type !== "whatsapp_session" && s.type !== "sms") continue;
+    const issues = await checkMessagingStep(db, { organizationId: env!.organization_id, appId: env!.app_id, environmentId }, s, opts);
+    const first = issues.find((i) => i.level === "error");
+    if (first) throw new ValidationError(first.message);
   }
 }
 
@@ -285,6 +282,9 @@ async function resetTrigger(db: Db, ctx: TenantContext, id: string, environmentI
     cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.events where environment_id = $1", [environmentId]))!.max;
   } else if (d.trigger.type === "audience_entered" || d.trigger.type === "audience_exited") {
     cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.audience_events where audience_id = $1", [d.trigger.audienceId]))!.max;
+  } else if (d.trigger.type === "inbound_message") {
+    // Replies received from now on (not ones that arrived before activation).
+    cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.inbound_messages where environment_id = $1", [environmentId]))!.max;
   } else if (d.trigger.type === "once") {
     // A time already past means "send now". A send that already went out (cursor set) never goes out again.
     await db.query("update platform.automations set next_fire_at = case when trigger_cursor is null then $2::timestamptz end where id = $1", [id, new Date(Math.max(Date.parse(d.trigger.at), Date.now()))]);

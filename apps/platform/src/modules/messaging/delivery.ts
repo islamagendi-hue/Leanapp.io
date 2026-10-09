@@ -6,7 +6,7 @@ import { NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { fill } from "@/modules/automation/messages";
 import { messagingBlocked } from "@/modules/messaging/consent";
-import { deliverEmail, deliverPush, deliverWhatsApp, type Target } from "@/modules/messaging/deliver";
+import { deliverEmail, deliverMessage, deliverPush, type Target } from "@/modules/messaging/deliver";
 import { loadDeliveryCredentials } from "@/modules/messaging/integrations";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { toE164 } from "@/modules/whatsapp/messages";
@@ -146,11 +146,21 @@ async function send(
     const e = await deliverEmail(db, creds, target, { to, subject: title, body, templateId: null, tag: "test" });
     return { ok: e.ok, message: e.ok ? msg("Sent. Resend accepted the email.") : fill(msg("Not sent: {message}"), { message: String(e.error) }) };
   }
+  if (channel === "sms") {
+    const to = toE164(profile[input.phoneProperty]);
+    if (!to) return { ok: false, message: fill(msg("Not sent: no valid E.164 phone number in the {property} user property."), { property: input.phoneProperty }) };
+    const s = await deliverMessage(db, creds, target, "twilio", { kind: "text", channel: "sms", to, text: body });
+    return { ok: s.ok, message: s.ok ? msg("Sent. Twilio accepted the SMS; delivery receipts arrive through the status callback.") : fill(msg("Not sent: {message}"), { message: String(s.error) }) };
+  }
   // WhatsApp: only approved templates can start a conversation.
-  const [name, language] = (input.whatsappTemplate ?? "").split("|");
-  const template = name && language ? await findTemplate(db, environmentId, name, language) : null;
+  const [name, language, providerRaw] = (input.whatsappTemplate ?? "").split("|");
+  const provider = providerRaw === "twilio" ? "twilio" : "whatsapp_cloud";
+  const template = name && language ? await findTemplate(db, environmentId, name, language, provider) : null;
   if (!template) return { ok: false, message: msg("Choose a synced WhatsApp template.") };
   if (template.status !== "APPROVED") return { ok: false, message: fill(msg("Not sent: the template {name} is {status}, not approved."), { name, status: template.status.toLowerCase() }) };
+  if (template.header_format && template.header_format !== "TEXT") {
+    return { ok: false, message: fill(msg("The template {name} has a media header, which test sends don't attach. Test it from a campaign."), { name }) };
+  }
   if (template.header_params > 0 || template.body_params !== input.whatsappParams.length) {
     return { ok: false, message: fill(template.header_params
       ? (template.body_params === 1 ? msg("The template {name} needs {n} variable and a header variable (not supported in test sends).") : msg("The template {name} needs {n} variables and a header variable (not supported in test sends)."))
@@ -158,6 +168,9 @@ async function send(
   }
   const to = toE164(profile[input.phoneProperty]);
   if (!to) return { ok: false, message: fill(msg("Not sent: no valid E.164 phone number in the {property} user property."), { property: input.phoneProperty }) };
-  const w = await deliverWhatsApp(db, creds, target, { to, template: name, language, bodyParams: input.whatsappParams.map((p) => p || "-"), headerParams: [] });
+  const w = await deliverMessage(db, creds, target, provider, {
+    kind: "template", channel: "whatsapp", to, template: provider === "twilio" ? template.external_id ?? "" : name, language,
+    bodyParams: input.whatsappParams.map((p) => p || "-"), headerParams: [], variableKeys: template.variables ?? [],
+  });
   return { ok: w.ok, message: w.ok ? msg("Sent. WhatsApp accepted the message; delivery and read receipts arrive through the webhook.") : fill(msg("Not sent: {message}"), { message: String(w.error) }) };
 }

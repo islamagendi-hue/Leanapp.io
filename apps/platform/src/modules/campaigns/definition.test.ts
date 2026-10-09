@@ -23,8 +23,21 @@ describe("campaign definitions", () => {
     expect(weekly.steps[0]).toMatchObject({ type: "whatsapp", template: "offer", language: "en_US", bodyParams: ["{{user.name}}", "20%"], phoneProperty: "phone" });
   });
 
+  it("builds SMS and Twilio WhatsApp steps and maps them back", () => {
+    const MEDIA = "6f1c2b4e-9a0d-4c7b-8e2f-3a5d6c7b8e9f";
+    const sms = buildCampaign({ audienceId: AUD, channel: "sms", body: "Hi {{user.name}}", mediaAssetId: MEDIA, phoneProperty: "mobile" }, "UTC", now);
+    expect(sms.steps[0]).toEqual({ type: "sms", text: "Hi {{user.name}}", mediaAssetId: MEDIA, phoneProperty: "mobile", provider: "twilio" });
+    expect(formOf(sms, "UTC", now)).toMatchObject({ channel: "sms", body: "Hi {{user.name}}", mediaAssetId: MEDIA, phoneProperty: "mobile" });
+
+    const wa = buildCampaign({ audienceId: AUD, channel: "whatsapp", whatsappProvider: "twilio", whatsappTemplate: "promo|ar", whatsappParams: "{{user.name}}", whatsappHeaderParams: "Sale" }, "UTC", now);
+    expect(wa.steps[0]).toMatchObject({ type: "whatsapp", provider: "twilio", template: "promo", language: "ar", bodyParams: ["{{user.name}}"], headerParams: ["Sale"] });
+    expect(formOf(wa, "UTC", now)).toMatchObject({ whatsappProvider: "twilio", whatsappTemplate: "promo|ar", whatsappHeaderParams: "Sale" });
+    expect(() => buildCampaign({ audienceId: AUD, channel: "whatsapp", whatsappProvider: "gupshup", whatsappTemplate: "promo|ar" }, "UTC", now)).toThrow();
+  });
+
   it("explains what's wrong", () => {
-    expect(() => buildCampaign({ audienceId: AUD, channel: "sms" }, "UTC", now)).toThrow("Choose a channel.");
+    expect(() => buildCampaign({ audienceId: AUD, channel: "fax" }, "UTC", now)).toThrow("Choose a channel.");
+    expect(() => buildCampaign({ audienceId: AUD, channel: "sms" }, "UTC", now)).toThrow("Enter a message.");
     expect(() => buildCampaign({ audienceId: AUD, channel: "push", title: "x", body: "y", schedule: "later", sendAt: "2026-10-08T11:00" }, "UTC", now)).toThrow(/has passed/);
     expect(() => buildCampaign({ audienceId: AUD, channel: "push", title: "x", body: "y", schedule: "later" }, "UTC", now)).toThrow(/date and time/);
     expect(() => buildCampaign({ audienceId: AUD, channel: "push", body: "y" }, "UTC", now)).toThrow(/title/);

@@ -110,7 +110,7 @@ describe("campaigns", () => {
 
   it("validates the form", async () => {
     const make = (form: Record<string, string>) => createCampaign(t.ctx, t.dev.id, { name: "Bad", form, timezone: "UTC" });
-    await expect(make({ ...inApp(), channel: "sms" })).rejects.toThrow(/Choose a channel/);
+    await expect(make({ ...inApp(), channel: "fax" })).rejects.toThrow(/Choose a channel/);
     await expect(make({ ...inApp(), audienceId: "x" })).rejects.toThrow(/Choose an audience/);
     await expect(make(inApp({ title: "" }))).rejects.toBeInstanceOf(ValidationError);
     await expect(make(inApp({ schedule: "later", sendAt: "2020-01-01T10:00" }))).rejects.toThrow(/has passed/);

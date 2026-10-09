@@ -2,7 +2,7 @@ import { getT } from "@/i18n/server";
 import { describeStep, describeTrigger, type AutomationDefinition } from "@/modules/automation/definition";
 import { flowNodes } from "@/modules/automation/flow";
 
-const TONE: Record<string, string> = { delay: "border-s-ink-3", branch: "border-s-warn", exit: "border-s-alert", push: "border-s-accent", in_app: "border-s-accent", email: "border-s-accent", whatsapp: "border-s-accent" };
+const TONE: Record<string, string> = { delay: "border-s-ink-3", branch: "border-s-warn", exit: "border-s-alert", push: "border-s-accent", in_app: "border-s-accent", email: "border-s-accent", whatsapp: "border-s-accent", whatsapp_session: "border-s-accent", sms: "border-s-accent", wait_outcome: "border-s-warn" };
 
 /** A flow drawn top to bottom: trigger, steps (branches with their yes / no paths), end. Read-only. */
 export async function FlowView({ definition: d, audienceName }: { definition: AutomationDefinition; audienceName: (id: string) => string }) {

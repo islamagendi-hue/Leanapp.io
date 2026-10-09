@@ -208,7 +208,7 @@ describe("WhatsApp", () => {
     expect(await stepLog(id, "whatsapp")).toEqual([
       "w1:done:Sent (template)",
       "w2:skipped:No valid E.164 phone number in the phone user property",
-      "w3:failed:WhatsApp 131050: User stopped marketing messages",
+      "w3:failed:WhatsApp 131050: User stopped marketing messages (The person stopped marketing messages from businesses.)",
       "w4:skipped:Not sent: suppressed",
     ]);
     const msgs = sent("/v23.0/1110001/messages").map((c) => JSON.parse(c.body));
@@ -363,7 +363,7 @@ describe("channels & delivery (PR 11)", () => {
     expect(inbox.map((m) => m.title)).toEqual(["LeanApp test message"]);
 
     await expect(test({ channel: "email", userId: "nobody" })).rejects.toThrow(/No person with the user ID "nobody"/);
-    await expect(test({ channel: "sms", userId: "w5" })).rejects.toBeInstanceOf(ValidationError);
+    await expect(test({ channel: "fax", userId: "w5" })).rejects.toBeInstanceOf(ValidationError);
     await expect(sendTestMessage({ ...t.ctx, role: "viewer" }, t.dev.id, { channel: "email", userId: "w5" })).rejects.toThrow(/permission/);
     await expect(sendTestMessage(other.ctx, t.dev.id, { channel: "email", userId: "w5" })).rejects.toThrow(/not found/i);
 

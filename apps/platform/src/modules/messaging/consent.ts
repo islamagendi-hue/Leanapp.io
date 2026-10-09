@@ -11,19 +11,19 @@ import { consentState, suppressedKeys, type Channel as SuppressionChannel } from
  * when any of these hold for their user key in the environment:
  *   - a `marketing` suppression (manual, API, or automatic from denied
  *     marketing consent), or a suppression on the medium itself
- *     (`push`, `email`, `whatsapp`; in-app has no medium list);
+ *     (`push`, `email`, `whatsapp`, `sms`; in-app has no medium list);
  *   - their latest consent decision for `marketing` is a denial, or for
  *     push, their latest `push` decision is a denial.
  * No decision recorded means allowed (apps that don't collect consent keep
  * working); see docs/automation.md.
  */
-export type MessageChannel = "push" | "email" | "in_app" | "whatsapp";
+export type MessageChannel = "push" | "email" | "in_app" | "whatsapp" | "sms";
 
 export function splitUserKey(userKey: string): { userId: string | null; anonymousId: string | null } {
   return userKey.startsWith("anon:") ? { userId: null, anonymousId: userKey.slice(5) } : { userId: userKey, anonymousId: null };
 }
 
-const MEDIUM: Record<MessageChannel, SuppressionChannel | null> = { push: "push", email: "email", whatsapp: "whatsapp", in_app: null };
+const MEDIUM: Record<MessageChannel, SuppressionChannel | null> = { push: "push", email: "email", whatsapp: "whatsapp", sms: "sms", in_app: null };
 
 /** Returns why the person may not receive this channel ("suppressed" | "consent_denied"), or null when they may. */
 export async function messagingBlocked(db: Db, environmentId: string, userKey: string, channel: MessageChannel): Promise<string | null> {
@@ -38,7 +38,7 @@ export async function messagingBlocked(db: Db, environmentId: string, userKey: s
 
 /**
  * Adds a suppression the end user asked for themselves (email unsubscribe
- * link, WhatsApp STOP reply or WhatsApp's own marketing opt-out). Source
+ * link, WhatsApp or SMS STOP reply, or WhatsApp's own marketing opt-out). Source
  * `unsubscribe`: not removable from the dashboard, since the person chose it.
  * Idempotent. Runs in the caller's (system) transaction.
  */

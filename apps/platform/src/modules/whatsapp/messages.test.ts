@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  graphError, hubSignature, isOptOut, messagesUrl, parseWebhook, placeholderCount, templateMessageBody, templateParams, templatesUrl, toE164, verifyHubSignature,
+  explainGraphError, graphError, hubSignature, isOptOut, messagesUrl, parseWebhook, placeholderCount, placeholderKeys, renderTemplateText, sessionMessageBody, sessionOpen, templateCreateBody, templateDeleteUrl, templateMessageBody, templateParams, templatesUrl, templateVariables, toE164, verifyHubSignature,
 } from "./messages";
 
 describe("WhatsApp Cloud API messages", () => {
@@ -75,7 +75,7 @@ describe("WhatsApp Cloud API messages", () => {
     expect(batches).toHaveLength(1);
     expect(batches[0].phoneNumberId).toBe("111");
     expect(batches[0].statuses.map((s) => [s.messageId, s.status, s.errorCode])).toEqual([["wamid.1", "delivered", null], ["wamid.2", "failed", 131050]]);
-    expect(batches[0].messages).toEqual([{ from: "966501234567", text: "STOP" }, { from: "966501234569", text: "Stop promotions" }]);
+    expect(batches[0].messages).toMatchObject([{ from: "966501234567", text: "STOP", type: "text" }, { from: "966501234569", text: "Stop promotions", type: "button" }]);
     expect(parseWebhook(null)).toEqual([]);
     expect(parseWebhook({ entry: "x" })).toEqual([]);
   });
@@ -83,5 +83,53 @@ describe("WhatsApp Cloud API messages", () => {
   it("reads Graph API errors", () => {
     expect(graphError(400, JSON.stringify({ error: { code: 131050, message: "x", error_data: { details: "User opted out" } } }))).toEqual({ code: 131050, message: "131050: User opted out" });
     expect(graphError(502, "<html>")).toEqual({ code: null, message: "HTTP 502" });
+  });
+
+  it("reads named and positional template variables", () => {
+    expect(placeholderKeys("Hi {{1}}, code {{3}}")).toEqual(["1", "2", "3"]);
+    expect(placeholderKeys("Hi {{first_name}}, {{ order_id }} and {{first_name}}")).toEqual(["first_name", "order_id"]);
+    expect(placeholderKeys(undefined)).toEqual([]);
+    expect(templateVariables([{ type: "HEADER", format: "IMAGE" }, { type: "BODY", text: "Hi {{name}}" }]))
+      .toEqual({ headerFormat: "IMAGE", header: [], body: ["name"], parameterFormat: "NAMED" });
+    expect(templateVariables([{ type: "HEADER", text: "Sale {{1}}" }, { type: "BODY", text: "Hi {{1}}" }]))
+      .toEqual({ headerFormat: "TEXT", header: ["1"], body: ["1"], parameterFormat: "POSITIONAL" });
+    expect(renderTemplateText("Hi {{name}} {{x}}", ["name"], ["Sara"])).toBe("Hi Sara {{x}}");
+  });
+
+  it("sends named parameters and media headers", () => {
+    const body = templateMessageBody({ to: "+966501234567", name: "promo", language: "ar", bodyParams: ["Sara"], bodyNames: ["first_name"], headerMedia: { kind: "image", link: "https://x/m/a.jpg" } });
+    expect(body.template).toEqual({
+      name: "promo", language: { code: "ar" },
+      components: [
+        { type: "header", parameters: [{ type: "image", image: { link: "https://x/m/a.jpg" } }] },
+        { type: "body", parameters: [{ type: "text", parameter_name: "first_name", text: "Sara" }] },
+      ],
+    });
+  });
+
+  it("builds session messages and enforces the 24-hour window", () => {
+    expect(sessionMessageBody({ to: "+966501234567", text: "Hello" })).toEqual({ messaging_product: "whatsapp", recipient_type: "individual", to: "966501234567", type: "text", text: { preview_url: false, body: "Hello" } });
+    expect(sessionMessageBody({ to: "+1", text: "cap", media: { kind: "image", link: "https://l" } })).toMatchObject({ type: "image", image: { link: "https://l", caption: "cap" } });
+    expect(sessionMessageBody({ to: "+1", text: "cap", media: { kind: "audio", link: "https://l" } })).toEqual({ messaging_product: "whatsapp", recipient_type: "individual", to: "1", type: "audio", audio: { link: "https://l" } });
+    const now = new Date("2026-10-09T12:00:00Z");
+    expect(sessionOpen(new Date("2026-10-08T12:30:00Z"), now)).toBe(true);
+    expect(sessionOpen("2026-10-08T11:59:00Z", now)).toBe(false);
+    expect(sessionOpen(null, now)).toBe(false);
+  });
+
+  it("builds template create and delete requests", () => {
+    expect(templateCreateBody({ name: "order_update", language: "en_US", category: "UTILITY", headerText: "Order", body: "Hi {{1}}, order {{2}}", footer: "Thanks", examples: ["Sara", "42", "extra"] })).toEqual({
+      name: "order_update", language: "en_US", category: "UTILITY",
+      components: [
+        { type: "HEADER", format: "TEXT", text: "Order" },
+        { type: "BODY", text: "Hi {{1}}, order {{2}}", example: { body_text: [["Sara", "42"]] } },
+        { type: "FOOTER", text: "Thanks" },
+      ],
+    });
+    expect(templateDeleteUrl("https://g", "v23.0", "W", "promo", "123")).toBe("https://g/v23.0/W/message_templates?name=promo&hsm_id=123");
+    expect(templateDeleteUrl("https://g", "v23.0", "W", "promo")).toBe("https://g/v23.0/W/message_templates?name=promo");
+    expect(templatesUrl("https://g", "v23.0", "W")).toContain("rejected_reason,quality_score");
+    expect(explainGraphError(190)).toMatch(/token/);
+    expect(explainGraphError(424242)).toBeNull();
   });
 });

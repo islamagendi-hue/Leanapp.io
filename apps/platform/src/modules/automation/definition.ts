@@ -6,8 +6,21 @@
 import { z } from "zod";
 import { makeT, msg, type T } from "@/i18n/translate";
 import { describeNode, parseDefinition, type AudienceNode } from "@/modules/audiences/definition";
+import { WHATSAPP_PROVIDERS } from "@/modules/messaging/providers/registry";
 import { fill } from "./messages";
 import { HHMM } from "./time";
+
+/** Delivery outcomes a flow can wait for. */
+export const OUTCOMES = ["delivered", "read", "replied", "failed"] as const;
+export type Outcome = (typeof OUTCOMES)[number];
+/** Which message steps report each outcome (from provider receipts or inbound replies). */
+export const OUTCOME_LABELS: Record<Outcome, string> = { delivered: msg("delivered"), read: msg("read"), replied: msg("replied to"), failed: msg("failed") };
+export const OUTCOME_STEPS: Record<Outcome, readonly string[]> = {
+  delivered: ["whatsapp", "whatsapp_session", "sms"],
+  read: ["whatsapp", "whatsapp_session"],
+  replied: ["whatsapp", "whatsapp_session", "sms"],
+  failed: ["whatsapp", "whatsapp_session", "sms", "email", "push"],
+};
 
 const uuid = z.string().uuid(msg("Choose an audience."));
 /** Required text; `missing` is the message when it is empty. */
@@ -40,6 +53,16 @@ export const triggerSchema = z.discriminatedUnion("type", [
   }),
   /** One send to everyone in an audience at `at` (or as soon as activated, if `at` has passed). Used by campaigns. */
   z.object({ type: z.literal("once"), audienceId: uuid, at: z.iso.datetime({ offset: true, message: msg("Choose when to send.") }) }),
+  /**
+   * A person replied on WhatsApp or SMS (an inbound message from a number we
+   * messaged). With `keyword`, only replies that are exactly that word
+   * (case-insensitive) start a run. Opt-out replies never do.
+   */
+  z.object({
+    type: z.literal("inbound_message"),
+    channel: z.enum(["whatsapp", "sms"]),
+    keyword: z.string().trim().max(100).optional().transform((v) => v || undefined),
+  }),
 ]);
 export type Trigger = z.infer<typeof triggerSchema>;
 
@@ -83,6 +106,38 @@ export const stepSchema = z.discriminatedUnion("type", [
     headerParams: z.array(z.string().trim().min(1, msg("Fill in every template variable.")).max(60)).max(1).default([]),
     /** User property holding the phone number in E.164 (+9665…). */
     phoneProperty: propertyName.default("phone"),
+    /** Which connected WhatsApp provider sends it: Meta's Cloud API, or Twilio (template = the Content SID's synced name). */
+    provider: z.enum(WHATSAPP_PROVIDERS).default("whatsapp_cloud"),
+    /** Media library asset for an IMAGE / VIDEO / DOCUMENT template header. */
+    mediaAssetId: z.string().uuid(msg("Choose a media file.")).optional(),
+  }),
+  /** A free-form WhatsApp message: only sent inside the 24-hour customer service window, otherwise skipped. */
+  z.object({
+    type: z.literal("whatsapp_session"),
+    text: text(4096, msg("Enter a message.")),
+    mediaAssetId: z.string().uuid(msg("Choose a media file.")).optional(),
+    phoneProperty: propertyName.default("phone"),
+    provider: z.enum(WHATSAPP_PROVIDERS).default("whatsapp_cloud"),
+  }),
+  /** SMS through a provider that sends SMS (Twilio). Text only; an image (MMS) only where the provider declares it. */
+  z.object({
+    type: z.literal("sms"),
+    text: text(1600, msg("Enter a message.")),
+    mediaAssetId: z.string().uuid(msg("Choose a media file.")).optional(),
+    phoneProperty: propertyName.default("phone"),
+    provider: z.literal("twilio").default("twilio"),
+  }),
+  /**
+   * Waits for what happened to an earlier message step of this run: delivered,
+   * read, replied or failed, within `withinHours` of the send. Continues when
+   * it happens; otherwise ends the run or jumps forward, like a branch.
+   */
+  z.object({
+    type: z.literal("wait_outcome"),
+    step: z.coerce.number().int().min(0).max(48),
+    outcome: z.enum(OUTCOMES),
+    withinHours: z.coerce.number().int().min(1).max(720).default(24),
+    else: z.union([z.literal("exit"), z.object({ goto: z.coerce.number().int().min(1).max(49) })]),
   }),
   z.object({ type: z.literal("update_user_property"), property: propertyName, value: scalar }),
   /** Ends the run here (e.g. the end of a branch's "yes" path). */
@@ -93,7 +148,7 @@ export const stepSchema = z.discriminatedUnion("type", [
   }),
 ]);
 export type Step = z.infer<typeof stepSchema>;
-export const MESSAGE_STEPS = new Set<Step["type"]>(["push", "in_app", "email", "whatsapp"]);
+export const MESSAGE_STEPS = new Set<Step["type"]>(["push", "in_app", "email", "whatsapp", "whatsapp_session", "sms"]);
 
 export const definitionSchema = z
   .object({
@@ -119,7 +174,14 @@ export const definitionSchema = z
       if (s.type === "email" && !s.templateId && (!s.subject || !s.body)) {
         ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: choose an email template or write a subject and text."), { n: i + 1 }) });
       }
-      if (s.type === "branch" && s.else !== "exit") {
+      if (s.type === "wait_outcome") {
+        const target = d.steps[s.step];
+        if (s.step >= i) ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: wait for the outcome of an earlier step."), { n: i + 1 }) });
+        else if (!target || !OUTCOME_STEPS[s.outcome].includes(target.type)) {
+          ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: step {target} doesn't report \"{outcome}\"."), { n: i + 1, target: s.step + 1, outcome: s.outcome }) });
+        }
+      }
+      if ((s.type === "branch" || s.type === "wait_outcome") && s.else !== "exit") {
         if (s.else.goto <= i) ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: a branch can only jump forward."), { n: i + 1 }) });
         else if (s.else.goto >= d.steps.length) ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: there is no step {target}."), { n: i + 1, target: s.else.goto + 1 }) });
       }
@@ -193,6 +255,14 @@ export function describeStep(s: Step, t: T = english): string {
     case "in_app": return t("In-app message: {title}", { title: s.title });
     case "email": return s.templateId ? t("Email (template)") : t("Email: {subject}", { subject: String(s.subject) });
     case "whatsapp": return t("WhatsApp template: {template} ({language})", { template: s.template, language: s.language });
+    case "whatsapp_session": return t("WhatsApp message (within 24 hours of their last message): {text}", { text: s.text.slice(0, 60) });
+    case "sms": return t("SMS: {text}", { text: s.text.slice(0, 60) });
+    case "wait_outcome": {
+      const outcome = t(OUTCOME_LABELS[s.outcome]);
+      return s.else === "exit"
+        ? t("Wait up to {hours} h for step {step} to be {outcome}, otherwise exit", { hours: s.withinHours, step: s.step + 1, outcome })
+        : t("Wait up to {hours} h for step {step} to be {outcome}, otherwise go to step {n}", { hours: s.withinHours, step: s.step + 1, outcome, n: s.else.goto + 1 });
+    }
     case "update_user_property": return t("Set user property {property} = {value}", { property: s.property, value: JSON.stringify(s.value) });
     case "send_event": return t("Send event {event}", { event: s.event });
     case "exit": return t("Exit");
@@ -214,5 +284,9 @@ export function describeTrigger(tr: Trigger, audienceName: (id: string) => strin
         : t("Every {weekday} at {time} for everyone in {audience}", { weekday: t(DAYS[tr.weekday ?? 0]), time: tr.at, audience });
     }
     case "once": return t("Once at {time} for everyone in {audience}", { time: tr.at, audience: audienceName(tr.audienceId) });
+    case "inbound_message": {
+      const channel = tr.channel === "sms" ? "SMS" : "WhatsApp";
+      return tr.keyword ? t("When someone replies {keyword} on {channel}", { keyword: tr.keyword, channel }) : t("When someone replies on {channel}", { channel });
+    }
   }
 }

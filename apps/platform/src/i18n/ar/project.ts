@@ -215,10 +215,10 @@ const ar: Record<string, string> = {
   "Production can't be paused. Archive the project instead.": "لا يمكن إيقاف بيئة الإنتاج مؤقتًا. أرشف المشروع بدلًا من ذلك.",
   "Provide a user_id, an anonymous_id, or both.": "أدخل user_id أو anonymous_id أو كليهما.",
   "Invalid subject.": "صاحب بيانات غير صالح.",
-  "Choose at least one channel: marketing, push, email or whatsapp.": "اختر قناة واحدة على الأقل: marketing أو push أو email أو whatsapp.",
+  "Choose at least one channel: marketing, push, email, whatsapp or sms.": "اختر قناة واحدة على الأقل: marketing أو push أو email أو whatsapp أو sms.",
   "Provide a user_id or an anonymous_id.": "أدخل user_id أو anonymous_id.",
   "Invalid suppression.": "حظر غير صالح.",
-  "channel must be marketing, push, email or whatsapp.": "يجب أن تكون القناة marketing أو push أو email أو whatsapp.",
+  "channel must be marketing, push, email, whatsapp or sms.": "يجب أن تكون القناة marketing أو push أو email أو whatsapp أو sms.",
   "Invalid cursor.": "مؤشر غير صالح.",
   // Built by NotFoundError in lib/errors from names passed by these modules.
   "App not found.": "التطبيق غير موجود.",

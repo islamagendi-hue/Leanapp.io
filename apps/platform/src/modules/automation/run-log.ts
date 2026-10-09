@@ -41,6 +41,15 @@ export const RUN_LOG = {
   internalRetry: msg("Internal error; will retry."),
   archived: msg("Automation archived"),
   deletionPending: msg("A data deletion request is pending for this person."),
+  outsideWindow: msg("Outside the 24-hour window: the person hasn't messaged you in the last 24 hours, so only a template may be sent"),
+  mediaUnavailable: msg("Media not attached: {message}"),
+  mmsNotAllowed: msg("MMS goes only to US and Canadian numbers"),
+  outcomeReached: msg("Step {step} was {outcome}"),
+  outcomeWaiting: msg("Waiting for step {step} to be {outcome} (until {until})"),
+  outcomeMissedEnd: msg("Step {step} wasn't {outcome} in time: run ends"),
+  outcomeMissedGoto: msg("Step {step} wasn't {outcome} in time: going to step {n}"),
+  outcomeNoMessage: msg("Step {step} sent nothing to wait for"),
+  sentMessage: msg("Sent (message)"),
 } as const;
 
 registerTemplates(Object.values(RUN_LOG));
