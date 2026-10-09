@@ -45,7 +45,7 @@ export default async function AttributionSettingsPage(props: PageProps<"/o/[org]
                 <span>
                   <span className="font-medium">{t("Probabilistic matching (Android only)")}</span>
                   <span className="help block">
-                    {rich(t("When nothing deterministic matches, credit an Android install to an unclaimed link click from the same network address (keyed hash, never the raw IP) and Android version within the window below. Reported separately as {probabilistic}. Never used on iOS. Off by default: turn it on only if your privacy notice discloses it."), {
+                    {rich(t("When no click id or campaign parameters match, credit an Android install to an unclaimed link click from the same network address (keyed hash, never the raw IP) and Android version within the window below and the click lookback. Reported separately as {probabilistic}. Never used on iOS. Off by default: turn it on only if your privacy notice discloses it."), {
                       probabilistic: <em>{t("probabilistic")}</em>,
                     })}
                   </span>
@@ -59,7 +59,7 @@ export default async function AttributionSettingsPage(props: PageProps<"/o/[org]
         </ActionForm>
       </section>
       <p className="max-w-2xl text-sm text-ink-3">
-        {t("View-through attribution (impressions) needs ad-network impression data, which LeanApp doesn't receive yet; the view lookback ({hours}h) is stored for when it does.", { hours: s.view_lookback_hours })}
+        {t("View-through (impression) attribution isn't built: it needs ad-network impression data, which LeanApp doesn't receive. The stored view lookback ({hours}h) is not used yet and changes nothing.", { hours: s.view_lookback_hours })}
       </p>
     </div>
   );

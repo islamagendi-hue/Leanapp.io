@@ -37,8 +37,10 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
         {[
           [tr("Link clicks"), num(t.clicks), tr("Bots and prefetches excluded")],
           [tr("Installs"), num(allInstalls), t.reinstalls ? tr("{n} reinstalls", { n: num(t.reinstalls) }) : tr("First opens")],
-          [tr("Attributed"), `${num(t.attributed)} · ${pct(t.attributed, allInstalls)}`, t.probabilistic ? tr("{n} probabilistic", { n: num(t.probabilistic) }) : tr("All deterministic")],
-          [tr("Organic"), `${num(t.organic)} · ${pct(t.organic, allInstalls)}`, tr("{n} re-engagements", { n: num(t.reengagements) })],
+          [tr("Attributed"), `${num(t.attributed)} · ${pct(t.attributed, allInstalls)}`,
+            tr("{deterministic} deterministic · {reported} reported · {probabilistic} probabilistic", { deterministic: num(t.deterministic), reported: num(t.reported), probabilistic: num(t.probabilistic) })],
+          [tr("Organic / unattributed"), `${num(t.organic)} · ${pct(t.organic, allInstalls)}`,
+            t.organic_ios ? tr("{n} on iOS, where paid installs can't be matched without SKAdNetwork or Apple Search Ads", { n: num(t.organic_ios) }) : tr("{n} re-engagements", { n: num(t.reengagements) })],
         ].map(([label, value, note]) => (
           <div key={label} className="card">
             <p className="font-mono text-[11px] uppercase tracking-wide text-ink-3">{label}</p>

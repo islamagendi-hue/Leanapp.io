@@ -179,13 +179,33 @@ describe("install attribution", () => {
     expect(await attributionOf("inst-dl")).toMatchObject({ match_type: "deterministic", match_key: "deep_link" });
   });
 
-  it("matches ad-network click ids, recorded on a click or carried by the install alone", async () => {
+  it("matches ad-network click ids: deterministic when our link recorded them, reported when only the install carries one", async () => {
     await recorded(link.code, { query: { ttclid: "E.C.P.only-on-click" } });
     await send([ev("app_installed", "inst-ttclid", { context: { platform: "android", attribution: { ttclid: "E.C.P.only-on-click" } } })]);
     expect(await attributionOf("inst-ttclid")).toMatchObject({ match_type: "deterministic", match_key: "ttclid", link_id: link.id });
 
+    // Was "deterministic" before 0030: no click of ours carries this gclid, only the install's context says so.
     await send([ev("app_installed", "inst-gclid", { context: { platform: "android", attribution: { gclid: "Cj0K-xyz", utm_campaign: "search_brand" } } })]);
-    expect(await attributionOf("inst-gclid")).toMatchObject({ match_type: "deterministic", match_key: "gclid", source: "google", network: "google", campaign: "search_brand", link_id: null });
+    expect(await attributionOf("inst-gclid")).toMatchObject({ match_type: "reported", match_key: "gclid", source: "google", network: "google", campaign: "search_brand", link_id: null });
+  });
+
+  it("labels UTM-only installs reported, never deterministic", async () => {
+    await send([ev("app_installed", "inst-utm", { context: { platform: "android", attribution: { utm_source: "snapchat", utm_campaign: "eid", deep_link_url: "myapp://offers?utm_source=snapchat" } } })]);
+    expect(await attributionOf("inst-utm")).toMatchObject({ match_type: "reported", match_key: "utm_parameters", source: "snapchat", campaign: "eid", link_id: null });
+    // A Play referrer with campaign parameters but no LeanApp click id: still only reported.
+    await send([ev("app_installed", "inst-utm-ref", { context: { platform: "android", campaign: { install_referrer: "utm_source=tiktok&utm_campaign=summer", referrer_click_timestamp_seconds: Math.floor(Date.now() / 1000) } } })]);
+    expect(await attributionOf("inst-utm-ref")).toMatchObject({ match_type: "reported", match_key: "install_referrer", source: "tiktok" });
+    // The same referrer carrying a LeanApp click id of a recorded click is deterministic.
+    const c = await recorded(link.code);
+    await send([ev("app_installed", "inst-utm-click", { context: { platform: "android", campaign: { install_referrer: `click_id=${c.clickId}&utm_source=tiktok&utm_campaign=summer` } } })]);
+    expect(await attributionOf("inst-utm-click")).toMatchObject({ match_type: "deterministic", match_key: "install_referrer", link_id: link.id });
+  });
+
+  it("shows paid iOS installs without a LeanApp click id as organic, never matched by guesswork", async () => {
+    const ip = "198.51.100.150";
+    await recorded(link.code, { ua: IPHONE, ip });
+    await send([ev("app_installed", "inst-ios-paid", { context: { platform: "ios", os_version: "17.4" } })], { clientIp: ip });
+    expect(await attributionOf("inst-ios-paid")).toMatchObject({ match_type: "organic", touchpoint_id: null });
   });
 
   it("marks installs with nothing to match as organic", async () => {
@@ -382,6 +402,10 @@ describe("reports, permissions and isolation", () => {
     expect(r.totals.organic).toBeGreaterThan(0);
     expect(r.totals.probabilistic).toBe(1);
     expect(r.totals.reengagements).toBe(1);
+    expect(r.totals.reported).toBeGreaterThanOrEqual(3); // inst-gclid, inst-utm, inst-utm-ref (+ pb-google)
+    expect(r.totals.deterministic + r.totals.reported + r.totals.probabilistic).toBe(r.totals.attributed);
+    expect(r.totals.organic_ios).toBeGreaterThanOrEqual(2); // inst-ios, inst-ios-paid
+    expect(r.bySource.find((s) => s.source === "snapchat" && s.campaign === "eid")).toMatchObject({ installs: 1, deterministic: 0, reported: 1 });
     expect(r.bySource.find((s) => s.source === "tiktok" && s.campaign === "ramadan")!.installs).toBeGreaterThan(0);
     expect(r.byCampaign.find((c) => c.source === "snapchat")).toMatchObject({ revenue: 549, currency: "SAR" });
     const l = r.links.find((x) => x.id === link.id)!;

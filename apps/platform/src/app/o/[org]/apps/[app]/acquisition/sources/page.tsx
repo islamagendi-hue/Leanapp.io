@@ -28,9 +28,10 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
 
       <section className="card overflow-x-auto p-0">
         <h2 className="h2 px-5 pt-5">{t("Installs by source and campaign")}</h2>
+        <p className="px-5 text-sm text-ink-3">{t("Deterministic: matched to a click your tracking link recorded. Reported: only the install's own context (an ad-network click id or UTM parameters) names the source; nothing verifies it. Probabilistic: opt-in Android match on device signals. iOS installs without a LeanApp click id count as organic.")}</p>
         {r.bySource.length === 0 ? <p className="px-5 pb-5 pt-3 text-sm text-ink-3">{t("No installs in this range.")}</p> : (
           <table className="table mt-3">
-            <thead><tr><th>{t("Source")}</th><th>{t("Campaign")}</th><th className="text-end">{t("Installs")}</th><th className="text-end">{t("Deterministic")}</th><th className="text-end">{t("Probabilistic")}</th><th className="text-end">{t("Re-engagements")}</th></tr></thead>
+            <thead><tr><th>{t("Source")}</th><th>{t("Campaign")}</th><th className="text-end">{t("Installs")}</th><th className="text-end">{t("Deterministic")}</th><th className="text-end">{t("Reported")}</th><th className="text-end">{t("Probabilistic")}</th><th className="text-end">{t("Re-engagements")}</th></tr></thead>
             <tbody>
               {r.bySource.map((s) => (
                 <tr key={`${s.source}:${s.campaign}`}>
@@ -38,6 +39,7 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
                   <td className="text-ink-2">{s.campaign ?? "–"}</td>
                   <td className="text-end tabular-nums">{num(s.installs)}</td>
                   <td className="text-end tabular-nums">{num(s.deterministic)}</td>
+                  <td className="text-end tabular-nums">{num(s.reported)}</td>
                   <td className="text-end tabular-nums">{num(s.probabilistic)}</td>
                   <td className="text-end tabular-nums">{num(s.reengagements)}</td>
                 </tr>

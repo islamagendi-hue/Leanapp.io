@@ -31,7 +31,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Native SDKs: Android (Kotlin, with Play Install Referrer), iOS (Swift), Flutter (Dart), tested in CI | ✓ (not published: Maven Central, Swift package tag / CocoaPods and pub.dev need the owner's accounts) |
 | Docs, ADRs, OpenAPI, CI (lint, types, unit, integration, migrations, build, browser end-to-end) | ✓ |
 | Production deployment | Workflow, scheduler and runbook ✓; ✗ waits for owner (Supabase projects, Vercel project, DNS, secrets) |
-| Attribution engine (phase 3): tracking links `/l/{code}` with bot/prefetch filtering and rate limits, deterministic install matching (Play referrer, click ids, ad-network click ids), opt-in Android-only probabilistic matching, reinstalls, re-engagement, last-touch conversions and revenue, postback queue with retries, dashboard | ✓ (custom URL postbacks tested; TikTok / Snap / Meta / Google postbacks not verified with the live networks) |
+| Attribution engine (phase 3): tracking links `/l/{code}` with bot/prefetch filtering and rate limits, deterministic install matching (LeanApp click ids from the Play referrer, deep links or context; ad-network click ids recorded on our click), `reported` matches for ad-network click ids / UTM only the install reports, opt-in Android-only probabilistic matching, reinstalls, re-engagement, last-touch conversions and revenue, postback queue with retries, dashboard | ✓ (custom URL postbacks tested; TikTok / Snap / Meta / Google postbacks not verified with the live networks) |
 
 ## Gaps to a sellable product
 
