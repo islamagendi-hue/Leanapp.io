@@ -32,11 +32,17 @@ optional and documented in `apps/platform/.env.example`.
 | `worker` | The worker refuses to run because configuration is invalid (variable names only); events failed processing permanently in a run (warning, with counts) | same route |
 | `worker-health` | Stale backlog, elevated ingestion 5xx rate, stopped scheduler, scheduler call not returning 200 (see below) | `src/server/worker-health.ts` |
 
-The worker's `step()` wrapper is monitoring only: it reports the error and
-rethrows it, so a failing step fails the run exactly as before (no per-step
-isolation was added, and nothing in `modules/processing` or ingestion changed).
-The error object is remembered, so Next's `onRequestError` doesn't report it a
-second time.
+The worker's steps are isolated by `step()`: a step that throws is reported
+(`worker:<step>`), logged as `cron.step_failed`, and recorded in the response's
+`errors` list as `{ "step": "<name>", "error_name": "<error class>" }` (the class
+name only, never the message), and the remaining steps still run, each within
+its usual time budget. When any step failed the route answers **HTTP 500** with
+the full JSON summary (and logs `cron.completed_with_errors` instead of
+`cron.completed`), so pg_net records a non-200 status, the heartbeat raises
+`scheduler_http_error`, and the smoke test (`scripts/smoke.ts`) fails its worker check. A failed step
+yields `null` in its response field (`processed`/`failed` are 0 when processing
+failed). The demo refresh is the exception: it is reported as `worker:demo` and
+shows `"demo": "failed"`, but does not make the run a 500.
 
 Not reported: 4xx errors (`AppError` subclasses), Next's control-flow signals
 (`notFound()`, `redirect()`), and errors swallowed and logged inside modules

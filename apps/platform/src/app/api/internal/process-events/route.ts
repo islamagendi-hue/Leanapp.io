@@ -37,16 +37,25 @@ function authorized(req: Request): boolean {
 
 const ROUTE = "GET /api/internal/process-events";
 
+interface StepError {
+  step: string;
+  /** The error's class name only (e.g. "Error", "DatabaseError"); never its message, which may carry data. */
+  error_name: string;
+}
+
 /**
- * Monitoring only: reports a failing step (docs/ops/monitoring.md), then
- * rethrows, so the run fails exactly as it did without it.
+ * Runs one worker step in isolation: a throwing step is reported
+ * (docs/ops/monitoring.md), recorded in `errors`, and yields `null`, so the
+ * remaining steps still run. The route answers 500 when any step failed.
  */
-async function step<T>(name: string, fn: () => Promise<T>): Promise<T> {
+async function step<T>(errors: StepError[], name: string, fn: () => Promise<T>): Promise<T | null> {
   try {
     return await fn();
   } catch (e) {
+    log.error("cron.step_failed", { step: name, error: e });
     await captureException(e, { source: `worker:${name}`, route: ROUTE, title: `Worker step "${name}" failed`, details: { step: name } });
-    throw e;
+    errors.push({ step: name, error_name: e instanceof Error ? e.name || "Error" : typeof e });
+    return null;
   }
 }
 
@@ -59,6 +68,10 @@ async function step<T>(name: string, fn: () => Promise<T>): Promise<T> {
  * attribution postbacks, and engagement: audience recomputation, automation
  * triggers and steps, webhook deliveries, and (when DEMO_ENABLED=1) the public
  * demo's sample data. Each later step starts only while its time budget lasts.
+ *
+ * Steps are isolated: one that throws is reported and listed in `errors`
+ * (step and error class name), the others still run, and the response is 500
+ * so pg_cron/pg_net, the heartbeat and the smoke test see the failure.
  */
 export async function GET(req: Request) {
   if (!authorized(req)) return new Response("Unauthorized", { status: 401 });
@@ -71,19 +84,26 @@ export async function GET(req: Request) {
   // Privacy deletions first (they have deadlines), then event processing under a
   // wall-clock budget so housekeeping always fits inside maxDuration.
   const started = Date.now();
-  const deletions = await step("deletions", () => runDeletionJobs({ limit: 20 }));
-  const { processed, failed } = await step("processing", () => processPendingEvents({ limit: 20_000, deadline: started + PROCESSING_BUDGET_MS }));
+  const errors: StepError[] = [];
+  const deletions = await step(errors, "deletions", () => runDeletionJobs({ limit: 20 }));
+  const processing = await step(errors, "processing", () => processPendingEvents({ limit: 20_000, deadline: started + PROCESSING_BUDGET_MS }));
+  const processed = processing?.processed ?? 0;
+  const failed = processing?.failed ?? 0;
   // Background re-map of past events and growth-state rebuilds, in small chunks while time is left.
-  const reprocess = Date.now() < started + REPROCESS_BUDGET_MS ? await step("reprocess", () => runReprocessJobs({ deadline: started + REPROCESS_BUDGET_MS })) : null;
-  const purged = { rate_limit_buckets: await step("purge_rate_limits", () => purgeRateLimitBuckets()), ...(await step("purge_operational", () => purgeOperationalData())) };
-  const retention = await step("retention", () => applyEventRetention());
+  const reprocess = Date.now() < started + REPROCESS_BUDGET_MS ? await step(errors, "reprocess", () => runReprocessJobs({ deadline: started + REPROCESS_BUDGET_MS })) : null;
+  const purged = {
+    rate_limit_buckets: await step(errors, "purge_rate_limits", () => purgeRateLimitBuckets()),
+    ...(await step(errors, "purge_operational", () => purgeOperationalData())),
+  };
+  const retention = await step(errors, "retention", () => applyEventRetention());
   // Plan usage emails (80% / 100% / refusing), once per threshold per month.
-  const usageNotices = Date.now() - started < LATE_STEPS_BUDGET_MS ? await step("usage_notices", () => sendUsageNotices({ limit: 100 })) : { notices: 0, emails: 0, skipped: true };
+  const usageNotices = Date.now() - started < LATE_STEPS_BUDGET_MS ? await step(errors, "usage_notices", () => sendUsageNotices({ limit: 100 })) : { notices: 0, emails: 0, skipped: true };
   // Attribution postbacks and click fingerprint cleanup, only while time is left.
-  const attribution = Date.now() < started + ATTRIBUTION_BUDGET_MS ? await step("attribution", () => runAttributionJobs({ deadline: started + ATTRIBUTION_BUDGET_MS })) : null;
+  const attribution = Date.now() < started + ATTRIBUTION_BUDGET_MS ? await step(errors, "attribution", () => runAttributionJobs({ deadline: started + ATTRIBUTION_BUDGET_MS })) : null;
   // Engagement: audiences, automation triggers and steps, webhook deliveries, only while time is left.
-  const engagement = Date.now() < started + ENGAGEMENT_BUDGET_MS ? await step("engagement", () => runEngagement({ deadline: started + ENGAGEMENT_BUDGET_MS })) : { skipped: "time budget" };
+  const engagement = Date.now() < started + ENGAGEMENT_BUDGET_MS ? await step(errors, "engagement", () => runEngagement({ deadline: started + ENGAGEMENT_BUDGET_MS })) : { skipped: "time budget" };
   // The public demo's sample data, re-sent a few times a day so its reports stay current.
+  // Not a failing step: a demo refresh failure is reported but does not turn the run into a 500.
   let demo: string | null = null;
   if (demoEnabled() && Date.now() < started + LATE_STEPS_BUDGET_MS) {
     demo = await ensureDemo({ staleHours: 6, deadline: started + LATE_STEPS_BUDGET_MS + 5_000 }).then(
@@ -95,8 +115,21 @@ export async function GET(req: Request) {
       },
     );
   }
-  const summary = { processed, failed, deletions, reprocess, purged, retention: { mode: retention.mode, organizations: retention.organizations.length }, usage_notices: usageNotices, attribution, engagement, demo };
-  log.info("cron.completed", summary);
+  const summary = {
+    processed,
+    failed,
+    deletions,
+    reprocess,
+    purged,
+    retention: retention ? { mode: retention.mode, organizations: retention.organizations.length } : null,
+    usage_notices: usageNotices,
+    attribution,
+    engagement,
+    demo,
+    errors,
+  };
+  if (errors.length) log.error("cron.completed_with_errors", summary);
+  else log.info("cron.completed", summary);
   // Heartbeat checks after the response: stale backlog, ingestion 5xx rate, pg_cron history. Alerts are throttled.
   after(async () => {
     if (failed > 0) {
@@ -106,5 +139,8 @@ export async function GET(req: Request) {
       .then(alertOnProblems)
       .catch((e) => log.error("worker_health.failed", { error: e }));
   });
-  return Response.json({ processed, failed, deletions, reprocess, purged, retention, usage_notices: usageNotices, attribution, engagement, demo });
+  return Response.json(
+    { processed, failed, deletions, reprocess, purged, retention, usage_notices: usageNotices, attribution, engagement, demo, errors },
+    { status: errors.length ? 500 : 200 },
+  );
 }

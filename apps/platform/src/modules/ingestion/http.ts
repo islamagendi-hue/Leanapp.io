@@ -54,7 +54,8 @@ export async function handleIngest(req: Request, mode: "single" | "batch"): Prom
       return json(413, { error: errorCode, message: `Body exceeds ${max} bytes.` });
     }
     const text = await req.text();
-    if (text.length > max) {
+    // The limit is in bytes: text.length counts UTF-16 code units, which undercounts non-ASCII bodies.
+    if (Buffer.byteLength(text, "utf8") > max) {
       status = 413;
       errorCode = "payload_too_large";
       return json(413, { error: errorCode, message: `Body exceeds ${max} bytes.` });

@@ -11,13 +11,15 @@ vi.mock("next/server", () => ({ after: (fn: () => unknown) => void fn() }));
 vi.mock("@/server/config", () => ({ checkConfig: () => ({ deployment: "local", errors: [], warnings: [] }) }));
 const processPendingEvents = vi.fn();
 vi.mock("@/modules/processing/processor", () => ({ processPendingEvents }));
-vi.mock("@/modules/privacy/service", () => ({ runDeletionJobs: async () => ({ completed: 0 }) }));
+const runDeletionJobs = vi.fn(async (..._args: unknown[]): Promise<unknown> => ({ completed: 0 }));
+vi.mock("@/modules/privacy/service", () => ({ runDeletionJobs }));
 vi.mock("@/modules/reprocess/jobs", () => ({ runReprocessJobs: async () => null }));
 vi.mock("@/lib/rate-limit", () => ({ purgeRateLimitBuckets: async () => 0 }));
 vi.mock("@/modules/maintenance/retention", () => ({ purgeOperationalData: async () => ({}), applyEventRetention: async () => ({ mode: "report", organizations: [] }) }));
 vi.mock("@/modules/billing/notices", () => ({ sendUsageNotices: async () => ({ notices: 0, emails: 0 }) }));
 vi.mock("@/modules/attribution/delivery", () => ({ runAttributionJobs: async () => null }));
-vi.mock("@/modules/automation/worker", () => ({ runEngagement: async () => ({}) }));
+const runEngagement = vi.fn(async (..._args: unknown[]): Promise<unknown> => ({}));
+vi.mock("@/modules/automation/worker", () => ({ runEngagement }));
 vi.mock("@/modules/marketing/demo", () => ({ demoEnabled: () => false, ensureDemo: async () => {} }));
 
 const SECRET = "test-cron-secret-0123456789";
@@ -33,6 +35,10 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
   vi.clearAllMocks();
+  runDeletionJobs.mockReset();
+  runDeletionJobs.mockImplementation(async () => ({ completed: 0 }));
+  runEngagement.mockReset();
+  runEngagement.mockImplementation(async () => ({}));
 });
 
 describe("GET /api/internal/worker-status", () => {
@@ -68,21 +74,68 @@ describe("GET /api/internal/worker-status", () => {
 });
 
 describe("GET /api/internal/process-events monitoring", () => {
-  it("reports a throwing step and still fails the run as before", async () => {
+  it("reports a throwing step, still runs the remaining steps, and answers 500", async () => {
     const { GET } = await import("./process-events/route");
-    const boom = new Error("processing exploded");
+    const boom = new Error("processing exploded for user@example.com");
     processPendingEvents.mockRejectedValue(boom);
-    await expect(GET(req("/api/internal/process-events", SECRET))).rejects.toBe(boom);
+    checkWorkerHealth.mockResolvedValue({ status: "ok", problems: [] });
+    const res = await GET(req("/api/internal/process-events", SECRET));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.errors).toEqual([{ step: "processing", error_name: "Error" }]);
+    expect(JSON.stringify(body)).not.toContain("exploded");
+    expect(body).toMatchObject({ processed: 0, failed: 0, deletions: { completed: 0 } });
+    expect(runEngagement).toHaveBeenCalledTimes(1);
     expect(captureException).toHaveBeenCalledWith(boom, expect.objectContaining({ source: "worker:processing", details: { step: "processing" } }));
+    await vi.waitFor(() => expect(alertOnProblems).toHaveBeenCalled());
   });
 
-  it("returns the same response on success and runs the heartbeat check afterwards", async () => {
+  it("isolates a failing deletions step: event processing and later steps still run", async () => {
+    const { GET } = await import("./process-events/route");
+    class DatabaseError extends Error {
+      override name = "DatabaseError";
+    }
+    const boom = new DatabaseError("relation does not exist");
+    runDeletionJobs.mockRejectedValue(boom);
+    processPendingEvents.mockResolvedValue({ processed: 7, failed: 0 });
+    checkWorkerHealth.mockResolvedValue({ status: "ok", problems: [] });
+    const res = await GET(req("/api/internal/process-events", SECRET));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.errors).toEqual([{ step: "deletions", error_name: "DatabaseError" }]);
+    expect(body.deletions).toBeNull();
+    expect(body.processed).toBe(7);
+    expect(processPendingEvents).toHaveBeenCalledTimes(1);
+    expect(runEngagement).toHaveBeenCalledTimes(1);
+    expect(body.retention).toEqual({ mode: "report", organizations: [] });
+    expect(captureException).toHaveBeenCalledTimes(1);
+    expect(captureException).toHaveBeenCalledWith(boom, expect.objectContaining({ source: "worker:deletions", details: { step: "deletions" } }));
+  });
+
+  it("records every failing step", async () => {
+    const { GET } = await import("./process-events/route");
+    runDeletionJobs.mockRejectedValue(new Error("a"));
+    runEngagement.mockRejectedValue(new TypeError("b"));
+    processPendingEvents.mockResolvedValue({ processed: 1, failed: 0 });
+    checkWorkerHealth.mockResolvedValue({ status: "ok", problems: [] });
+    const res = await GET(req("/api/internal/process-events", SECRET));
+    expect(res.status).toBe(500);
+    expect((await res.json()).errors).toEqual([
+      { step: "deletions", error_name: "Error" },
+      { step: "engagement", error_name: "TypeError" },
+    ]);
+    expect(captureException).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns 200 with an empty errors list on success and runs the heartbeat check afterwards", async () => {
     const { GET } = await import("./process-events/route");
     processPendingEvents.mockResolvedValue({ processed: 3, failed: 1 });
     checkWorkerHealth.mockResolvedValue({ status: "ok", problems: [] });
     const res = await GET(req("/api/internal/process-events", SECRET));
     expect(res.status).toBe(200);
-    expect(Object.keys(await res.json()).sort()).toEqual(["attribution", "deletions", "demo", "engagement", "failed", "processed", "purged", "reprocess", "retention", "usage_notices"]);
+    const body = await res.json();
+    expect(Object.keys(body).sort()).toEqual(["attribution", "deletions", "demo", "engagement", "errors", "failed", "processed", "purged", "reprocess", "retention", "usage_notices"]);
+    expect(body.errors).toEqual([]);
     await vi.waitFor(() => expect(alertOnProblems).toHaveBeenCalled());
     expect(report).toHaveBeenCalledWith(expect.objectContaining({ key: "worker:events_failed", details: { failed: 1, processed: 3 } }));
     expect(captureException).not.toHaveBeenCalled();
