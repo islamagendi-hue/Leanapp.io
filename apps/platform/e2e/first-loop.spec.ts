@@ -500,14 +500,14 @@ test("campaigns: audience, channel, message, schedule; the audience must be acti
   await page.getByRole("button", { name: "Send now" }).click();
   await expect(page.getByText(/Activate the audience "Riyadh people" first/)).toBeVisible();
 
-  await page.getByRole("link", { name: "Campaigns" }).first().click();
+  await page.getByRole("link", { name: "Campaigns", exact: true }).first().click();
   await expect(page.getByRole("row").filter({ hasText: "Riyadh weekend" }).getByText("In-app")).toBeVisible();
 });
 
 test("experiments: create and start one, get a variant from the API, and see the exposure on the results page", async ({ page, request }) => {
   await signIn(page);
   await page.goto(`${appBase}/engage/campaigns?env=development`);
-  await page.getByRole("link", { name: "Experiments" }).first().click();
+  await page.getByRole("link", { name: "A/B experiments", exact: true }).first().click();
   await expect(page.getByRole("heading", { name: /Experiments/, level: 1 })).toBeVisible();
   await expect(page.getByRole("region", { name: "What works today" })).toContainText("A/B tests of campaign messages");
   await page.getByRole("link", { name: "New experiment" }).click();
