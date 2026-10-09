@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createApiKeyAction, createSdkKeyAction, revokeApiKeyAction, revokeSdkKeyAction, rotateSdkKeyAction } from "@/app/actions/apps";
 import { ActionForm } from "@/components/ActionForm";
 import { CodeTabs } from "@/components/CodeTabs";
@@ -10,6 +11,7 @@ import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "SDK & API keys" };
 
+const ENV_ORDER = { production: 0, staging: 1, development: 2 } as const;
 const fmt = (d: Date | null) => (d ? new Date(d).toLocaleString("en-GB") : "never");
 
 const SCOPE_LABEL: Record<ApiKeyScope, string> = {
@@ -62,9 +64,17 @@ curl -X POST ${api}/v1/events \\
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="h1">SDK &amp; API keys</h1>
-          <p className="mt-1 text-ink-2">Each environment has its own keys and its own data.</p>
+          <p className="mt-1 text-ink-2">Each environment has its own keys and its own data. <Link className="underline" href={`/o/${org}/settings/api-keys`}>All projects&apos; keys</Link></p>
         </div>
       </div>
+      <nav className="flex flex-wrap gap-2" aria-label="Environment">
+        {[...environments].sort((x, y) => ENV_ORDER[x.type] - ENV_ORDER[y.type]).map((e) => (
+          <Link key={e.id} href={`?env=${e.type}`} aria-current={e.id === env.id ? "page" : undefined}
+            className={`pill ${e.id === env.id ? "border-ink bg-ink text-paper" : "border-line hover:border-line-strong"}`}>
+            {e.name}{e.status === "disabled" ? " (paused)" : ""}
+          </Link>
+        ))}
+      </nav>
 
       <section className="card space-y-3">
         <h2 className="h2">1. Install and initialize</h2>

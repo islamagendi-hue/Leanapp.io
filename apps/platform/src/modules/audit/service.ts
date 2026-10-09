@@ -12,6 +12,7 @@ export type AuditAction =
   | "auth.password_reset"
   | "auth.password_changed"
   | "auth.sessions_revoked"
+  | "auth.profile_updated"
   | "organization.created"
   | "organization.updated"
   | "member.invited"

@@ -149,6 +149,17 @@ export async function changePassword(userId: string, input: unknown, currentSess
   await sendEmail(passwordChangedMessage(u.email, u.name));
 }
 
+const profileSchema = z.object({ name: z.string().trim().min(2, "Enter your name.").max(120) });
+
+/** Changes the name shown to teammates (members list, audit log, emails). */
+export async function updateProfile(userId: string, input: unknown): Promise<void> {
+  const data = parse(profileSchema, input);
+  await withSystem(async (db) => {
+    await db.query("update platform.users set name = $2 where id = $1", [userId, data.name]);
+    await audit(db, { organizationId: null, actorUserId: userId, action: "auth.profile_updated" });
+  });
+}
+
 /** "Sign out everywhere else". Returns how many sessions were ended. */
 export async function signOutOtherSessions(userId: string, currentSessionToken: string | null): Promise<number> {
   const n = await revokeAllSessions(userId, currentSessionToken);

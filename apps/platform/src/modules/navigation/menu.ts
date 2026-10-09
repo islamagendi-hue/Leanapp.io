@@ -87,8 +87,9 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
 }
 
 /**
- * Settings menu. Workspace and Security belong to the organization; Project and Dev Ops to the
- * project at `base`, and are left out when there is no project in view.
+ * Settings menu. You is the signed-in person's own profile; Workspace and Security belong to the
+ * organization; Project and Dev Ops to the project at `base`, and are left out when there is no
+ * project in view.
  */
 export function settingsMenu(role: Role, org: string, base?: string): NavGroup[] {
   const ws = `/o/${org}/settings`;
@@ -96,10 +97,15 @@ export function settingsMenu(role: Role, org: string, base?: string): NavGroup[]
   return groups(
     [
       {
+        label: "You",
+        items: pick(role, [{ label: "Your profile", href: `${ws}/profile`, perm: "organization.read" }]),
+      },
+      {
         label: "Workspace",
         items: pick(role, [
           { label: "General", href: ws, perm: "organization.read" },
           { label: "Members & roles", href: `${ws}/members`, perm: "members.read" },
+          { label: "API keys", href: `${ws}/api-keys`, perm: "credentials.read" },
           { label: "Billing & plan", href: `${ws}/billing`, perm: "billing.read" },
           { label: "Usage", href: `${ws}/billing#usage`, perm: "billing.read" },
         ]),
@@ -141,7 +147,7 @@ export function settingsMenu(role: Role, org: string, base?: string): NavGroup[]
         label: "Security",
         items: pick(role, [
           { label: "Audit log", href: `${ws}/audit`, perm: "audit.read" },
-          { label: "Sessions", href: "/account#sessions", perm: "organization.read" },
+          { label: "Sessions", href: `${ws}/profile#sessions`, perm: "organization.read" },
         ]),
       },
     ],

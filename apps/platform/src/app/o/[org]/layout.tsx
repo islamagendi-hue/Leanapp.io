@@ -4,7 +4,8 @@ import { Suspense } from "react";
 import { signOutAction } from "@/app/actions/auth";
 import { LogoMark } from "@/components/Logo";
 import { PlanBanner } from "@/components/PlanBanner";
-import { EnvironmentSelect, ProjectSwitcher, WorkspaceSwitcher } from "@/components/TopBar";
+import { initials } from "@/components/account/AccountSections";
+import { AccountMenu, EnvironmentSelect, ProjectSwitcher, WorkspaceSwitcher } from "@/components/TopBar";
 import { ENV_COOKIE, isEnvironmentName } from "@/lib/environment";
 import { listApps, listArchivedApps } from "@/modules/apps/service";
 import { listOrganizationsForUser } from "@/modules/organizations/service";
@@ -18,6 +19,14 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
   const user = await currentUser();
   const [workspaces, projects, archived] = await Promise.all([user ? listOrganizationsForUser(user.id) : [], listApps(ctx), listArchivedApps(ctx)]);
   const env = (await cookies()).get(ENV_COOKIE)?.value;
+  const ws = `/o/${org}/settings`;
+  const accountLinks = [
+    { label: "Your profile", href: `${ws}/profile`, show: true },
+    { label: "Organization settings", href: ws, show: can(ctx.role, "organization.read") },
+    { label: "Members & invitations", href: `${ws}/members`, show: can(ctx.role, "members.read") },
+    { label: "API keys", href: `${ws}/api-keys`, show: can(ctx.role, "credentials.read") },
+    { label: "Billing & plan", href: `${ws}/billing`, show: can(ctx.role, "billing.read") },
+  ].filter((l) => l.show).map(({ label, href }) => ({ label, href }));
   return (
     <div className="min-h-dvh">
       <header className="sticky top-0 z-20 border-b border-line bg-paper/95 backdrop-blur">
@@ -38,19 +47,22 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
           <Suspense>
             <EnvironmentSelect initial={isEnvironmentName(env) ? env : undefined} />
           </Suspense>
-          <div className="ms-auto flex items-center gap-3 text-sm text-ink-3">
-            <Link href="/account" className="hidden hover:text-ink sm:inline">{user?.email}</Link>
-            <span className="pill border-line">{ROLE_INFO[ctx.role].name}</span>
-            <form action={signOutAction}>
-              <button className="underline hover:text-ink" type="submit">Sign out</button>
-            </form>
+          <div className="ms-auto flex items-center text-sm">
+            <AccountMenu
+              name={user?.name ?? ""}
+              email={user?.email ?? ""}
+              initials={initials(user?.name, user?.email ?? "?")}
+              role={ROLE_INFO[ctx.role].name}
+              links={accountLinks}
+              signOut={signOutAction}
+            />
           </div>
         </div>
       </header>
       {user && !user.emailVerified && (
         <div className="border-b border-line bg-warn-soft px-4 py-2 text-center text-sm text-warn">
           Please confirm your email address ({user.email}).{" "}
-          <Link href="/account" className="underline">Resend the link</Link>
+          <Link href={`/o/${org}/settings/profile`} className="underline">Resend the link</Link>
         </div>
       )}
       <PlanBanner ctx={ctx} />

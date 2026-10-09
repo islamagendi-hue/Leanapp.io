@@ -1,7 +1,8 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { changePassword, requestPasswordReset, resetPassword, sendVerificationEmail, signOutOtherSessions, verifyEmail } from "@/modules/auth/account";
+import { changePassword, requestPasswordReset, resetPassword, sendVerificationEmail, signOutOtherSessions, updateProfile, verifyEmail } from "@/modules/auth/account";
 import { safeNext } from "@/lib/safe-next";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requestMeta, requireUser, sessionToken } from "@/server/session";
@@ -67,4 +68,15 @@ export async function signOutOtherSessionsAction(_: ActionState): Promise<Action
   } catch (err) {
     return toActionError(err);
   }
+}
+
+export async function updateProfileAction(_: ActionState, form: FormData): Promise<ActionState> {
+  try {
+    const user = await requireUser();
+    await updateProfile(user.id, { name: form.get("name") });
+  } catch (err) {
+    return toActionError(err);
+  }
+  revalidatePath("/", "layout");
+  return { ok: true, message: "Saved." };
 }

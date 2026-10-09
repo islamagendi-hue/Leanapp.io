@@ -28,7 +28,7 @@ describe("navigation menu", () => {
     expect(main.some((h) => h.includes("/settings/dev-ops/") || h.includes("/settings/privacy"))).toBe(false);
     expect(labels(projectMenu("owner", base))).toEqual(expect.arrayContaining(["Overview", "Analytics", "Users", "Audiences", "Engagement", "Acquisition", "Settings"]));
     expect(projectMenu("owner", base).find((g) => g.label === "Acquisition")?.beta).toBe(true);
-    expect(labels(settingsMenu("owner", "acme", base)).filter((l) => !l.includes("/"))).toEqual(["Workspace", "Project", "Dev Ops", "Security"]);
+    expect(labels(settingsMenu("owner", "acme", base)).filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Dev Ops", "Security"]);
   });
 
   it("shows each role only what its permissions open", () => {
@@ -41,7 +41,7 @@ describe("navigation menu", () => {
     expect(projectMenu("analyst", base).some((g) => g.label === "Engagement")).toBe(false);
 
     const devSettings = labels(settingsMenu("developer", "acme", base));
-    expect(devSettings).toEqual(expect.arrayContaining(["Dev Ops/SDK & API keys", "Dev Ops/Webhooks", "Dev Ops/Debugger"]));
+    expect(devSettings).toEqual(expect.arrayContaining(["Dev Ops/SDK & API keys", "Dev Ops/Webhooks", "Dev Ops/Debugger", "Workspace/API keys"]));
     expect(devSettings).not.toContain("Workspace/Billing & plan");
     const marketerSettings = labels(settingsMenu("marketer", "acme", base));
     expect(marketerSettings).not.toContain("Dev Ops/SDK & API keys");
@@ -51,7 +51,9 @@ describe("navigation menu", () => {
     // Viewer: reports, people and audiences (read only); no engagement, acquisition, Dev Ops or workspace admin.
     expect(labels(projectMenu("viewer", base))).toEqual(["Overview", "Analytics", "Analytics/Events & trends", "Analytics/Funnels", "Analytics/Retention", "Analytics/Revenue", "Analytics/Activation", "Analytics/Dashboards", "Analytics/Saved reports", "Users", "Audiences", "Settings"]);
     const viewerSettings = labels(settingsMenu("viewer", "acme", base));
-    expect(viewerSettings.filter((l) => !l.includes("/"))).toEqual(["Workspace", "Project", "Security"]);
+    expect(viewerSettings.filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Security"]);
+    expect(viewerSettings).toContain("You/Your profile");
+    expect(viewerSettings).not.toContain("Workspace/API keys");
     expect(viewerSettings).toEqual(expect.arrayContaining(["Project/General", "Project/Environments", "Project/Timezone & currency"]));
     expect(viewerSettings).not.toContain("Workspace/Members & roles");
   });
@@ -63,7 +65,7 @@ describe("navigation menu", () => {
   });
 
   it("leaves project groups out of workspace-only settings", () => {
-    expect(settingsMenu("owner", "acme").map((g) => g.label)).toEqual(["Workspace", "Security"]);
+    expect(settingsMenu("owner", "acme").map((g) => g.label)).toEqual(["You", "Workspace", "Security"]);
   });
 
   it("highlights the most specific entry", () => {

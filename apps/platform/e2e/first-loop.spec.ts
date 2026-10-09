@@ -194,6 +194,36 @@ test("account, settings and privacy pages", async ({ page }) => {
   }).toPass({ timeout: 15_000 });
 });
 
+test("account menu: profile, team, API keys per environment, and Sign out", async ({ page }) => {
+  await signIn(page);
+  await page.goto(appBase);
+  const menu = page.getByRole("banner").getByLabel("Your account");
+  await menu.click();
+  for (const item of ["Your profile", "Organization settings", "Members & invitations", "API keys", "Billing & plan"]) {
+    await expect(page.getByRole("banner").getByRole("link", { name: item, exact: true })).toBeVisible();
+  }
+  await page.getByRole("banner").getByRole("link", { name: "Your profile" }).click();
+  await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+  await page.getByRole("region", { name: "Profile" }).getByLabel("Name").fill("Sara Admin");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Your organizations" }).getByText("Owner")).toBeVisible();
+
+  await menu.click();
+  await expect(page.getByRole("banner").getByText("Sara Admin")).toBeVisible();
+  await page.getByRole("banner").getByRole("link", { name: "API keys" }).click();
+  await expect(page.getByRole("heading", { name: "API keys" })).toBeVisible();
+  for (const env of ["Production", "Staging", "Development"]) await expect(page.getByRole("cell", { name: env, exact: true }).first()).toBeVisible();
+  await page.getByRole("link", { name: "Manage" }).first().click();
+  await expect(page.getByRole("navigation", { name: "Environment" }).getByRole("link", { name: "Production" })).toHaveAttribute("aria-current", "page");
+  await page.getByRole("navigation", { name: "Environment" }).getByRole("link", { name: "Staging" }).click();
+  await expect(page).toHaveURL(/env=staging/);
+
+  await menu.click();
+  await page.getByRole("banner").getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/login/);
+});
+
 test("product shell: Overview home, Dev Ops in Settings, old addresses and the remembered environment", async ({ page }) => {
   await signIn(page);
   // A project opens on Overview; with no production events it points to Get started.

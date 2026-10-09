@@ -10,8 +10,8 @@ export default async function SettingsLayout(props: LayoutProps<"/o/[org]/settin
   const projects = await listApps(ctx);
   const menu: NavGroup[] = settingsMenu(ctx.role, org);
   if (projects.length) {
-    // Before Security: Workspace, then projects (Project + Dev Ops settings), then Security.
-    menu.splice(1, 0, { label: "Project settings", items: projects.map((p) => ({ label: p.name, href: `/o/${org}/apps/${p.slug}/settings` })) });
+    // After You and Workspace, before Security: projects (Project + Dev Ops settings).
+    menu.splice(menu.findIndex((g) => g.label === "Workspace") + 1, 0, { label: "Project settings", items: projects.map((p) => ({ label: p.name, href: `/o/${org}/apps/${p.slug}/settings` })) });
   }
   return (
     <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[220px_1fr]">

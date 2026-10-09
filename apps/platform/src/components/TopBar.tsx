@@ -14,17 +14,17 @@ function projectInPath(path: string): string | undefined {
 }
 
 /** A small dropdown on <details>; closes when an entry is chosen. */
-function Menu({ label, title, children }: { label: string; title: string; children: ReactNode }) {
+function Menu({ label, title, children, summary, align = "start" }: { label: string; title: string; children: ReactNode; summary?: ReactNode; align?: "start" | "end" }) {
   const close = (e: MouseEvent<HTMLDivElement>) => {
     if ((e.target as HTMLElement).closest("a")) e.currentTarget.closest("details")?.removeAttribute("open");
   };
   return (
     <details className="relative">
-      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 hover:bg-paper-2" title={title}>
-        <span className="max-w-[12rem] truncate">{label}</span>
+      <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-md px-2 py-1 hover:bg-paper-2" title={title} aria-label={summary ? label : undefined}>
+        {summary ?? <span className="max-w-[12rem] truncate">{label}</span>}
         <span aria-hidden className="text-xs text-ink-3">▾</span>
       </summary>
-      <div onClick={close} className="absolute start-0 z-30 mt-1 min-w-56 rounded-lg border border-line bg-card p-1 text-sm shadow-lg">{children}</div>
+      <div onClick={close} className={`absolute ${align === "end" ? "end-0" : "start-0"} z-30 mt-1 min-w-56 rounded-lg border border-line bg-card p-1 text-sm shadow-lg`}>{children}</div>
     </details>
   );
 }
@@ -105,5 +105,40 @@ export function EnvironmentSelect({ initial }: { initial?: EnvironmentName }) {
         </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * The signed-in person's menu, top right as in most SaaS apps: who you are and
+ * your role here, your profile, the organization's settings you can open, and
+ * Sign out.
+ */
+export function AccountMenu({ name, email, initials, role, links, signOut }: {
+  name: string;
+  email: string;
+  initials: string;
+  role: string;
+  links: { label: string; href: string }[];
+  signOut: () => Promise<void>;
+}) {
+  return (
+    <Menu
+      label="Your account"
+      title={email}
+      align="end"
+      summary={<span className="grid size-8 place-items-center rounded-full bg-ink text-xs font-bold text-paper">{initials}</span>}
+    >
+      <div className="px-3 pb-2 pt-2">
+        <p className="truncate font-medium text-ink">{name}</p>
+        <p className="truncate text-xs text-ink-3">{email}</p>
+        <span className="pill mt-1 border-line text-ink-3">{role}</span>
+      </div>
+      <hr className="my-1 border-line" />
+      {links.map((l) => <Link key={l.href} href={l.href} className={itemClass(false)}>{l.label}</Link>)}
+      <hr className="my-1 border-line" />
+      <form action={signOut}>
+        <button type="submit" className={`${itemClass(false)} w-full text-start`}>Sign out</button>
+      </form>
+    </Menu>
   );
 }
