@@ -665,6 +665,30 @@ test("landing page: Arabic and English, honest labels, comparison, pricing, and 
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
 });
 
+test("developer guide: public, Arabic and English, the four SDKs and an honest release status", async ({ page }) => {
+  await page.goto("/?lang=ar");
+  await page.getByRole("navigation", { name: "الأقسام" }).getByRole("link", { name: "للمطوّرين" }).click();
+  await expect(page).toHaveURL(/\/developers\?lang=ar$/);
+  await expect(page.locator("div[dir=rtl][lang=ar]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("أضف LeanApp إلى تطبيقك");
+  const sdks = ["JavaScript / React Native", "Android (Kotlin)", "iOS (Swift)", "Flutter (Dart)"];
+  await expect(page.locator("#sdks").getByRole("heading", { level: 3 })).toHaveText(sdks);
+  await expect(page.locator("#code pre").first()).toHaveAttribute("dir", "ltr");
+
+  await page.goto("/developers?lang=en");
+  await expect(page.locator("div[dir=ltr][lang=en]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Add LeanApp to your app");
+  await expect(page.locator("#sdks").getByRole("heading", { level: 3 })).toHaveText(sdks);
+  await expect(page.getByRole("listitem", { name: "Android (Kotlin)" })).toContainText("Not on Maven Central yet: available from us during onboarding.");
+  await expect(page.getByRole("heading", { name: "Notes and recommendations" })).toBeVisible();
+  await expect(page.locator("#deep-links")).toContainText("not called by the SDKs yet");
+  await page.getByRole("link", { name: "العربية" }).click();
+  await expect(page).toHaveURL(/\/developers$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("أضف LeanApp إلى تطبيقك");
+  await page.getByRole("link", { name: "English" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Add LeanApp to your app");
+});
+
 test("the app switches to Arabic, right to left, and back", async ({ page }) => {
   await page.goto("/login");
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in");

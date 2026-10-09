@@ -26,7 +26,7 @@ export const FLOW: FlowStep[] = [
     items: [
       { name: "Tracking plan from your business model", state: "live" },
       { name: "REST API for servers", state: "live" },
-      { name: "JavaScript / React Native, Android, iOS and Flutter SDKs", state: "beta", note: "Built and tested; added from our repository until they are on npm, Maven Central, pub.dev and Swift Package Manager." },
+      { name: "JavaScript / React Native, Android, iOS and Flutter SDKs", state: "beta", note: "Built and tested; we provide them during onboarding until they are on npm, Maven Central, pub.dev and Swift Package Manager." },
     ],
   },
   {
@@ -90,7 +90,7 @@ export const FLOW_AR: FlowStep[] = [
     items: [
       { name: "خطة تتبّع مبنية على نموذج عملك", state: "live" },
       { name: "REST API للخوادم", state: "live" },
-      { name: "حزم SDK لـ JavaScript / React Native و Android و iOS و Flutter", state: "beta", note: "جاهزة ومختبرة، وتُضاف من مستودعنا إلى أن تُنشر على npm و Maven Central و pub.dev و Swift Package Manager." },
+      { name: "حزم SDK لـ JavaScript / React Native و Android و iOS و Flutter", state: "beta", note: "جاهزة ومختبرة، ونوفّرها لك أثناء الإعداد إلى أن تُنشر على npm و Maven Central و pub.dev و Swift Package Manager." },
     ],
   },
   {
@@ -269,7 +269,7 @@ export const CONTACT_EMAIL = "hello@leanapp.io";
 
 const EN = {
   dir: "ltr" as "ltr" | "rtl",
-  nav: { demo: "Demo", how: "How we work", compare: "Compare", pricing: "Pricing", about: "About us", signIn: "Sign in", start: "Start free", dashboard: "Open dashboard", other: "العربية" },
+  nav: { demo: "Demo", how: "How we work", compare: "Compare", pricing: "Pricing", about: "About us", developers: "Developers", signIn: "Sign in", start: "Start free", dashboard: "Open dashboard", other: "العربية" },
   hero: {
     eyebrow: "Product analytics for mobile apps in the Arab world",
     title: "Know your users. Grow your app.",
@@ -349,15 +349,25 @@ const EN = {
       { q: "Is the demo real?", a: "No. It's generated sample data for a made-up food delivery app, so you can try every report safely." },
     ],
   },
+  developers: {
+    title: "For developers",
+    lead: "SDKs for JavaScript and React Native, Android (Kotlin), iOS (Swift) and Flutter, plus a REST API for your servers. Separate keys for development, staging and production, and a live debugger to check every event before you ship.",
+    points: [
+      "Built and tested; not on public package registries yet, so we provide them during onboarding.",
+      "Offline queue, batching and retries on every platform, with no advertising ids collected.",
+      "Deferred deep links and in-app message display are not in the SDKs yet.",
+    ],
+    cta: "Read the developer guide",
+  },
   cta: { title: "Ready to see your own app?", lead: "Create a free account and send your first event today.", start: "Start free", demo: "Try the demo first" },
-  footer: { rights: "LeanApp", contact: "Contact" },
+  footer: { rights: "LeanApp", contact: "Contact", developers: "Developers" },
 };
 
 export type LandingCopy = typeof EN & { compareRows: CompareRow[]; flow: FlowStep[]; coming: string[]; notOffered: string; states: Record<Availability, string> };
 
 const AR: typeof EN = {
   dir: "rtl",
-  nav: { demo: "العرض التجريبي", how: "طريقة عملنا", compare: "المقارنة", pricing: "الأسعار", about: "من نحن", signIn: "تسجيل الدخول", start: "ابدأ مجانًا", dashboard: "افتح لوحة التحكم", other: "English" },
+  nav: { demo: "العرض التجريبي", how: "طريقة عملنا", compare: "المقارنة", pricing: "الأسعار", about: "من نحن", developers: "للمطوّرين", signIn: "تسجيل الدخول", start: "ابدأ مجانًا", dashboard: "افتح لوحة التحكم", other: "English" },
   hero: {
     eyebrow: "تحليلات تطبيقات الجوال للعالم العربي",
     title: "اعرف مستخدميك، وطوّر تطبيقك.",
@@ -437,8 +447,18 @@ const AR: typeof EN = {
       { q: "هل العرض التجريبي حقيقي؟", a: "لا. هو بيانات تجريبية لتطبيق توصيل طعام وهمي، لتجرّب كل التقارير بأمان." },
     ],
   },
+  developers: {
+    title: "للمطوّرين",
+    lead: "حزم SDK لـ JavaScript و React Native و Android (Kotlin) و iOS (Swift) و Flutter، إضافة إلى REST API لخوادمك. مفاتيح منفصلة للتطوير والاختبار والإنتاج، ومراقب أحداث مباشر للتحقق من كل حدث قبل الإطلاق.",
+    points: [
+      "جاهزة ومختبرة، لكنها غير منشورة بعد على مستودعات الحزم العامة، لذا نوفّرها لك أثناء الإعداد.",
+      "طابور يعمل دون اتصال، وإرسال على دفعات، وإعادة محاولة على كل منصة، دون جمع أي معرّفات إعلانية.",
+      "الروابط العميقة المؤجّلة وعرض الرسائل داخل التطبيق غير متوفرة في الحزم بعد.",
+    ],
+    cta: "اقرأ دليل المطوّرين",
+  },
   cta: { title: "هل أنت مستعد لرؤية تطبيقك؟", lead: "أنشئ حسابًا مجانيًا وأرسل أول حدث اليوم.", start: "ابدأ مجانًا", demo: "جرّب العرض أولًا" },
-  footer: { rights: "LeanApp · لين آب", contact: "تواصل معنا" },
+  footer: { rights: "LeanApp · لين آب", contact: "تواصل معنا", developers: "للمطوّرين" },
 };
 
 /** The landing copy for a language. */

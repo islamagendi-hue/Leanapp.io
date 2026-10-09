@@ -60,6 +60,7 @@ export default async function Home(props: PageProps<"/">) {
             <a href="#compare" className="hover:text-ink">{t.nav.compare}</a>
             <a href="#pricing" className="hover:text-ink">{t.nav.pricing}</a>
             <a href="#about" className="hover:text-ink">{t.nav.about}</a>
+            <Link href={`/developers?lang=${lang}`} className="hover:text-ink">{t.nav.developers}</Link>
           </nav>
           <div className="flex items-center gap-3 text-sm">
             <Suspense><ThemeSwitch current={theme} compact /></Suspense>
@@ -244,6 +245,21 @@ export default async function Home(props: PageProps<"/">) {
           <p className="mt-6 text-sm text-ink-2">{t.pricing.all}</p>
         </section>
 
+        <section id="developers" aria-labelledby="developers-title" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-14">
+          <div className="grid gap-8 md:grid-cols-[1fr_1fr]">
+            <div className="min-w-0">
+              <h2 id="developers-title" className="text-2xl font-bold md:text-3xl">{t.developers.title}</h2>
+              <p className="mt-3 text-ink-2">{t.developers.lead}</p>
+              <Link href={`/developers?lang=${lang}`} className="btn-secondary mt-6">{t.developers.cta}</Link>
+            </div>
+            <ul className="grid min-w-0 gap-3">
+              {t.developers.points.map((p) => (
+                <li key={p} className="flex gap-2 rounded-xl border border-line bg-card p-4 text-sm text-ink-2"><span aria-hidden className="text-accent">•</span>{p}</li>
+              ))}
+            </ul>
+          </div>
+        </section>
+
         <section id="about" aria-labelledby="about-title" className="scroll-mt-20 border-y border-line bg-card">
           <div className="mx-auto grid max-w-6xl gap-10 px-4 py-14 md:grid-cols-[1fr_1fr]">
             <div className="min-w-0">
@@ -287,7 +303,7 @@ export default async function Home(props: PageProps<"/">) {
 
       <footer className="border-t border-line">
         <div className="mx-auto flex max-w-6xl flex-wrap justify-between gap-2 px-4 py-6 text-sm text-ink-3">
-          <span>© {new Date().getFullYear()} {t.footer.rights} · leanapp.io</span>
+          <span>© {new Date().getFullYear()} {t.footer.rights} · leanapp.io · <Link href={`/developers?lang=${lang}`} className="underline">{t.footer.developers}</Link></span>
           <span>{t.footer.contact}: <a href={`mailto:${CONTACT_EMAIL}`} className="underline" dir="ltr">{CONTACT_EMAIL}</a></span>
         </div>
       </footer>
