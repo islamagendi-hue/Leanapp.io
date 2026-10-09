@@ -169,7 +169,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
                 : (
                   <>
                     <SourceBars label={t("Acquisition by source")} rows={metrics.sources.map((r) => ({ ...r, label: r.key === "other" ? t("Other") : t(r.label) }))} />
-                    <p className="mt-3 text-xs text-ink-3">{t("Share of installs in this range, by channel ({model}). Unattributed installs are shown as such, never as organic.", { model: metrics.sourceModel === "first_touch" ? t("first touch") : t("last touch") })}</p>
+                    <p className="mt-3 text-xs text-ink-3">{t("Share of installs in this range, by channel ({model}). Unattributed installs are shown as such, never as organic.", { model: metrics.sourceModel === "first_touch" ? t("first touch") : metrics.sourceModel === "last_non_direct" ? t("last non-direct touch") : t("last touch") })}</p>
                   </>
                 )}
             </section>

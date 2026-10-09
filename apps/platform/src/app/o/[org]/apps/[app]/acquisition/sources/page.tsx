@@ -22,7 +22,7 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
   requirePermission(ctx, "attribution.read");
   const env = await pickEnvironment(environments, sp.env);
   const rangeInput = rangeFromParams(toSearch(sp));
-  const model = sp.model === "first_touch" || sp.model === "last_touch" ? sp.model : undefined;
+  const model = sp.model === "first_touch" || sp.model === "last_touch" || sp.model === "last_non_direct" ? sp.model : undefined;
   const [r, ch] = await Promise.all([
     attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, rangeInput),
     channelReport(ctx, { appId: a.id, environmentId: env.id, timezone: a.timezone, includeSpend: can(ctx.role, "analytics.read") }, { ...rangeInput, model }),
@@ -41,6 +41,7 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
           <select name="model" className="input" defaultValue={ch.model}>
             <option value="last_touch">{t("Last touch")}</option>
             <option value="first_touch">{t("First touch")}</option>
+            <option value="last_non_direct">{t("Last non-direct touch")}</option>
           </select>
         </label>
       </AcquisitionRange>

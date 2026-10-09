@@ -2,6 +2,8 @@ import { updateSettingsAction } from "@/app/actions/attribution";
 import { ActionForm } from "@/components/ActionForm";
 import { can } from "@/modules/rbac/authorize";
 import { getSettings } from "@/modules/attribution/service";
+import { WINDOW_FORM_CHANNELS } from "@/modules/attribution/pure-credit";
+import { channelInfo } from "@/modules/channels/registry";
 import { ChannelRulesSettings } from "@/components/acquisition/ChannelRulesSettings";
 import { rich } from "@/components/acquisition/rich";
 import { getT } from "@/i18n/server";
@@ -30,18 +32,19 @@ export default async function AttributionSettingsPage(props: PageProps<"/o/[org]
           <fieldset disabled={!manage} className="space-y-5">
             <label className="block"><span className="label">{t("Click lookback (days)")}</span>
               <input name="clickLookbackDays" type="number" min={1} max={90} defaultValue={s.click_lookback_days} className="input w-32" />
-              <span className="help">{t("An install matches a click (link click id, store referrer or ad-network click id) up to this long after it. Default 7.")}</span>
+              <span className="help">{t("An install matches a click (link click id, store referrer or ad-network click id) up to this long after it. Default 7.")} {t("Channels with their own window below use that one instead.")}</span>
             </label>
             <label className="block"><span className="label">{t("Conversion window (days)")}</span>
               <input name="conversionWindowDays" type="number" min={1} max={730} defaultValue={s.conversion_window_days} className="input w-32" />
-              <span className="help">{t("Conversions this long after the install or re-engagement are credited to its source. Default 90.")}</span>
+              <span className="help">{t("Conversions this long after the install, re-engagement or web touch are credited to its source. Default 90.")}</span>
             </label>
             <label className="block"><span className="label">{t("Reports open with")}</span>
               <select name="reportingModel" className="input w-48" defaultValue={s.reporting_model}>
                 <option value="last_touch">{t("Last touch")}</option>
                 <option value="first_touch">{t("First touch")}</option>
+                <option value="last_non_direct">{t("Last non-direct touch")}</option>
               </select>
-              <span className="help">{t("Both models are always available on Sources & campaigns; this is the one it shows first. First touch is the person's earliest install or re-engagement within the conversion window.")}</span>
+              <span className="help">{t("Every model is always available on Sources & campaigns; this is the one it shows first. First touch is the person's earliest install, re-engagement or web touch within the conversion window. Last non-direct touch is the latest one with a known source: a later direct, organic or unattributed visit or install never takes the credit away from it.")}</span>
             </label>
             <label className="flex items-start gap-2">
               <input type="checkbox" name="reengagementEnabled" defaultChecked={s.reengagement_enabled} className="mt-1" />
@@ -62,6 +65,37 @@ export default async function AttributionSettingsPage(props: PageProps<"/o/[org]
               <label className="block ps-6"><span className="label">{t("Window (hours)")}</span>
                 <input name="probabilisticWindowHours" type="number" min={1} max={168} defaultValue={s.probabilistic_window_hours} className="input w-32" />
               </label>
+            </div>
+            <div className="space-y-2 rounded-lg border border-line p-4">
+              <input type="hidden" name="windowOverridesPresent" value="1" />
+              <p className="font-medium">{t("Windows per channel")}</p>
+              <p className="help">{t("Leave a field blank to use the windows above. Ad networks count conversions in their own reports with their own windows, which LeanApp doesn't change or read; these windows only decide LeanApp's own credit.")}</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-start text-ink-3">
+                      <th className="py-1 pe-3 text-start font-normal">{t("Channel")}</th>
+                      <th className="py-1 pe-3 text-start font-normal">{t("Click lookback (days)")}</th>
+                      <th className="py-1 text-start font-normal">{t("Conversion window (days)")}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {WINDOW_FORM_CHANNELS.map((key) => (
+                      <tr key={key} className="border-t border-line">
+                        <td className="py-1 pe-3">{t(channelInfo(key).label)}</td>
+                        <td className="py-1 pe-3">
+                          <input name={`override.${key}.click`} type="number" min={1} max={90} aria-label={t("Click lookback for {channel} (days)", { channel: t(channelInfo(key).label) })}
+                            defaultValue={s.window_overrides[key]?.click_lookback_days ?? ""} placeholder={String(s.click_lookback_days)} className="input w-24" />
+                        </td>
+                        <td className="py-1">
+                          <input name={`override.${key}.conversion`} type="number" min={1} max={730} aria-label={t("Conversion window for {channel} (days)", { channel: t(channelInfo(key).label) })}
+                            defaultValue={s.window_overrides[key]?.conversion_window_days ?? ""} placeholder={String(s.conversion_window_days)} className="input w-24" />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </fieldset>
         </ActionForm>

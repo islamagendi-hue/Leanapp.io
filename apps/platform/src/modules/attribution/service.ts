@@ -10,6 +10,7 @@ import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { DEFAULT_SETTINGS, type AttributionSettings } from "./engine";
 import { NETWORK_SPECS, NETWORKS, type Network } from "./networks";
 import { destinationFor, isBot, isPrefetch, NETWORK_CLICK_IDS, parseUserAgent, unknownMacros, type LinkDestinations } from "./pure";
+import { CLICK_LOOKBACK_RANGE, CONVERSION_WINDOW_RANGE, parseWindowOverrides, WINDOW_CHANNELS, type WindowOverrides } from "./pure-credit";
 import { assertPostbackUrlShape } from "./url-safety";
 import { envNumber } from "@/lib/env-number";
 import { msg } from "@/i18n/translate";
@@ -22,8 +23,14 @@ async function assertEnvironment(db: Db, appId: string, environmentId: string) {
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
-/** Credit models the reports offer (docs/channels.md). */
-export const REPORTING_MODELS = ["last_touch", "first_touch"] as const;
+/**
+ * Credit models the reports offer (docs/channels.md, docs/attribution.md):
+ *   last_touch       the latest touch in the window, whatever it was
+ *   first_touch      the earliest touch in the window
+ *   last_non_direct  the latest touch with a known source: direct, organic and unattributed
+ *                    touches never take credit from a known earlier source
+ */
+export const REPORTING_MODELS = ["last_touch", "first_touch", "last_non_direct"] as const;
 export type ReportingModel = (typeof REPORTING_MODELS)[number];
 
 export type AppAttributionSettings = AttributionSettings & { view_lookback_hours: number; reporting_model: ReportingModel };
@@ -31,11 +38,12 @@ export type AppAttributionSettings = AttributionSettings & { view_lookback_hours
 export async function getSettings(ctx: TenantContext, appId: string): Promise<AppAttributionSettings> {
   return tenantTx(ctx, "attribution.read", async (db) => {
     const row = await db.one<AppAttributionSettings>(
-      `select click_lookback_days, view_lookback_hours, probabilistic_enabled, probabilistic_window_hours, conversion_window_days, reengagement_enabled, reporting_model
+      `select click_lookback_days, view_lookback_hours, probabilistic_enabled, probabilistic_window_hours, conversion_window_days, reengagement_enabled, reporting_model,
+              window_overrides
          from platform.attribution_settings where app_id = $1`,
       [appId],
     );
-    return row ?? { ...DEFAULT_SETTINGS, view_lookback_hours: 24, reporting_model: "last_touch" };
+    return row ? { ...row, window_overrides: parseWindowOverrides(row.window_overrides) } : { ...DEFAULT_SETTINGS, view_lookback_hours: 24, reporting_model: "last_touch" };
   });
 }
 
@@ -46,26 +54,55 @@ const settingsSchema = z.object({
   probabilisticWindowHours: z.coerce.number().int().min(1, msg("Probabilistic window is 1–168 hours.")).max(168, msg("Probabilistic window is 1–168 hours.")),
   conversionWindowDays: z.coerce.number().int().min(1, msg("Conversion window is 1–730 days.")).max(730, msg("Conversion window is 1–730 days.")),
   reengagementEnabled: formBool,
-  reportingModel: z.enum(REPORTING_MODELS, msg("Choose last touch or first touch.")).optional(),
+  reportingModel: z.enum(REPORTING_MODELS, msg("Choose last touch, first touch or last non-direct touch.")).optional(),
+  windowOverrides: z.unknown().optional(),
 });
+
+const blankToUndefined = (v: unknown) => (v === "" || v === null ? undefined : v);
+const overrideSchema = z.record(
+  z.string(),
+  z.object({
+    click_lookback_days: z.preprocess(blankToUndefined, z.coerce.number().int(msg("Click lookback is 1–90 days.")).min(CLICK_LOOKBACK_RANGE.min, msg("Click lookback is 1–90 days.")).max(CLICK_LOOKBACK_RANGE.max, msg("Click lookback is 1–90 days.")).optional()),
+    conversion_window_days: z.preprocess(blankToUndefined, z.coerce.number().int(msg("Conversion window is 1–730 days.")).min(CONVERSION_WINDOW_RANGE.min, msg("Conversion window is 1–730 days.")).max(CONVERSION_WINDOW_RANGE.max, msg("Conversion window is 1–730 days.")).optional()),
+  }),
+);
+
+/**
+ * Windows per channel from the settings form: unknown channels are refused, a
+ * blank field means "use the app-wide window", and out-of-range values are
+ * errors (never clamped). Undefined input keeps the stored overrides.
+ */
+export function validateWindowOverrides(input: unknown): WindowOverrides | undefined {
+  if (input === undefined) return undefined;
+  const r = overrideSchema.safeParse(input);
+  if (!r.success) throw issue(r.error);
+  for (const key of Object.keys(r.data)) if (!WINDOW_CHANNELS.includes(key)) throw new ValidationError(msg("Unknown channel for an attribution window."));
+  return parseWindowOverrides(r.data);
+}
 
 export async function updateSettings(ctx: TenantContext, appId: string, input: unknown): Promise<void> {
   const r = settingsSchema.safeParse(input);
   if (!r.success) throw issue(r.error);
-  const s = r.data;
+  const { windowOverrides: rawOverrides, ...s } = r.data;
+  const overrides = validateWindowOverrides(rawOverrides);
   await tenantTx(ctx, "attribution.manage", async (db) => {
     const app = await db.one("select 1 from platform.apps where id = $1", [appId]);
     if (!app) throw new NotFoundError("App");
     await db.query(
       `insert into platform.attribution_settings (organization_id, app_id, click_lookback_days, probabilistic_enabled, probabilistic_window_hours,
-                                                  conversion_window_days, reengagement_enabled, reporting_model, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, coalesce($8::text, 'last_touch'), now())
+                                                  conversion_window_days, reengagement_enabled, reporting_model, window_overrides, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, coalesce($8::text, 'last_touch'), coalesce($9::jsonb, '{}'), now())
        on conflict (app_id) do update set click_lookback_days = excluded.click_lookback_days, probabilistic_enabled = excluded.probabilistic_enabled,
          probabilistic_window_hours = excluded.probabilistic_window_hours, conversion_window_days = excluded.conversion_window_days,
-         reengagement_enabled = excluded.reengagement_enabled, reporting_model = coalesce($8::text, platform.attribution_settings.reporting_model), updated_at = now()`,
-      [ctx.organizationId, appId, s.clickLookbackDays, s.probabilisticEnabled, s.probabilisticWindowHours, s.conversionWindowDays, s.reengagementEnabled, s.reportingModel ?? null],
+         reengagement_enabled = excluded.reengagement_enabled, reporting_model = coalesce($8::text, platform.attribution_settings.reporting_model),
+         window_overrides = coalesce($9::jsonb, platform.attribution_settings.window_overrides), updated_at = now()`,
+      [ctx.organizationId, appId, s.clickLookbackDays, s.probabilisticEnabled, s.probabilisticWindowHours, s.conversionWindowDays, s.reengagementEnabled, s.reportingModel ?? null,
+       overrides === undefined ? null : JSON.stringify(overrides)],
     );
-    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "attribution.settings_updated", targetType: "app", targetId: appId, metadata: s });
+    await audit(db, {
+      organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "attribution.settings_updated", targetType: "app", targetId: appId,
+      metadata: overrides === undefined ? s : { ...s, windowOverrides: overrides },
+    });
   });
 }
 

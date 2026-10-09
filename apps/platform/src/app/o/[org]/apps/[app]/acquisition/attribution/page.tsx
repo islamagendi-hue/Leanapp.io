@@ -70,7 +70,7 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
           <div><dt className="text-ink-3">{tr("Conversion window")}</dt><dd>{tr("{n} days", { n: settings.conversion_window_days })}</dd></div>
           <div><dt className="text-ink-3">{tr("Probabilistic matching")}</dt><dd>{settings.probabilistic_enabled ? tr("On, {hours} hours", { hours: settings.probabilistic_window_hours }) : tr("Off")}</dd></div>
           <div><dt className="text-ink-3">{tr("Re-engagement")}</dt><dd>{settings.reengagement_enabled ? tr("On") : tr("Off")}</dd></div>
-          <div><dt className="text-ink-3">{tr("Reports open with")}</dt><dd>{settings.reporting_model === "first_touch" ? tr("First touch") : tr("Last touch")}</dd></div>
+          <div><dt className="text-ink-3">{tr("Reports open with")}</dt><dd>{settings.reporting_model === "first_touch" ? tr("First touch") : settings.reporting_model === "last_non_direct" ? tr("Last non-direct touch") : tr("Last touch")}</dd></div>
           <div><dt className="text-ink-3">{tr("Credit models")}</dt><dd>{tr("Last touch and first touch, both within the conversion window")}</dd></div>
         </dl>
       </section>

@@ -71,7 +71,10 @@ UTM parameters never make a mobile install deterministic. They are what the inst
 
 - **Last touch** (as before): each conversion is credited to the person's latest install, reinstall or re-engagement before it within the conversion window (`attribution_conversions.attribution_event_id`).
 - **First touch** (new): the person's earliest install, reinstall or re-engagement within the same window (`attribution_conversions.first_attribution_event_id`, written by event processing from migration 0034 on, `first_touch_recorded = true`). Conversions processed before 0034 have no first-touch record; the first-touch view uses their last touch and says how many (rule C3).
-- Windows per app (Settings → Dev Ops → Attribution): click lookback (1–90 days), conversion window (1–730 days, also the first-touch window), probabilistic window (1–168 hours), re-engagement on/off, and **Reports open with** (`attribution_settings.reporting_model`, last or first touch). Both models are always selectable on Sources & campaigns.
+- **Last non-direct touch** (migration 0039): the person's latest touch with a known source; direct, organic-without-campaign and unattributed touches never take credit from a known earlier source (`attribution_conversions.last_non_direct_attribution_event_id`, `last_non_direct_recorded = true`). Conversions processed before 0039 use their last touch in this view and are counted (`coverage.lastNonDirectFallback`). See [three credit views](attribution.md#three-credit-views).
+- Touches include **web touches** (web visits with UTM parameters, a click id or an external referrer), counted per channel as `webTouches`; a referrer alone is classified by the referring host (search engine → organic search, social site → organic social, any other site → referral site).
+- Windows per app (Settings → Dev Ops → Attribution): click lookback (1–90 days), conversion window (1–730 days, also the first-touch window), probabilistic window (1–168 hours), re-engagement on/off, and **Reports open with** (`attribution_settings.reporting_model`: last touch, first touch or last non-direct touch). All three models are always selectable on Sources & campaigns. Click lookback and conversion window can be set per channel (`window_overrides`); see [windows per channel](attribution.md#windows-per-channel).
+- Each channel row carries a `sourceClass` (paid, organic, referral, owned, custom, direct, unknown, unattributed).
 
 The engine now stores why a no-match install is organic: `match_key = store_organic` (the store's own organic referrer), `direct` (direct / none parameters) or `organic_other` (organic from an unrecognised source → `unknown`); `null` is unattributed. Shared channel labels in Analytics (Revenue, Funnels, Events, Churn, CAC & LTV) follow suit: `organic` only for `store_organic`, `(direct)`, `(unattributed)`, `(unknown)`, `(no install on record)` (`analytics/sql.ts` `channelLabelSql`). Installs processed before this change have no match key and show as unattributed: that is accurate, since nothing said they were organic.
 
@@ -113,7 +116,7 @@ The Deep links "New deep link" form lists every registry channel with a link pre
 
 ## Tests
 
-- Unit: `channels/classify.test.ts` (registry coverage, normalisation, classification order, custom rules, evidence), `reconcile.test.ts`, `report-pure.test.ts`, `attribution/pure.test.ts` (`organicReason`).
+- Unit: `channels/classify.test.ts` (registry coverage, normalisation, classification order, custom rules, evidence), `reconcile.test.ts`, `report-pure.test.ts` (incl. web touches, last non-direct, source classes), `attribution/pure.test.ts` (`organicReason`), `attribution/pure-credit.test.ts` (credit views, windows per channel, web touches).
 - Integration (Postgres, simulated SDK events and link clicks): `test/growth-channels.int.test.ts` — organic / direct / unattributed reasons, first vs last touch, the channel report with evidence, coverage and spend reconciliation, the reporting model setting, custom channels and rules (validation, audit, pause / archive / delete), RBAC and tenant isolation.
 
 ## Owner actions

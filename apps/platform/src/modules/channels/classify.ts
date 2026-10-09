@@ -199,16 +199,18 @@ export function evidenceOf(matchType: string, matchKey?: string | null): Evidenc
 
 /**
  * The channel of a stored attribution (attribution_events row): its denormalised
- * source / medium / network, the match key, and the app's rules.
+ * source / medium / network, the referring host of a web touch, the match key,
+ * and the app's rules.
  */
 export function classifyAttribution(
-  row: { source: string | null; medium: string | null; network: string | null; match_type: string; match_key: string | null; campaign?: string | null },
+  row: { source: string | null; medium: string | null; network: string | null; match_type: string; match_key: string | null; campaign?: string | null; referrer_host?: string | null },
   ctx: Omit<ClassifyContext, "network" | "matchKey"> = {},
 ): Classification {
   const t: NormalizedTouch = {
     source: row.source ? row.source.trim().toLowerCase().replace(/\s+/g, "_") : null,
     medium: row.medium ? row.medium.trim().toLowerCase().replace(/\s+/g, "_") : null,
-    campaign: row.campaign ?? null, campaignId: null, content: null, term: null, clickIds: {}, referralId: null, referrerHost: null, custom: {}, raw: {},
+    campaign: row.campaign ?? null, campaignId: null, content: null, term: null, clickIds: {}, referralId: null,
+    referrerHost: row.referrer_host ? row.referrer_host.trim().toLowerCase().replace(/^www\./, "") : null, custom: {}, raw: {},
   };
   if (row.match_type === "organic" && !row.source) {
     // Nothing matched: no source, unless the install's organic referrer said where it came from.
