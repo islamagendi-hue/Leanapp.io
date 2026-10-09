@@ -21,7 +21,7 @@ export function AnalyticsHeader({
   );
 }
 
-export const RANGE_LABELS: Record<number, string> = { 7: "Last 7 days", 30: "Last 30 days", 90: "Last 90 days" };
+export const RANGE_LABELS: Record<number, string> = { 7: "Last 7 days", 15: "Last 15 days", 30: "Last 30 days", 90: "Last 90 days" };
 
 /** First value of a search param. */
 export const param = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v);

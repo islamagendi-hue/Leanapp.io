@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { AutoApply } from "@/components/AutoApply";
+import { RANGES } from "@/modules/analytics/range";
 
 export const ACQUISITION_TABS = [
   ["", "Overview"],
@@ -50,15 +52,25 @@ export function AcquisitionHeader({ base, current, title, description, env }: {
   );
 }
 
-/** The 7 / 30 / 90-day range picker of the Acquisition reports. */
-export function AcquisitionRange({ env, days, ranges }: { env: string; days: number; ranges: readonly number[] }) {
+/**
+ * The range picker of the Acquisition reports: the last 7, 15, 30 or 90 days,
+ * or custom dates. It applies as soon as it changes (AutoApply).
+ */
+export function AcquisitionRange({ env, range }: { env: string; range: { preset: number | null; from: string; to: string } }) {
   return (
-    <nav className="flex flex-wrap gap-2 text-sm" aria-label="Range">
-      {ranges.map((d) => (
-        <Link key={d} href={`?env=${env}&days=${d}`} aria-current={d === days ? "page" : undefined}
-          className={`pill ${d === days ? "border-ink bg-ink text-paper" : "border-line hover:border-line-strong"}`}>Last {d} days</Link>
-      ))}
-    </nav>
+    <form method="get" className="flex flex-wrap items-end gap-3" aria-label="Range">
+      <input type="hidden" name="env" value={env} />
+      <AutoApply />
+      <label><span className="label">Range</span>
+        <select name="days" className="input" defaultValue={range.preset ? String(range.preset) : "custom"}>
+          {RANGES.map((d) => <option key={d} value={d}>Last {d} days</option>)}
+          <option value="custom">Custom dates</option>
+        </select>
+      </label>
+      <label className="custom-date"><span className="label">From</span><input type="date" name="from" className="input" defaultValue={range.from} /></label>
+      <label className="custom-date"><span className="label">To</span><input type="date" name="to" className="input" defaultValue={range.to} /></label>
+      <button className="btn" type="submit" data-apply>Show</button>
+    </form>
   );
 }
 

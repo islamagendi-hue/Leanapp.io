@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { AcquisitionHeader, AcquisitionRange, money, num, pct } from "@/components/acquisition/AcquisitionHeader";
-import { param } from "@/components/AnalyticsHeader";
+import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { TrendChart } from "@/components/TrendChart";
-import { ATTRIBUTION_RANGES, attributionOverview } from "@/modules/attribution/reports";
+import { attributionOverview } from "@/modules/attribution/reports";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Acquisition" };
@@ -13,8 +13,9 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "attribution.read");
   const env = await pickEnvironment(environments, sp.env);
-  const r = await attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, param(sp.days));
+  const r = await attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, rangeFromParams(toSearch(sp)));
   const base = `/o/${org}/apps/${app}/acquisition`;
+  const rangeQuery = new URLSearchParams({ env: env.type, ...(r.range.preset ? { days: String(r.range.preset) } : { days: "custom", from: r.range.from, to: r.range.to }) });
   const t = r.totals;
   const allInstalls = t.installs + t.reinstalls;
   const linkInstalls = r.links.reduce((s, l) => s + l.installs, 0);
@@ -24,7 +25,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
     <div className="space-y-6">
       <AcquisitionHeader base={base} current="" env={env.type} title="Acquisition"
         description="Where installs come from and what they lead to, for the selected environment." />
-      <AcquisitionRange env={env.type} days={r.days} ranges={ATTRIBUTION_RANGES} />
+      <AcquisitionRange env={env.type} range={r.range} />
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Acquisition numbers">
         {[
@@ -59,7 +60,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
             <section className="card space-y-3">
               <div className="flex items-baseline justify-between gap-2">
                 <h2 className="h2">Top sources</h2>
-                <Link className="text-sm underline" href={`${base}/sources?env=${env.type}&days=${r.days}`}>All sources &amp; campaigns</Link>
+                <Link className="text-sm underline" href={`${base}/sources?${rangeQuery}`}>All sources &amp; campaigns</Link>
               </div>
               {sources.length === 0 ? <p className="text-sm text-ink-3">Every install in this range was organic.</p> : (
                 <table className="table text-sm">
@@ -83,7 +84,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
           {r.revenue.length > 0 && (
             <p className="text-sm text-ink-3">
               Revenue credited to installs in this range: {r.revenue.map((x) => `${money(x.revenue)} ${x.currency ?? "(no currency)"}`).join(" · ")}.{" "}
-              <Link className="underline" href={`${base}/sources?env=${env.type}&days=${r.days}`}>By campaign</Link>
+              <Link className="underline" href={`${base}/sources?${rangeQuery}`}>By campaign</Link>
             </p>
           )}
         </>

@@ -79,11 +79,12 @@
   .muted { @apply text-ink-3; }
 }
 
-/* Reports that apply on change (components/AutoApply): no Show button, custom
-   dates only when "Custom dates" is chosen, and the old result fades while the
-   new one loads. Without JavaScript the button and the dates stay visible. */
+/* Reports that apply on change (components/AutoApply): no Show button, and the
+   old result fades while the new one loads; without JavaScript the button
+   stays. Range and comparison dates show only when "Custom dates" is chosen. */
 @layer components {
   form[data-auto] [data-apply] { display: none; }
-  form[data-auto]:has(select[name="days"]):not(:has(select[name="days"] option[value="custom"]:checked)) .custom-date { display: none; }
+  form:has(select[name="days"]):not(:has(select[name="days"] option[value="custom"]:checked)) .custom-date { display: none; }
+  form:has(select[name="compare"]):not(:has(select[name="compare"] option[value="custom"]:checked)) .compare-date { display: none; }
   main:has(form[aria-busy="true"]) form ~ * { opacity: 0.55; transition: opacity 150ms; }
 }

@@ -7,7 +7,7 @@ import { compileAudience, DefinitionError, parseDefinition, peopleCtes, property
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { measurable } from "./retention-rule";
 import {
-  bucketKeys, bucketSql, change, datesBetween, defaultInterval, intervalField, localDate, previousRange, rangeDays, rangeFields, resolveRange,
+  bucketKeys, bucketSql, change, datesBetween, defaultInterval, intervalField, comparisonRange, localDate, rangeDays, type Compare, rangeFields, resolveRange,
   type Interval, type ReportRange,
 } from "./range";
 import { ANY_EVENT, evCte, Params } from "./sql";
@@ -25,8 +25,9 @@ import { ANY_EVENT, evCte, Params } from "./sql";
  *   the install is linked to exactly one user (identity_links), otherwise it
  *   stays its own anonymous person. Shared devices are never merged.
  * - Days are calendar days in the app's timezone. A range is a preset (last
- *   7, 30 or 90 days, ending now) or custom calendar days (./range.ts); any
- *   report can compare with the period of the same length just before it.
+ *   7, 15, 30 or 90 days, ending now) or custom calendar days (./range.ts); any
+ *   report can compare with the period just before it, the same days a year
+ *   earlier, or custom days (comparisonRange).
  * - Any report can be limited to the people of an audience (`cohortId`, the
  *   name saved reports have always used; see modules/audiences). Audiences
  *   are the one segmentation layer: the same condition tree and SQL compiler
@@ -64,12 +65,15 @@ export interface RangeInfo {
   to: string;
   label: string;
   preset: number | null;
-  previous: { from: string; to: string; label: string } | null;
+  /** `kind` is the comparison asked for, as its search param value. */
+  previous: { from: string; to: string; label: string; kind: CompareParam } | null;
 }
 
-function rangeInfo(range: ReportRange, timezone: string, compare: boolean | undefined): RangeInfo {
-  const prev = compare ? previousRange(range, timezone) : null;
-  return { from: range.from, to: range.to, label: range.label, preset: range.preset, previous: prev && { from: prev.from, to: prev.to, label: prev.label } };
+export type CompareParam = "1" | "year" | "custom";
+
+export function rangeInfo(range: ReportRange, prev: ReportRange | null, compare?: Compare): RangeInfo {
+  const kind: CompareParam = compare === "year" || compare === "custom" ? compare : "1";
+  return { from: range.from, to: range.to, label: range.label, preset: range.preset, previous: prev && { from: prev.from, to: prev.to, label: prev.label, kind } };
 }
 
 /** A tenant transaction (RLS + permission check) with the analytics statement timeout. */
@@ -211,7 +215,7 @@ function groupExpr(breakdown: string | undefined, p: Params): string {
 export async function eventTrend(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Trend> {
   const r = trendSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose an event.");
-  const { event, breakdown, cohortId: cohort, compare } = r.data;
+  const { event, breakdown, cohortId: cohort } = r.data;
   const where = r.data.where ?? [];
   const range = resolveRange(r.data, scope.timezone);
   const interval = defaultInterval(range, r.data.interval);
@@ -240,7 +244,8 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
     );
     const only = event === ANY_EVENT ? null : event;
     const total = await totalsIn(db, scope, cohort, range, only, where);
-    const previous = compare ? await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), only, where) : null;
+    const prevRange = comparisonRange(range, scope.timezone, r.data);
+    const previous = prevRange ? await totalsIn(db, scope, cohort, prevRange, only, where) : null;
     const keys = bucketKeys(range, interval);
     const series = new Map<string, TrendSeries>();
     for (const row of rows) {
@@ -261,7 +266,7 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
       previous,
       breakdown: breakdown ?? null,
       where,
-      range: rangeInfo(range, scope.timezone, compare),
+      range: rangeInfo(range, prevRange, r.data.compare),
     };
   });
 }
@@ -299,7 +304,7 @@ export interface Kpi {
 export async function kpi(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Kpi> {
   const r = kpiSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid metric.");
-  const { metric, cohortId: cohort, compare } = r.data;
+  const { metric, cohortId: cohort } = r.data;
   const event = metric === "events" || metric === "people" ? (r.data.event === ANY_EVENT ? null : r.data.event!) : null;
   const where = r.data.where ?? [];
   const range = resolveRange(r.data, scope.timezone);
@@ -310,8 +315,9 @@ export async function kpi(ctx: TenantContext, scope: { environmentId: string; ti
       return metric === "events" || metric === "all_events" ? t.count : t.people;
     };
     const value = await measure(range);
-    const previous = compare ? await measure(previousRange(range, scope.timezone)) : null;
-    return { metric, event, value, previous, change: change(value, previous), range: rangeInfo(range, scope.timezone, compare) };
+    const prevRange = comparisonRange(range, scope.timezone, r.data);
+    const previous = prevRange ? await measure(prevRange) : null;
+    return { metric, event, value, previous, change: change(value, previous), range: rangeInfo(range, prevRange, r.data.compare) };
   });
 }
 
@@ -437,7 +443,7 @@ export async function funnelPeople(
 export async function funnel(ctx: TenantContext, scope: { environmentId: string; timezone?: string }, input: unknown): Promise<Funnel> {
   const r = funnelSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
-  const { steps, windowDays, breakdown, cohortId: cohort, compare } = r.data;
+  const { steps, windowDays, breakdown, cohortId: cohort } = r.data;
   const timezone = scope.timezone ?? "UTC";
   const range = resolveRange(r.data, timezone);
   // $1 env, $2 range start, $3 window (days), $4 range end, $5.. step names.
@@ -457,8 +463,9 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
   return query(ctx, async (db) => {
     const rows = await run(db, range);
     let previous: Funnel["previous"] = null;
-    if (compare) {
-      const prev = await run(db, previousRange(range, timezone));
+    const prevRange = comparisonRange(range, timezone, r.data);
+    if (prevRange) {
+      const prev = await run(db, prevRange);
       const at = (k: number) => prev.filter((x) => Number(x.step) === k).reduce((n, x) => n + Number(x.people), 0);
       previous = { entered: at(0), converted: at(steps.length - 1) };
     }
@@ -481,7 +488,7 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
         .map((key) => ({ key, people: steps.map((_, k) => Number(rows.find((x) => Number(x.step) === k && x.g === key)?.people ?? 0)) }))
         .sort((a, b) => b.people[0] - a.people[0]);
     }
-    return { steps: out, windowDays, days: range.preset ?? datesBetween(range.from, range.to).length, breakdown: groups, previous, range: rangeInfo(range, timezone, compare) };
+    return { steps: out, windowDays, days: range.preset ?? datesBetween(range.from, range.to).length, breakdown: groups, previous, range: rangeInfo(range, prevRange, r.data.compare) };
   });
 }
 
@@ -521,12 +528,13 @@ export interface Retention {
 export async function retention(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Retention> {
   const r = retentionSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose a start and a return event.");
-  const { cohortId: cohort, compare } = r.data;
+  const { cohortId: cohort } = r.data;
   const range = resolveRange(r.data, scope.timezone);
+  const prevRange = comparisonRange(range, scope.timezone, r.data);
   return query(ctx, async (db) => {
     const current = await retentionIn(db, scope, cohort, r.data, range);
-    const previous = compare ? (await retentionIn(db, scope, cohort, r.data, previousRange(range, scope.timezone))).overall : null;
-    return { ...current, previous, range: rangeInfo(range, scope.timezone, compare) };
+    const previous = prevRange ? (await retentionIn(db, scope, cohort, r.data, prevRange)).overall : null;
+    return { ...current, previous, range: rangeInfo(range, prevRange, r.data.compare) };
   });
 }
 

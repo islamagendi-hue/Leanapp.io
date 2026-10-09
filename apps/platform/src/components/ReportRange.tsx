@@ -1,12 +1,13 @@
 import { RANGE_LABELS } from "@/components/AnalyticsHeader";
-import { INTERVALS, RANGES, type Interval } from "@/modules/analytics/range";
+import { COMPARE_LABELS, INTERVALS, RANGES, type Interval } from "@/modules/analytics/range";
 import type { RangeInfo } from "@/modules/analytics/service";
 
 const INTERVAL_LABELS: Record<Interval, string> = { day: "Day", week: "Week", month: "Month" };
 
 /**
  * Range, custom dates, comparison and (for charts) interval inputs for a
- * report's GET form. The dates apply (and, with AutoApply, show) when the range is "Custom dates".
+ * report's GET form. Each pair of dates applies (and, with AutoApply, shows)
+ * only when its select is on "Custom dates".
  */
 export function ReportRangeFields({ range, interval, label = "Range" }: { range: RangeInfo; interval?: Interval; label?: string }) {
   return (
@@ -24,9 +25,14 @@ export function ReportRangeFields({ range, interval, label = "Range" }: { range:
           <select name="interval" className="input" defaultValue={interval}>{INTERVALS.map((i) => <option key={i} value={i}>{INTERVAL_LABELS[i]}</option>)}</select>
         </label>
       )}
-      <label className="flex min-h-10 items-center gap-2 text-sm">
-        <input type="checkbox" name="compare" value="1" defaultChecked={!!range.previous} /> Compare to previous period
+      <label><span className="label">Compare with</span>
+        <select name="compare" className="input" defaultValue={range.previous?.kind ?? ""}>
+          <option value="">No comparison</option>
+          {(Object.keys(COMPARE_LABELS) as (keyof typeof COMPARE_LABELS)[]).map((k) => <option key={k} value={k}>{COMPARE_LABELS[k]}</option>)}
+        </select>
       </label>
+      <label className="compare-date"><span className="label">Compare from</span><input type="date" name="cfrom" className="input" defaultValue={range.previous?.kind === "custom" ? range.previous.from : undefined} /></label>
+      <label className="compare-date"><span className="label">Compare until</span><input type="date" name="cto" className="input" defaultValue={range.previous?.kind === "custom" ? range.previous.to : undefined} /></label>
     </>
   );
 }

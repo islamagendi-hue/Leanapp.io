@@ -1,7 +1,7 @@
 import { AcquisitionHeader, AcquisitionRange, money, num } from "@/components/acquisition/AcquisitionHeader";
-import { param } from "@/components/AnalyticsHeader";
+import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { mergeCampaignRows } from "@/modules/attribution/pure";
-import { ATTRIBUTION_RANGES, attributionOverview } from "@/modules/attribution/reports";
+import { attributionOverview } from "@/modules/attribution/reports";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export const metadata = { title: "Sources & campaigns" };
@@ -12,7 +12,7 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "attribution.read");
   const env = await pickEnvironment(environments, sp.env);
-  const r = await attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, param(sp.days));
+  const r = await attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, rangeFromParams(toSearch(sp)));
   const base = `/o/${org}/apps/${app}/acquisition`;
   const campaigns = mergeCampaignRows(r.byCampaign);
 
@@ -20,7 +20,7 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
     <div className="space-y-6">
       <AcquisitionHeader base={base} current="/sources" env={env.type} title="Sources & campaigns"
         description="Installs, re-engagements, conversions and revenue per source and campaign, as labelled on your tracking links or sent by ad networks in their click ids and UTM parameters." />
-      <AcquisitionRange env={env.type} days={r.days} ranges={ATTRIBUTION_RANGES} />
+      <AcquisitionRange env={env.type} range={r.range} />
 
       <section className="card overflow-x-auto p-0">
         <h2 className="h2 px-5 pt-5">Installs by source and campaign</h2>

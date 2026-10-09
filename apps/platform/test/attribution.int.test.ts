@@ -377,7 +377,7 @@ describe("postbacks", () => {
 
 describe("reports, permissions and isolation", () => {
   it("reports installs, conversions and link rates per environment", async () => {
-    const r = await attributionOverview(t.ctx, { environmentId: t.dev.id, timezone: "UTC" }, 30);
+    const r = await attributionOverview(t.ctx, { environmentId: t.dev.id, timezone: "UTC" }, { days: 30 });
     expect(r.totals.installs).toBeGreaterThan(5);
     expect(r.totals.organic).toBeGreaterThan(0);
     expect(r.totals.probabilistic).toBe(1);
@@ -387,7 +387,7 @@ describe("reports, permissions and isolation", () => {
     const l = r.links.find((x) => x.id === link.id)!;
     expect(l.clicks).toBeGreaterThan(l.installs);
     expect(l.rate).toBeGreaterThan(0);
-    const prod = await attributionOverview(t.ctx, { environmentId: t.environments.find((e) => e.type === "production")!.id, timezone: "UTC" }, 30);
+    const prod = await attributionOverview(t.ctx, { environmentId: t.environments.find((e) => e.type === "production")!.id, timezone: "UTC" }, { days: 30 });
     expect(prod.totals).toMatchObject({ clicks: 0, installs: 0, conversions: 0 });
     expect((await listLinks(t.ctx, t.app.id, t.dev.id)).find((x) => x.id === link.id)!.clicks).toBeGreaterThan(5);
   });
@@ -407,7 +407,7 @@ describe("reports, permissions and isolation", () => {
     await expect(setLinkStatus(other.ctx, t.app.id, link.id, "paused")).rejects.toBeInstanceOf(NotFoundError);
     await expect(createLink(other.ctx, t.app.id, { environmentId: t.dev.id, name: "x", source: "x", webUrl: "https://e.com" })).rejects.toBeInstanceOf(NotFoundError);
     expect((await listPostbacks(other.ctx, t.app.id, t.dev.id)).deliveries).toEqual([]);
-    const r = await attributionOverview(other.ctx, { environmentId: t.dev.id, timezone: "UTC" }, 30);
+    const r = await attributionOverview(other.ctx, { environmentId: t.dev.id, timezone: "UTC" }, { days: 30 });
     expect(r.totals).toMatchObject({ clicks: 0, installs: 0, conversions: 0 });
     expect(r.links).toEqual([]);
     // Another tenant's install carrying this tenant's click id never matches it.

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { AcquisitionHeader, AcquisitionRange, num, pct } from "@/components/acquisition/AcquisitionHeader";
-import { param } from "@/components/AnalyticsHeader";
-import { ATTRIBUTION_RANGES, attributionOverview } from "@/modules/attribution/reports";
+import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
+import { attributionOverview, attributionRange } from "@/modules/attribution/reports";
 import { getSettings } from "@/modules/attribution/service";
 import { skanBySource } from "@/modules/attribution/skan-service";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -14,8 +14,8 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "attribution.read");
   const env = await pickEnvironment(environments, sp.env);
-  const r = await attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, param(sp.days));
-  const [settings, skan] = await Promise.all([getSettings(ctx, a.id), skanBySource(ctx, env.id, r.days)]);
+  const r = await attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, rangeFromParams(toSearch(sp)));
+  const [settings, skan] = await Promise.all([getSettings(ctx, a.id), skanBySource(ctx, env.id, attributionRange(rangeFromParams(toSearch(sp)), a.timezone))]);
   const base = `/o/${org}/apps/${app}/acquisition`;
   const settingsHref = `/o/${org}/apps/${app}/settings/dev-ops/attribution`;
   const t = r.totals;
@@ -33,7 +33,7 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
     <div className="space-y-6">
       <AcquisitionHeader base={base} current="/attribution" env={env.type} title="Attribution"
         description="How installs were matched to a touch, the rules used, and Apple's SKAdNetwork postbacks." />
-      <AcquisitionRange env={env.type} days={r.days} ranges={ATTRIBUTION_RANGES} />
+      <AcquisitionRange env={env.type} range={r.range} />
 
       <section className="card overflow-x-auto p-0" aria-label="How installs were matched">
         <h2 className="h2 px-5 pt-5">How installs were matched</h2>

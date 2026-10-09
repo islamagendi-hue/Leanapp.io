@@ -382,8 +382,8 @@ describe("deferred deep links", () => {
 describe("deep link report (Acquisition → Deep links)", () => {
   it("counts clicks and deferred matches per link with a deep link, in its own environment and organization only", async () => {
     await createLink(t.ctx, t.app.id, { environmentId: t.dev.id, name: "No deep link", source: "sms", webUrl: "https://example.com" });
-    const r = await deepLinkReport(t.ctx, t.dev.id, 30);
-    expect(r.days).toBe(30);
+    const r = await deepLinkReport(t.ctx, { environmentId: t.dev.id, timezone: "UTC" }, { days: 30 });
+    expect(r.range.preset).toBe(30);
     expect(r.links.map((l) => l.name)).toEqual(["Ramadan IG"]);
     const ramadan = r.links[0];
     expect(ramadan.deep_link_path).toBe("/offers/ramadan?tab=deals");
@@ -393,7 +393,7 @@ describe("deep link report (Acquisition → Deep links)", () => {
     expect(r.deferred).toMatchObject({ deterministic: 1, probabilistic: 1 });
     expect(r.deferred.none).toBeGreaterThan(0);
 
-    expect((await deepLinkReport(t.ctx, prod.id, 7)).links.map((l) => l.name)).toEqual(["Prod email"]);
-    expect((await deepLinkReport(other.ctx, t.dev.id, 30)).links).toEqual([]);
+    expect((await deepLinkReport(t.ctx, { environmentId: prod.id, timezone: "UTC" }, { days: 7 })).links.map((l) => l.name)).toEqual(["Prod email"]);
+    expect((await deepLinkReport(other.ctx, { environmentId: t.dev.id, timezone: "UTC" }, { days: 30 })).links).toEqual([]);
   });
 });

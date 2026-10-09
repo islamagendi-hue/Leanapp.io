@@ -1,12 +1,13 @@
 import Link from "next/link";
-import { param } from "@/components/AnalyticsHeader";
+import { AutoApply } from "@/components/AutoApply";
 import { WidgetView } from "@/components/dashboards/WidgetView";
 import { EventName } from "@/components/EventName";
-import { Delta } from "@/components/ReportRange";
+import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { TrendChart } from "@/components/TrendChart";
 import { eventLabels } from "@/modules/analytics/labels";
-import { keyFunnelSteps, OVERVIEW_RANGES } from "@/modules/analytics/overview";
+import { keyFunnelSteps } from "@/modules/analytics/overview";
+import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { revenueReport } from "@/modules/analytics/revenue";
 import { ANY_EVENT, eventTrend, funnel, kpi, retention, topEvents, type Kpi } from "@/modules/analytics/service";
 import { environmentHasEvents } from "@/modules/apps/service";
@@ -24,7 +25,8 @@ const pct = (x: number | null | undefined) => (x === null || x === undefined ? "
 
 /**
  * A project's home: the numbers people check first, for the selected
- * environment and the last 7 or 30 days, each compared with the period before.
+ * environment and range (the last 7 days unless chosen otherwise), each
+ * compared with the period before unless another comparison, or none, is chosen.
  * Until production receives its first event it says so and points to
  * Settings → Dev Ops → Get started: as a full card when there is nothing to
  * show, and as one line above the numbers of another environment that has data. Every number comes from the same reports
@@ -38,7 +40,15 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
   const production = environments.find((e) => e.type === "production");
   const live = production ? await environmentHasEvents(ctx, production.id) : false;
   const env = await pickEnvironment(environments, sp.env);
-  const days = param(sp.days) === "30" ? 30 : 7;
+  const q = toSearch(sp);
+  if (!q.get("days")) q.set("days", "7");
+  if (!q.has("compare")) q.set("compare", "1");
+  const period = rangeFromParams(q);
+  // The range and comparison, carried into every "Open" link.
+  const rangeParams = Object.entries(period).filter((e): e is [string, string] => typeof e[1] === "string").map(([k, v]) => [k, v] as [string, string]);
+  if (q.get("days") === "custom") rangeParams.push(["days", "custom"]);
+  if (period.compare === true) rangeParams.push(["compare", "1"]);
+  const withRange = (path: string, extra: [string, string][] = []) => `${path}?${new URLSearchParams([["env", env.type], ...rangeParams, ...extra])}`;
 
   const sections: { label: string; href: string; text: string; perm: Permission }[] = [
     { label: "Events & trends", href: `${base}/analytics/events`, text: "How often each event happens and how many people do it.", perm: "analytics.read" },
@@ -49,9 +59,8 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
     { label: "Audiences", href: `${base}/engage/audiences`, text: "Reusable groups of people to analyse and reach.", perm: "audiences.read" },
   ];
   const visible = sections.filter((s) => can(ctx.role, s.perm));
-  const metrics = can(ctx.role, "analytics.read") ? await overview(ctx, { appId: a.id, environmentId: env.id, timezone: a.timezone }, days, sp) : null;
+  const metrics = can(ctx.role, "analytics.read") ? await overview(ctx, { appId: a.id, environmentId: env.id, timezone: a.timezone }, period, sp) : null;
   const label = metrics ? await eventLabels(ctx, a.id) : (n: string) => n;
-  const rangeLink = (d: number) => `${base}?${new URLSearchParams({ env: env.type, days: String(d) })}`;
 
   return (
     <div className="space-y-6">
@@ -61,14 +70,12 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
           <p className="mt-1 text-ink-2">{a.name}{a.description ? `: ${a.description}` : ""}</p>
         </div>
         {metrics && (
-          <nav className="flex gap-2" aria-label="Range">
-            {OVERVIEW_RANGES.map((d) => (
-              <Link key={d} href={rangeLink(d)} aria-current={d === days ? "page" : undefined}
-                className={`rounded-full border px-3 py-1 text-sm ${d === days ? "border-accent bg-accent-soft text-accent-ink" : "border-line text-ink-2"}`}>
-                Last {d} days
-              </Link>
-            ))}
-          </nav>
+          <form method="get" className="flex flex-wrap items-end gap-3" aria-label="Range">
+            <input type="hidden" name="env" value={env.type} />
+            <AutoApply />
+            <ReportRangeFields range={metrics.range} />
+            <button className="btn" type="submit" data-apply>Show</button>
+          </form>
         )}
       </div>
 
@@ -90,10 +97,10 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
       )}
 
       {metrics && (metrics.empty ? (
-        <p className="card text-sm text-ink-2">No events in <strong>{env.type}</strong> in the last {days} days yet.</p>
+        <p className="card text-sm text-ink-2">No events in <strong>{env.type}</strong> in {metrics.range.preset ? metrics.range.label.toLowerCase() : metrics.range.label} yet.</p>
       ) : (
         <>
-          <p className="text-xs text-ink-3">Showing <strong>{env.type}</strong>, compared with the {days} days before.</p>
+          <p className="text-xs text-ink-3">Showing <strong>{env.type}</strong>, {metrics.range.preset ? metrics.range.label.toLowerCase() : metrics.range.label}{metrics.range.previous ? `, compared with ${metrics.range.previous.label}` : ""}.</p>
           <section className="grid gap-3 sm:grid-cols-3" aria-label="Key numbers">
             <Tile label="Active users" k={metrics.active} />
             <Tile label="New users" k={metrics.fresh} />
@@ -137,7 +144,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
             <section className="card space-y-2">
               <div className="flex items-baseline justify-between gap-2">
                 <h2 className="h2">Key funnel</h2>
-                {metrics.funnelSteps && <Link className="text-sm underline" href={`${base}/analytics/funnels?${new URLSearchParams([["env", env.type], ["days", String(days)], ...metrics.funnelSteps.map((s) => ["step", s])])}`}>Open</Link>}
+                {metrics.funnelSteps && <Link className="text-sm underline" href={withRange(`${base}/analytics/funnels`, metrics.funnelSteps.map((s) => ["step", s]))}>Open</Link>}
               </div>
               {metrics.funnel ? <WidgetView result={{ ok: true, data: { type: "funnel", funnel: metrics.funnel } }} /> : (
                 <p className="text-sm text-ink-3">
@@ -149,13 +156,13 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
             <section className="card space-y-2">
               <div className="flex items-baseline justify-between gap-2">
                 <h2 className="h2">Top events</h2>
-                <Link className="text-sm underline" href={`${base}/analytics/events?${new URLSearchParams({ env: env.type, days: String(days) })}`}>Open</Link>
+                <Link className="text-sm underline" href={withRange(`${base}/analytics/events`)}>Open</Link>
               </div>
               <table className="table">
                 <thead><tr><th className="text-start">Event</th><th className="text-end">Count</th><th className="text-end">People</th></tr></thead>
                 <tbody>
                   {metrics.top.slice(0, 6).map((e) => (
-                    <tr key={e.name}><td className="text-sm"><Link className="hover:underline" href={`${base}/analytics/events?${new URLSearchParams({ env: env.type, days: String(days), event: e.name })}`}><EventName name={e.name} labels={label} /></Link></td><td className="text-end tabular-nums">{num(e.count)}</td><td className="text-end tabular-nums">{num(e.people)}</td></tr>
+                    <tr key={e.name}><td className="text-sm"><Link className="hover:underline" href={withRange(`${base}/analytics/events`, [["event", e.name]])}><EventName name={e.name} labels={label} /></Link></td><td className="text-end tabular-nums">{num(e.count)}</td><td className="text-end tabular-nums">{num(e.people)}</td></tr>
                   ))}
                 </tbody>
               </table>
@@ -166,7 +173,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
             <section className="card space-y-3">
               <div className="flex items-baseline justify-between gap-2">
                 <h2 className="h2">Revenue</h2>
-                <Link className="text-sm underline" href={`${base}/analytics/revenue?${new URLSearchParams({ env: env.type, days: String(days) })}`}>Open</Link>
+                <Link className="text-sm underline" href={withRange(`${base}/analytics/revenue`)}>Open</Link>
               </div>
               <div className="grid gap-3 sm:grid-cols-3">
                 {metrics.revenue.currencies.slice(0, 3).map((c) => (
@@ -210,23 +217,24 @@ function Tile({ label, k }: { label: string; k: Kpi }) {
 type Ctx = Awaited<ReturnType<typeof loadApp>>["ctx"];
 
 /** Every Overview number, each through the report result cache. */
-async function overview(ctx: Ctx, scope: { appId: string; environmentId: string; timezone: string }, days: number, sp: Record<string, string | string[] | undefined>) {
+async function overview(ctx: Ctx, scope: { appId: string; environmentId: string; timezone: string }, period: ReturnType<typeof rangeFromParams>, sp: Record<string, string | string[] | undefined>) {
   const env = { environmentId: scope.environmentId, timezone: scope.timezone };
   const reports = reportRunner(ctx, env, sp);
-  const period = { days, compare: true };
+  // The span alone, for reports that show no comparison.
+  const span = { days: period.days, from: period.from, to: period.to };
   const k = (metric: string) => {
     const input = { metric, ...period };
     return reports.run("kpi", input, () => kpi(ctx, env, input));
   };
   const [active, fresh, events] = await Promise.all([k("active_people"), k("new_people"), k("all_events")]);
   const freshness = reports.info;
-  if (events.value === 0 && active.value === 0) return { empty: true as const, freshness };
+  if (events.value === 0 && active.value === 0) return { empty: true as const, freshness, range: active.range };
 
-  const trendInput = { event: ANY_EVENT, days, interval: "day" };
+  const trendInput = { event: ANY_EVENT, ...span, interval: "day" };
   const retentionInput = { startEvent: ANY_EVENT, returnEvent: ANY_EVENT, days: 30 };
   const [trend, top, ret, revenue] = await Promise.all([
     reports.run("trend", trendInput, () => eventTrend(ctx, env, trendInput)),
-    reports.run("top_events", { days }, () => topEvents(ctx, { ...env, days })),
+    reports.run("top_events", span, () => topEvents(ctx, { ...env, ...span })),
     reports.run("retention", retentionInput, () => retention(ctx, env, retentionInput)),
     reports.run("revenue", period, () => revenueReport(ctx, env, period)),
   ]);
@@ -239,8 +247,8 @@ async function overview(ctx: Ctx, scope: { appId: string; environmentId: string;
     activation = g.enabled && g.summary ? { rate: growthValue(g.summary, "activation_rate").value, activated: g.summary.activated } : null;
   }
   const funnelSteps = keyFunnelSteps(definition, top.map((e) => e.name));
-  const funnelInput = funnelSteps ? { steps: funnelSteps, windowDays: 7, days } : null;
+  const funnelInput = funnelSteps ? { steps: funnelSteps, windowDays: 7, ...span } : null;
   const keyFunnel = funnelInput ? await reports.run("funnel", funnelInput, () => funnel(ctx, env, funnelInput)) : null;
 
-  return { empty: false as const, active, fresh, events, trend, top, retention: ret, revenue, activation, funnelSteps, funnel: keyFunnel, freshness };
+  return { empty: false as const, range: active.range, active, fresh, events, trend, top, retention: ret, revenue, activation, funnelSteps, funnel: keyFunnel, freshness };
 }

@@ -210,8 +210,9 @@ export interface SkanSourceRow {
   last_at: Date;
 }
 
-/** Postbacks per ad network and source identifier (campaign) for one environment over `days` days. */
-export async function skanBySource(ctx: TenantContext, environmentId: string, days: number): Promise<SkanSourceRow[]> {
+/** Postbacks per ad network and source identifier (campaign) for one environment over the last `days` days, or from `start` to `end`. */
+export async function skanBySource(ctx: TenantContext, environmentId: string, span: number | { start: Date; end: Date }): Promise<SkanSourceRow[]> {
+  const bounds = typeof span === "number" ? [new Date(Date.now() - span * 86_400_000), new Date()] : [span.start, span.end];
   return tenantTx(ctx, "attribution.read", async (db) => {
     const rows = await db.query<Record<string, string | null> & { last_at: Date }>(
       `select framework, ad_network_id, source_identifier, count(*) as postbacks,
@@ -226,9 +227,9 @@ export async function skanBySource(ctx: TenantContext, environmentId: string, da
               count(*) filter (where coarse_value = 'high') as coarse_high,
               max(received_at) as last_at
          from platform.skan_postbacks
-        where environment_id = $1 and received_at >= now() - make_interval(days => $2)
+        where environment_id = $1 and received_at >= $2 and received_at < $3
         group by 1, 2, 3 order by 4 desc limit 200`,
-      [environmentId, days],
+      [environmentId, ...bounds],
     );
     const n = (v: string | null) => Number(v ?? 0);
     return rows.map((r) => ({

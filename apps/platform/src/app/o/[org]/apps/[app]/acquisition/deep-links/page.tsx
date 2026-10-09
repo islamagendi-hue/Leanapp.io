@@ -3,8 +3,7 @@ import { redirect } from "next/navigation";
 import { createChannelLinkAction } from "@/app/actions/deep-links";
 import { AcquisitionHeader, AcquisitionRange, num } from "@/components/acquisition/AcquisitionHeader";
 import { ActionForm } from "@/components/ActionForm";
-import { param } from "@/components/AnalyticsHeader";
-import { ATTRIBUTION_RANGES } from "@/modules/attribution/reports";
+import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { CAPABILITY_STATUS_LABELS, deepLinkCapabilities, type CapabilityStatus } from "@/modules/deeplinks/capabilities";
 import { deepLinkReport } from "@/modules/deeplinks/report";
 import { can } from "@/modules/rbac/authorize";
@@ -35,7 +34,7 @@ export default async function DeepLinksPage(props: PageProps<"/o/[org]/apps/[app
     for (const [k, v] of Object.entries(sp)) if (typeof v === "string") q.set(k, v);
     redirect(`${base}/links?${q}`);
   }
-  const [report, config] = await Promise.all([deepLinkReport(ctx, env.id, param(sp.days)), can(ctx.role, "deep_links.read") ? getConfig(ctx, a.id, env.id) : null]);
+  const [report, config] = await Promise.all([deepLinkReport(ctx, { environmentId: env.id, timezone: a.timezone }, rangeFromParams(toSearch(sp))), can(ctx.role, "deep_links.read") ? getConfig(ctx, a.id, env.id) : null]);
   const capabilities = deepLinkCapabilities(config);
   const setupHref = `/o/${org}/apps/${app}/settings/dev-ops/deep-links?env=${env.type}`;
   const d = report.deferred;
@@ -67,7 +66,7 @@ export default async function DeepLinksPage(props: PageProps<"/o/[org]/apps/[app
         </ul>
       </section>
 
-      <AcquisitionRange env={env.type} days={report.days} ranges={ATTRIBUTION_RANGES} />
+      <AcquisitionRange env={env.type} range={report.range} />
       <section className="card overflow-x-auto p-0">
         <h2 className="h2 px-5 pt-5">Links with a deep link</h2>
         <p className="px-5 text-sm text-ink-3">

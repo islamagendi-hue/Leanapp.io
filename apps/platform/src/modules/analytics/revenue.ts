@@ -4,8 +4,8 @@ import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { revenueRules, type RevenueRule } from "./revenue-rules";
-import { bucketKeys, bucketSql, defaultInterval, intervalField, previousRange, rangeFields, resolveRange, type Interval, type ReportRange } from "./range";
-import { analyticsTx, eventsSource, type RangeInfo } from "./service";
+import { bucketKeys, bucketSql, defaultInterval, intervalField, comparisonRange, rangeFields, resolveRange, type Interval, type ReportRange } from "./range";
+import { analyticsTx, eventsSource, rangeInfo, type RangeInfo } from "./service";
 import { numeric, type Params } from "./sql";
 
 /**
@@ -109,10 +109,10 @@ const round = (n: number) => Math.round(n * 100) / 100;
 export async function revenueReport(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<RevenueReport> {
   const r = revenueSchema.safeParse(input);
   if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid revenue report.");
-  const { breakdown, cohortId, compare } = r.data;
+  const { breakdown, cohortId } = r.data;
   const range = resolveRange(r.data, scope.timezone);
   const interval = defaultInterval(range, r.data.interval);
-  const previousRangeOf = compare ? previousRange(range, scope.timezone) : null;
+  const previousRangeOf = comparisonRange(range, scope.timezone, r.data);
   return analyticsTx(ctx, async (db) => {
     const rules = await loadRevenueRules(db, scope.environmentId);
     const src = await eventsSource(db, scope, cohortId, [scope.environmentId, range.start, scope.timezone], range.end);
@@ -188,10 +188,7 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
     return {
       days: dayKeys,
       interval,
-      range: {
-        from: range.from, to: range.to, label: range.label, preset: range.preset,
-        previous: previousRangeOf && { from: previousRangeOf.from, to: previousRangeOf.to, label: previousRangeOf.label },
-      },
+      range: rangeInfo(range, previousRangeOf, r.data.compare),
       previous,
       activeUsers,
       currencies,

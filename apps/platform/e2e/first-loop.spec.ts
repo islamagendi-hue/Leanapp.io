@@ -563,9 +563,19 @@ test("overview: key numbers for the selected environment, and Connect your app w
   for (const label of ["Active users", "New users", "Events"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
   for (const heading of ["Active users per day", "Activation", "Retention", "Key funnel", "Top events"]) await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
   await expect(page.getByRole("cell", { name: /Order Completed/ })).toBeVisible();
-  await page.getByRole("link", { name: "Last 30 days" }).click();
-  await expect(page).toHaveURL(/days=30/);
-  await expect(page.getByText(/compared with the 30 days before/)).toBeVisible();
+  const range = page.getByRole("form", { name: "Range" });
+  await range.getByLabel("Range").selectOption("15");
+  await expect(page).toHaveURL(/days=15/);
+  await expect(page.getByText(/last 15 days, compared with/)).toBeVisible();
+  await range.getByLabel("Compare with").selectOption("year");
+  await expect(page).toHaveURL(/compare=year/);
+  await expect(page.getByText(/compared with \d+ \w+ 2025/)).toBeVisible();
+  await range.getByLabel("Range").selectOption("custom");
+  await range.getByLabel("From", { exact: true }).fill("2026-09-01");
+  await range.getByLabel("To", { exact: true }).fill("2026-09-10");
+  await expect(page).toHaveURL(/from=2026-09-01&to=2026-09-10/);
+  // The test data is all from the last few days, so this range is empty.
+  await expect(page.getByText(/No events in development in 1 Sept 2026 – 10 Sept 2026 yet/)).toBeVisible();
 });
 
 test("reports apply as you change them, funnel bars open their people, and Ctrl+K jumps anywhere", async ({ page, request }) => {

@@ -2,14 +2,15 @@
  * Report date ranges, intervals and comparison periods, shared by every
  * report. Pure (no database access).
  *
- * A range is either a preset (the last 7, 30 or 90 days, ending now) or a
+ * A range is either a preset (the last 7, 15, 30 or 90 days, ending now) or a
  * custom span of calendar days in the app's timezone (`from` to `to`,
- * inclusive; a span that reaches today ends now). The comparison period is the
- * span of the same length that ends where the range starts.
+ * inclusive; a span that reaches today ends now). A report can be compared
+ * with the span of the same length that ends where the range starts, with the
+ * same days a year earlier, or with custom days (`cfrom` to `cto`).
  */
 import { z } from "zod";
 
-export const RANGES = [7, 30, 90] as const;
+export const RANGES = [7, 15, 30, 90] as const;
 export type RangeDays = (typeof RANGES)[number];
 export const INTERVALS = ["day", "week", "month"] as const;
 export type Interval = (typeof INTERVALS)[number];
@@ -30,8 +31,24 @@ export const rangeFields = {
   days: z.unknown().optional().transform(rangeDays),
   from: isoDate.optional().catch(undefined),
   to: isoDate.optional().catch(undefined),
-  compare: z.unknown().optional().transform((v) => (v === true || v === "1" || v === "true" || v === "on" ? true : undefined)),
+  compare: z.unknown().optional().transform(compareKind),
+  cfrom: isoDate.optional().catch(undefined),
+  cto: isoDate.optional().catch(undefined),
 };
+
+/**
+ * What a report is compared with: `true` is the period just before (what
+ * saved reports have always stored), "year" the same days a year earlier,
+ * "custom" the days `cfrom` to `cto`.
+ */
+export type Compare = true | "year" | "custom";
+export const COMPARE_LABELS: Record<"1" | "year" | "custom", string> = { "1": "Previous period", year: "Same period last year", custom: "Custom dates" };
+
+export function compareKind(v: unknown): Compare | undefined {
+  if (v === true || v === "1" || v === "true" || v === "on" || v === "previous") return true;
+  if (v === "year" || v === "custom") return v;
+  return undefined;
+}
 
 export const intervalField = z.enum(INTERVALS).optional().catch(undefined);
 
@@ -116,6 +133,37 @@ export function previousRange(range: ReportRange, timezone: string): ReportRange
   const from = localDate(start, timezone);
   const to = localDate(new Date(end.getTime() - 1), timezone);
   return { preset: range.preset, from, to, start, end, label: from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}` };
+}
+
+/** The same instant a calendar year earlier (29 Feb becomes 28 Feb). */
+function yearEarlier(at: Date): Date {
+  const d = new Date(at);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCFullYear(d.getUTCFullYear() - 1);
+  const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, last));
+  return d;
+}
+
+/**
+ * The period a report is compared with, or null when there is none: the
+ * period just before, the same days a year earlier, or custom days (which
+ * need both `cfrom` and `cto`).
+ */
+export function comparisonRange(range: ReportRange, timezone: string, input: { compare?: Compare; cfrom?: string; cto?: string }): ReportRange | null {
+  if (input.compare === true) return previousRange(range, timezone);
+  if (input.compare === "year") {
+    const start = yearEarlier(range.start);
+    const end = yearEarlier(range.end);
+    const from = localDate(start, timezone);
+    const to = localDate(new Date(end.getTime() - 1), timezone);
+    return { preset: null, from, to, start, end, label: from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}` };
+  }
+  if (input.compare === "custom" && isoDate.safeParse(input.cfrom).success && isoDate.safeParse(input.cto).success) {
+    return resolveRange({ from: input.cfrom, to: input.cto }, timezone);
+  }
+  return null;
 }
 
 /** Monday of the ISO week containing `date`. */

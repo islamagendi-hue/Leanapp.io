@@ -49,7 +49,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   const active = await reports.run("kpi", activeInput, () => kpi(ctx, scope, activeInput));
   const path = `/o/${org}/apps/${app}/analytics/events`;
   const keep = new URLSearchParams(
-    Object.entries({ env: env.type, days: param(sp.days), from: param(sp.from), to: param(sp.to), compare: param(sp.compare), interval: param(sp.interval), cohort: cf.cohortId })
+    Object.entries({ env: env.type, days: param(sp.days), from: param(sp.from), to: param(sp.to), compare: param(sp.compare), cfrom: param(sp.cfrom), cto: param(sp.cto), interval: param(sp.interval), cohort: cf.cohortId })
       .filter((e): e is [string, string] => !!e[1]),
   );
   const link = (name: string) => `${path}?${new URLSearchParams([...keep, ["event", name]])}`;

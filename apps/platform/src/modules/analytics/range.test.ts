@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { inputFromParams, paramsFromConfig, rangeFromParams } from "./report-params";
-import { addDays, bucketKeys, bucketSql, change, defaultInterval, previousRange, resolveRange, startOfDay } from "./range";
+import { addDays, bucketKeys, bucketSql, change, defaultInterval, comparisonRange, previousRange, rangeDays, resolveRange, startOfDay } from "./range";
 import { measurable } from "./retention-rule";
 
 const now = new Date("2026-10-08T12:00:00Z");
@@ -60,14 +60,46 @@ describe("report ranges", () => {
   });
 });
 
+describe("comparison periods", () => {
+  const now = new Date("2026-10-09T12:00:00Z");
+  const range = resolveRange({ from: "2026-10-01", to: "2026-10-07" }, "UTC", now);
+
+  it("offers 15 days as a preset", () => {
+    expect(rangeDays(15)).toBe(15);
+    expect(resolveRange({ days: 15 }, "UTC", now)).toMatchObject({ preset: 15, from: "2026-09-24", to: "2026-10-09" });
+  });
+
+  it("is the period before, the same days a year earlier, or custom days", () => {
+    expect(comparisonRange(range, "UTC", {})).toBeNull();
+    expect(comparisonRange(range, "UTC", { compare: true })).toMatchObject({ from: "2026-09-24", to: "2026-09-30" });
+    expect(comparisonRange(range, "UTC", { compare: "year" })).toMatchObject({ from: "2025-10-01", to: "2025-10-07", label: "1 Oct 2025 – 7 Oct 2025" });
+    expect(comparisonRange(range, "UTC", { compare: "custom", cfrom: "2026-08-01", cto: "2026-08-31" })).toMatchObject({ from: "2026-08-01", to: "2026-08-31" });
+    expect(comparisonRange(range, "UTC", { compare: "custom", cfrom: "2026-08-01" })).toBeNull();
+  });
+
+  it("moves 29 February to 28 February a year earlier", () => {
+    const leap = resolveRange({ from: "2028-02-29", to: "2028-02-29" }, "UTC", new Date("2028-03-10T00:00:00Z"));
+    expect(comparisonRange(leap, "UTC", { compare: "year" })).toMatchObject({ from: "2027-02-28", to: "2027-02-28" });
+  });
+});
+
 describe("range settings in URLs and saved reports", () => {
   it("uses dates only for a custom range, and round-trips them", () => {
-    expect(rangeFromParams(new URLSearchParams("days=7&from=2026-09-01&to=2026-09-30"))).toEqual({ days: "7", from: undefined, to: undefined, compare: undefined });
+    expect(rangeFromParams(new URLSearchParams("days=7&from=2026-09-01&to=2026-09-30"))).toEqual({ days: "7", from: undefined, to: undefined, compare: undefined, cfrom: undefined, cto: undefined });
     const custom = new URLSearchParams("event=x&days=custom&from=2026-09-01&to=2026-09-30&compare=1&interval=week");
     const input = inputFromParams("trend", custom);
     expect(input).toMatchObject({ from: "2026-09-01", to: "2026-09-30", compare: true, interval: "week" });
     const back = paramsFromConfig("trend", { event: "x", days: 30, from: "2026-09-01", to: "2026-09-30", compare: true, interval: "week" });
     expect(Object.fromEntries(back)).toEqual({ event: "x", interval: "week", days: "custom", from: "2026-09-01", to: "2026-09-30", compare: "1" });
+  });
+
+  it("compares with the previous period, a year earlier or custom days, and round-trips the choice", () => {
+    const q = new URLSearchParams("event=x&days=15&compare=custom&cfrom=2026-08-01&cto=2026-08-15");
+    expect(inputFromParams("trend", q)).toMatchObject({ days: "15", compare: "custom", cfrom: "2026-08-01", cto: "2026-08-15" });
+    expect(Object.fromEntries(paramsFromConfig("trend", { event: "x", days: 15, compare: "custom", cfrom: "2026-08-01", cto: "2026-08-15" })))
+      .toEqual({ event: "x", days: "15", compare: "custom", cfrom: "2026-08-01", cto: "2026-08-15" });
+    expect(rangeFromParams(new URLSearchParams("compare=year&cfrom=2026-08-01&cto=2026-08-15"))).toMatchObject({ compare: "year", cfrom: undefined, cto: undefined });
+    expect(rangeFromParams(new URLSearchParams("compare="))).toMatchObject({ compare: undefined });
   });
 
   it("opens configs saved before ranges existed exactly as before", () => {
