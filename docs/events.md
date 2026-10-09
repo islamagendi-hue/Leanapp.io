@@ -34,6 +34,26 @@
 | `timestamp` | ISO 8601. > 31 days old: rejected. > 10 min in the future: replaced with receive time. Corrected by `sent_at` skew. |
 | `properties` | ≤255 keys, ≤32KB, nesting depth ≤4 |
 | whole event | ≤64KB; batch ≤1MB |
+| `context.attribution` | String map; see [below](#contextattribution) |
+| `context.user_agent` | ≤1,000 chars. The web SDK sends `navigator.userAgent` |
+| `context.consent` | `{ purpose: boolean }`: the purposes the user has answered, sent by the SDKs on every event (never the defaults) |
+
+### context.attribution
+
+Optional, backward compatible: any string key (1–60 chars, ≤64 keys) with a string value ≤1,000 chars is still accepted. The well-known keys are typed in `apps/platform/src/modules/ingestion/attribution-context.ts`, which the attribution engine reads through `attributionEvidence()`:
+
+| Keys | Meaning |
+| --- | --- |
+| `utm_source`, `utm_medium`, `utm_campaign`, `utm_term`, `utm_content`, `utm_id` | Campaign labels |
+| `gclid`, `gbraid`, `wbraid`, `fbclid`, `ttclid`, `ScCid` (or `sccid`), `twclid`, `li_fat_id`, `msclkid`, `click_id` | Ad network click ids; `click_id` is LeanApp's own |
+| `campaign_id`, `adset_id`, `ad_id` | Ad network ids from URL macros |
+| `landing_url`, `referrer` | Web: the page the visit started on and the external referrer. Must be `http(s)` URLs, else dropped with a warning |
+| `touch` | Web: `first` or `latest`; any other value is dropped with a warning |
+| `deep_link_url` | Native SDKs: the URL that opened the app |
+| `fbp`, `fbc` | Web: Meta's browser ids from the `_fbp` / `_fbc` cookies (sent only with marketing consent) |
+| `adservices_token` | iOS: Apple's AdServices attribution token, on `app_installed`; ≤4,096 chars |
+
+The web SDK sends a `landing_viewed` track event (`properties.landing_url`, `referrer`) when a visit starts from a campaign or an external referrer, with the touch in `context.attribution`. A direct visit sends no `landing_viewed`, and its first event carries only `landing_url`. See [SDKs](sdk.md#web-attribution).
 
 System types map to stored names: `screen` → `screen_viewed`, `identify` → `user_identified`, `alias` → `user_aliased`, `push_token` → `push_token_registered`. `consent` events are not stored as events.
 

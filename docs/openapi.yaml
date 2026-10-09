@@ -1019,7 +1019,10 @@ components:
           schema: { $ref: "#/components/schemas/IngestResult" }
     IngestLimited:
       description: >-
-        `rate_limited` (too many events per minute for this environment) or `plan_limit_exceeded`
+        `rate_limited` (too many events per minute for this environment, for this API key
+        (`INGEST_EVENTS_PER_KEY_PER_MINUTE`, default 6000) or, for public SDK keys, from one client IP
+        (`INGEST_EVENTS_PER_IP_PER_MINUTE`, default 1200; counted under a keyed hash, the IP is never stored);
+        every event in the request counts) or `plan_limit_exceeded`
         (the organization used its monthly event allowance plus the 10% grace; nothing in the request
         was stored). Retry after `Retry-After` seconds.
       headers:
@@ -1230,11 +1233,46 @@ components:
           properties:
             name: { type: string }
             version: { type: string }
+        user_agent: { type: string, maxLength: 1000, description: "Web SDK: navigator.userAgent" }
         attribution:
           type: object
-          additionalProperties: { type: string }
+          description: >-
+            Well-known keys below; any other string key (1-60 characters, at most 64 keys) is still accepted.
+            Values are at most 1000 characters except adservices_token (4096). A `touch` other than first/latest
+            and a non-http(s) landing_url / referrer are dropped with a warning.
+          maxProperties: 64
+          properties:
+            utm_source: { type: string }
+            utm_medium: { type: string }
+            utm_campaign: { type: string }
+            utm_term: { type: string }
+            utm_content: { type: string }
+            utm_id: { type: string }
+            gclid: { type: string }
+            gbraid: { type: string }
+            wbraid: { type: string }
+            fbclid: { type: string }
+            ttclid: { type: string }
+            ScCid: { type: string }
+            sccid: { type: string }
+            twclid: { type: string }
+            li_fat_id: { type: string }
+            msclkid: { type: string }
+            click_id: { type: string, description: "LeanApp's own click id (lac_…)" }
+            campaign_id: { type: string }
+            adset_id: { type: string }
+            ad_id: { type: string }
+            landing_url: { type: string, description: "Web: origin, path and attribution parameters of the landing page" }
+            referrer: { type: string, description: "Web: external referrer, origin and path" }
+            touch: { type: string, enum: [first, latest] }
+            deep_link_url: { type: string, description: "Native SDKs: the URL that opened the app" }
+            fbp: { type: string, description: "Web: Meta _fbp cookie, with marketing consent" }
+            fbc: { type: string, description: "Web: Meta _fbc cookie or fb.1.<ms>.<fbclid>, with marketing consent" }
+            adservices_token: { type: string, maxLength: 4096, description: "iOS: AAAttribution.attributionToken(), on app_installed" }
+          additionalProperties: { type: string, maxLength: 1000 }
         consent:
           type: object
+          description: The purposes the user has answered (the SDKs never send defaults)
           additionalProperties: { type: boolean }
     IngestResult:
       type: object

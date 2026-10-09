@@ -26,6 +26,17 @@ class LeanAppConfig(
     /** Stop sending (events still queue) until optIn(). */
     val optedOut: Boolean = false,
     val debug: Boolean = false,
+    /**
+     * Consent assumed for every purpose until setConsent() records the user's answer. GRANTED (default,
+     * the behaviour before consent existed): track normally. PENDING: events wait in memory only (not
+     * stored, not sent) until consent is granted, and are discarded if it is denied or the app closes
+     * first. DENIED: events are dropped. See [ConsentPurpose] for what each purpose governs.
+     */
+    val consentDefault: ConsentStatus = ConsentStatus.GRANTED,
+    /** Per-purpose overrides of [consentDefault], keyed by [ConsentPurpose] names (analytics, marketing, push, attribution). */
+    val consentDefaults: Map<String, ConsentStatus> = emptyMap(),
+    /** On the first launch of a new install, ask LeanApp once for the deferred deep link (needs attribution consent). */
+    val deferredDeepLinks: Boolean = true,
 ) {
     val endpoint: String = endpoint.trimEnd('/')
     val flushAt: Int = maxOf(1, flushAt)

@@ -37,6 +37,7 @@ function make(opts: Partial<ConstructorParameters<typeof LeanAppClient>[0]> = {}
     now: clock.now,
     uuid: () => `id-${++id}`,
     random: () => 0.5,
+    deferredDeepLinks: false,
     ...opts,
   });
   return { client, clock };

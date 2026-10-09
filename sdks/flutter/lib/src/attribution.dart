@@ -1,26 +1,24 @@
+/// UTM parameters.
+const List<String> utmParams = ['utm_source', 'utm_medium', 'utm_campaign', 'utm_term', 'utm_content', 'utm_id'];
+
+/// Ad-network click ids (Snapchat's is ScCid; sccid is read too).
+const List<String> clickIdParams = ['gclid', 'gbraid', 'wbraid', 'fbclid', 'ttclid', 'ScCid', 'twclid', 'li_fat_id', 'msclkid', 'click_id'];
+
+/// Campaign / ad set / ad ids from ad-network URL macros. Kept only next to a UTM or click id.
+const List<String> campaignIdParams = ['campaign_id', 'adset_id', 'ad_id'];
+
 /// Campaign parameters and ad-network click ids captured from deep links and landing URLs.
-const List<String> attributionParams = [
-  'utm_source',
-  'utm_medium',
-  'utm_campaign',
-  'utm_term',
-  'utm_content',
-  'gclid',
-  'gbraid',
-  'wbraid',
-  'fbclid',
-  'ttclid',
-  'ScCid',
-  'twclid',
-  'li_fat_id',
-  'msclkid',
-  'click_id',
-];
+const List<String> attributionParams = [...utmParams, ...clickIdParams, ...campaignIdParams];
+
+/// True when the map has a UTM or a click id: evidence of where the user came from.
+bool hasSourceParams(Map<String, String>? a) =>
+    a != null && [...utmParams, ...clickIdParams].any((p) => (a[p] ?? '').isNotEmpty);
 
 String _truncate(String s, int max) => s.length > max ? s.substring(0, max) : s;
 
 /// Extracts attribution parameters from a URL or query string; null when there are none.
-/// Same rules as the JavaScript SDK: case-insensitive names, values capped at 1,000 characters.
+/// Same rules as the JavaScript SDK: case-insensitive names, values capped at 1,000 characters, and
+/// campaign / ad set / ad ids alone (often an app's own parameters) are not attribution.
 Map<String, String>? parseAttribution(String url) {
   var search = url;
   final q = url.indexOf('?');
@@ -46,7 +44,7 @@ Map<String, String>? parseAttribution(String url) {
       }
     }
   }
-  return out.isEmpty ? null : out;
+  return hasSourceParams(out) ? out : null;
 }
 
 /// Google Play Install Referrer details (Android). Get them with a plugin such as

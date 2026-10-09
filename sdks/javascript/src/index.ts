@@ -6,12 +6,12 @@
  *   Analytics.initialize({ apiKey: "la_pk_dev_…" });
  *   Analytics.track("order_completed", { order_id: "o1", revenue: 45, currency: "SAR" });
  */
-import { LeanAppClient, type AnalyticsOptions, type ConsentInput, type ConsentState, type FlushResult, type Properties } from "./client.js";
+import { LeanAppClient, type AnalyticsOptions, type ConsentInput, type ConsentState, type DeferredDeepLink, type FlushResult, type Properties } from "./client.js";
 import type { Attribution } from "./attribution.js";
 
-export { LeanAppClient, CONSENT_PURPOSES, DEFAULT_ENDPOINT, EXPOSURE_EVENT, SDK_NAME, SDK_VERSION, storagePrefix } from "./client.js";
-export type { AnalyticsOptions, AppStateLike, ConsentInput, ExperimentAssignment, ConsentPurpose, ConsentState, ConsentStatus, FlushResult, Platform, Properties, WireEvent } from "./client.js";
-export { ATTRIBUTION_PARAMS, parseAttribution, type Attribution } from "./attribution.js";
+export { LeanAppClient, CONSENT_PURPOSES, DEFAULT_ENDPOINT, EXPOSURE_EVENT, LANDING_EVENT, SDK_NAME, SDK_VERSION, storagePrefix } from "./client.js";
+export type { AnalyticsOptions, AppStateLike, ConsentInput, ExperimentAssignment, ConsentPurpose, ConsentState, ConsentStatus, DeferredDeepLink, FlushResult, Platform, Properties, WireEvent } from "./client.js";
+export { ATTRIBUTION_PARAMS, CAMPAIGN_ID_PARAMS, CLICK_ID_PARAMS, UTM_PARAMS, externalReferrer, landingUrl, parseAttribution, webTouch, type Attribution } from "./attribution.js";
 export { asyncStorageAdapter, localStorageAdapter, memoryStorage, type StorageAdapter } from "./storage.js";
 
 let instance: LeanAppClient | null = null;
@@ -39,7 +39,9 @@ export const Analytics = {
   alias: (newUserId: string, previousId?: string) => client()?.alias(newUserId, previousId),
   registerPushToken: (token: string, provider: "fcm" | "apns", permission?: "granted" | "denied" | "provisional" | "unknown") =>
     client()?.registerPushToken(token, provider, permission),
-  captureAttribution: (url: string): Attribution | null => client()?.captureAttribution(url) ?? null,
+  captureAttribution: (url: string, options?: { referrer?: string }): Attribution | null => client()?.captureAttribution(url, options) ?? null,
+  /** React Native: the deferred deep link of this install (asked once, on the first launch), or null. */
+  getDeferredDeepLink: (): Promise<DeferredDeepLink | null> => client()?.getDeferredDeepLink() ?? Promise.resolve(null),
   getAttribution: () => client()?.getAttribution() ?? null,
   getAnonymousId: () => client()?.getAnonymousId() ?? null,
   getUserId: () => client()?.getUserId() ?? null,
