@@ -1,3 +1,4 @@
+import { msg } from "@/i18n/translate";
 import "server-only";
 import { withTenant, type Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -49,7 +50,7 @@ export function getProject(ctx: TenantContext, appId: string) {
 
 /** Saves one questionnaire section. Returns field errors instead of throwing so the form can show them. */
 export async function saveAnswers(ctx: TenantContext, appId: string, section: SectionKey, raw: Record<string, unknown>) {
-  if (!SECTIONS.some((s) => s.key === section)) throw new ValidationError("Unknown section.");
+  if (!SECTIONS.some((s) => s.key === section)) throw new ValidationError(msg("Unknown section."));
   return tenantTx(ctx, "implementation.edit", async (db) => {
     const project = await projectFor(db, appId);
     const { answers, errors } = coerceAnswers(section, raw, project.answers);
@@ -132,7 +133,7 @@ export function getPlanVersion(ctx: TenantContext, appId: string, versionId?: st
 export async function generateDraft(ctx: TenantContext, appId: string): Promise<{ versionId: string; version: number }> {
   return tenantTx(ctx, "implementation.edit", async (db) => {
     const project = await projectFor(db, appId);
-    if (!progress(project.answers).complete) throw new ValidationError("Finish the questionnaire first.");
+    if (!progress(project.answers).complete) throw new ValidationError(msg("Finish the questionnaire first."));
     const platforms = (await db.query<{ platform: string }>("select platform from platform.app_platforms where app_id = $1", [appId])).map((r) => r.platform);
     const plan = generatePlan(project.answers, platforms);
     await db.query("update platform.tracking_plan_versions set status = 'archived', archived_at = now() where tracking_plan_id = $1 and status = 'draft'", [project.planId]);
@@ -200,7 +201,7 @@ async function versionInPlan(db: Db, appId: string, versionId: string) {
 export async function editDraftEvent(ctx: TenantContext, appId: string, versionId: string, eventName: string, change: { remove?: boolean; required?: boolean }) {
   return tenantTx(ctx, "implementation.edit", async (db) => {
     const { v } = await versionInPlan(db, appId, versionId);
-    if (v.status !== "draft") throw new ConflictError("Only draft versions can be edited. Generate a new draft to change an approved plan.");
+    if (v.status !== "draft") throw new ConflictError(msg("Only draft versions can be edited. Generate a new draft to change an approved plan."));
     if (change.remove) {
       const r = await db.query("delete from platform.tracking_events where plan_version_id = $1 and event_name = $2 returning id", [versionId, eventName]);
       if (!r.length) throw new NotFoundError("Event");
@@ -217,7 +218,7 @@ export async function approveVersion(ctx: TenantContext, appId: string, versionI
     const { project, v } = await versionInPlan(db, appId, versionId);
     if (v.status !== "draft") throw new ConflictError(`Version ${v.version} is ${v.status}, not a draft.`);
     const count = await db.one<{ n: string }>("select count(*) as n from platform.tracking_events where plan_version_id = $1", [versionId]);
-    if (Number(count?.n ?? 0) === 0) throw new ValidationError("A plan needs at least one event.");
+    if (Number(count?.n ?? 0) === 0) throw new ValidationError(msg("A plan needs at least one event."));
     await db.query("update platform.tracking_plan_versions set status = 'approved', approved_by = $2, approved_at = now() where id = $1", [versionId, ctx.userId]);
     await db.query("update platform.tracking_projects set status = 'plan_approved', progress = greatest(progress, 60) where id = $1", [project.projectId]);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "tracking_plan.approved", targetType: "tracking_plan_version", targetId: versionId, metadata: { version: v.version } });
@@ -233,7 +234,7 @@ export async function approveVersion(ctx: TenantContext, appId: string, versionI
 export async function publishVersion(ctx: TenantContext, appId: string, versionId: string) {
   return tenantTx(ctx, "implementation.approve", async (db) => {
     const { project, v } = await versionInPlan(db, appId, versionId);
-    if (v.status !== "approved") throw new ConflictError("Approve this version before publishing it.");
+    if (v.status !== "approved") throw new ConflictError(msg("Approve this version before publishing it."));
     await db.query("update platform.tracking_plan_versions set status = 'archived', archived_at = now() where tracking_plan_id = $1 and status = 'published'", [project.planId]);
     await db.query("update platform.tracking_plan_versions set status = 'published', published_by = $2, published_at = now() where id = $1", [versionId, ctx.userId]);
     await db.query("update platform.tracking_plans set published_version_id = $2 where id = $1", [project.planId, versionId]);
@@ -275,7 +276,7 @@ export async function decideMapping(ctx: TenantContext, appId: string, mappingId
 
 /** Creates or updates a mapping by hand (e.g. "purchase → purchase_completed"). */
 export async function createMapping(ctx: TenantContext, appId: string, fromName: string, toName: string) {
-  if (!/^[A-Za-z][A-Za-z0-9_ .:\-]{0,99}$/.test(fromName) || !/^[a-z][a-z0-9_]{1,63}$/.test(toName)) throw new ValidationError("Invalid event names.");
+  if (!/^[A-Za-z][A-Za-z0-9_ .:\-]{0,99}$/.test(fromName) || !/^[a-z][a-z0-9_]{1,63}$/.test(toName)) throw new ValidationError(msg("Invalid event names."));
   return tenantTx(ctx, "implementation.mapping", async (db) => {
     await db.query(
       `insert into platform.event_mappings (organization_id, app_id, from_name, to_name, status, decided_by, decided_at)
@@ -329,7 +330,7 @@ export function mappingHistory(db: Db, appId: string, limit: number): Promise<Ma
  */
 export async function revertMapping(ctx: TenantContext, appId: string, mappingId: string, revision: number) {
   return tenantTx(ctx, "implementation.mapping", async (db) => {
-    if (!(await featureOn(db, appId, "mapping_history"))) throw new ConflictError("Turn on mapping history for this app first.");
+    if (!(await featureOn(db, appId, "mapping_history"))) throw new ConflictError(msg("Turn on mapping history for this app first."));
     const target = await db.one<{ to_name: string; status: EventMapping["status"]; from_name: string }>(
       "select to_name, status, from_name from platform.event_mapping_history where app_id = $1 and mapping_id = $2 and revision = $3",
       [appId, mappingId, revision],
@@ -337,7 +338,7 @@ export async function revertMapping(ctx: TenantContext, appId: string, mappingId
     if (!target) throw new NotFoundError("Mapping revision");
     const current = await db.one<{ to_name: string; status: string }>("select to_name, status from platform.event_mappings where id = $1 and app_id = $2 for update", [mappingId, appId]);
     if (!current) throw new NotFoundError("Mapping");
-    if (current.to_name === target.to_name && current.status === target.status) throw new ConflictError("The mapping is already in that state.");
+    if (current.to_name === target.to_name && current.status === target.status) throw new ConflictError(msg("The mapping is already in that state."));
     await db.query("select set_config('platform.mapping_revert_to', $1, true)", [String(revision)]);
     await db.query("update platform.event_mappings set to_name = $3, status = $4, decided_by = $5, decided_at = now() where id = $1 and app_id = $2", [
       mappingId, appId, target.to_name, target.status, ctx.userId,

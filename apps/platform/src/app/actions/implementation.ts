@@ -10,11 +10,21 @@ import {
   addPlanEvent, removePlanEvent, removePlanEventProperty, removePlanUserProperty, setPlanEventProperty, setPlanUserProperty, updatePlanEvent,
   type EditResult,
 } from "@/modules/implementation/editor";
+import { getLang, getT } from "@/i18n/server";
+import { msg } from "@/i18n/translate";
+import { localizeText } from "@/modules/implementation/localize";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { describeProperty } from "@/modules/properties/catalog";
 import { requireTenant } from "@/server/session";
 
 const base = (org: string, app: string) => `/o/${org}/apps/${app}`;
+
+/** Form state for an error, with the engine's English message in the reader's language. */
+async function fail(err: unknown): Promise<ActionState> {
+  const state = toActionError(err);
+  if (state.error) state.error = localizeText(state.error, await getT(), await getLang());
+  return state;
+}
 
 export async function saveSectionAction(orgSlug: string, appSlug: string, appId: string, section: SectionKey, _: ActionState, form: FormData): Promise<ActionState> {
   let done = false;
@@ -31,11 +41,11 @@ export async function saveSectionAction(orgSlug: string, appSlug: string, appId:
       }
     }
     const r = await saveAnswers(ctx, appId, section, raw);
-    if (!r.ok) return { error: "Please answer the highlighted questions.", fieldErrors: r.errors };
+    if (!r.ok) return { error: msg("Please answer the highlighted questions."), fieldErrors: r.errors };
     done = r.next === null;
     revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/questions`);
   } catch (err) {
-    return toActionError(err);
+    return fail(err);
   }
   if (done) redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/questions?done=1`);
   redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/questions`);
@@ -45,7 +55,7 @@ export async function generatePlanAction(orgSlug: string, appSlug: string, appId
   try {
     await generateDraft(await requireTenant(orgSlug), appId);
   } catch (err) {
-    return toActionError(err);
+    return fail(err);
   }
   redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan`);
 }
@@ -54,9 +64,9 @@ export async function approveAction(orgSlug: string, appSlug: string, appId: str
   try {
     await approveVersion(await requireTenant(orgSlug), appId, versionId);
     revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan`);
-    return { ok: true, message: "Approved. Publish it to start validating incoming events against it." };
+    return { ok: true, message: msg("Approved. Publish it to start validating incoming events against it.") };
   } catch (err) {
-    return toActionError(err);
+    return fail(err);
   }
 }
 
@@ -64,7 +74,7 @@ export async function publishAction(orgSlug: string, appSlug: string, appId: str
   try {
     await publishVersion(await requireTenant(orgSlug), appId, versionId);
   } catch (err) {
-    return toActionError(err);
+    return fail(err);
   }
   redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/sdk?env=development`);
 }
@@ -75,7 +85,7 @@ export async function decideMappingAction(orgSlug: string, appSlug: string, appI
     revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/events`);
     return { ok: true };
   } catch (err) {
-    return toActionError(err);
+    return fail(err);
   }
 }
 
@@ -83,9 +93,9 @@ export async function createMappingAction(orgSlug: string, appSlug: string, appI
   try {
     await createMapping(await requireTenant(orgSlug), appId, String(form.get("from") ?? "").trim(), String(form.get("to") ?? "").trim());
     revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/events`);
-    return { ok: true, message: "Mapping saved and recent events re-validated." };
+    return { ok: true, message: msg("Mapping saved and recent events re-validated.") };
   } catch (err) {
-    return toActionError(err);
+    return fail(err);
   }
 }
 
@@ -153,12 +163,14 @@ export async function planEditAction(orgSlug: string, appSlug: string, appId: st
         break;
     }
   } catch (err) {
-    return toActionError(err);
+    return fail(err);
   }
   revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan`);
   // A new draft was copied from the approved / published version: show it.
   if (result.draftCreated) redirect(`${base(orgSlug, appSlug)}/settings/dev-ops/implementation/plan?version=${result.versionId}`);
-  return { ok: true, message: result.warnings.length ? `Saved to draft v${result.version}. ${result.warnings.join(" ")}` : `Saved to draft v${result.version}.` };
+  const [t, lang] = [await getT(), await getLang()];
+  const saved = t("Saved to draft v{version}.", { version: result.version });
+  return { ok: true, message: result.warnings.length ? `${saved} ${result.warnings.map((w) => localizeText(w, t, lang)).join(" ")}` : saved };
 }
 
 // ── Property catalog ────────────────────────────────────────────────────────
@@ -166,8 +178,8 @@ export async function describePropertyAction(orgSlug: string, appSlug: string, a
   try {
     await describeProperty(await requireTenant(orgSlug), appId, { scope: form.get("scope"), name: form.get("name"), description: form.get("description") ?? "" });
     revalidatePath(`${base(orgSlug, appSlug)}/settings/dev-ops/attributes`);
-    return { ok: true, message: "Description saved." };
+    return { ok: true, message: msg("Description saved.") };
   } catch (err) {
-    return toActionError(err);
+    return fail(err);
   }
 }

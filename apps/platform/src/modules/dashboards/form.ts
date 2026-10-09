@@ -3,18 +3,19 @@
  * the widget's config. Validation happens afterwards with the same report
  * schemas as everywhere else (`widgetConfig`). Pure.
  */
+import { msg } from "@/i18n/translate";
 
 export const ADD_WIDGET_TYPES = ["kpi", "trend", "funnel", "retention", "revenue", "growth", "audience_size"] as const;
 export type AddWidgetType = (typeof ADD_WIDGET_TYPES)[number];
 
 export const WIDGET_TYPE_LABELS: Record<AddWidgetType, string> = {
-  kpi: "Number",
-  trend: "Trend",
-  funnel: "Funnel",
-  retention: "Retention",
-  revenue: "Revenue",
-  growth: "Activation number",
-  audience_size: "Audience size",
+  kpi: msg("Number"),
+  trend: msg("Trend"),
+  funnel: msg("Funnel"),
+  retention: msg("Retention"),
+  revenue: msg("Revenue"),
+  growth: msg("Activation number"),
+  audience_size: msg("Audience size"),
 };
 
 export const FUNNEL_STEP_FIELDS = ["step1", "step2", "step3", "step4", "step5", "step6"] as const;

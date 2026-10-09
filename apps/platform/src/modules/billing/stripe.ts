@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 /**
  * Stripe over its REST API with fetch (no SDK). Card data never touches
  * LeanApp: customers pay on Stripe Checkout and manage payment methods in the
@@ -33,13 +34,13 @@ export function paymentsConnected(env: Env = process.env): boolean {
 
 export class PaymentsNotConnectedError extends AppError {
   constructor() {
-    super("payments_not_connected", "Payments are not connected yet.", 503);
+    super("payments_not_connected", msg("Payments are not connected yet."), 503);
   }
 }
 
 export class PaymentProviderError extends AppError {
   constructor() {
-    super("payment_provider_error", "The payment provider couldn't complete the request. Try again in a moment.", 502);
+    super("payment_provider_error", msg("The payment provider couldn't complete the request. Try again in a moment."), 502);
   }
 }
 

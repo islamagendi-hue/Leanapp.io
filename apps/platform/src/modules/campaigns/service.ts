@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { msg } from "@/i18n/translate";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import {
   activateAutomation, archiveAutomation, createAutomation, getAutomation, listAutomations, pauseAutomation, updateAutomation, type AutomationRow, type RunRow,
@@ -76,7 +77,7 @@ export async function getCampaign(ctx: TenantContext, id: string): Promise<{ cam
   return { campaign: withStats(automation, stats.get(id)), runs, delivery };
 }
 
-const nameSchema = z.string().trim().min(2, "Name the campaign.").max(80);
+const nameSchema = z.string().trim().min(2, msg("Name the campaign.")).max(80);
 
 function definitionOf(form: CampaignForm, timezone: string) {
   try {
@@ -97,7 +98,7 @@ export async function createCampaign(ctx: TenantContext, environmentId: string, 
 /** Changes a campaign that hasn't gone out yet (a sent one-time campaign is kept as it was sent). */
 export async function updateCampaign(ctx: TenantContext, id: string, input: { name?: unknown; form: CampaignForm; timezone: string }): Promise<void> {
   const { campaign } = await getCampaign(ctx, id);
-  if (campaign.fired || campaign.status === "archived") throw new ConflictError("This campaign was already sent or cancelled, so it can't be changed.");
+  if (campaign.fired || campaign.status === "archived") throw new ConflictError(msg("This campaign was already sent or cancelled, so it can't be changed."));
   const name = nameSchema.safeParse(input.name);
   if (!name.success) throw new ValidationError(name.error.issues[0].message);
   await updateAutomation(ctx, id, { name: name.data, definition: definitionOf(input.form, input.timezone) });
@@ -106,7 +107,7 @@ export async function updateCampaign(ctx: TenantContext, id: string, input: { na
 /** Sends now, schedules, or resumes (a sent one-time campaign never sends again). */
 export async function sendCampaign(ctx: TenantContext, id: string): Promise<void> {
   const { campaign } = await getCampaign(ctx, id);
-  if (campaign.fired && campaign.definition.trigger.type === "once") throw new ConflictError("This campaign was already sent.");
+  if (campaign.fired && campaign.definition.trigger.type === "once") throw new ConflictError(msg("This campaign was already sent."));
   await activateAutomation(ctx, id);
 }
 

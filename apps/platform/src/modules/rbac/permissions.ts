@@ -1,3 +1,4 @@
+import { msg } from "@/i18n/translate";
 /**
  * The single source of truth for roles and permissions.
  *
@@ -55,12 +56,12 @@ export const ROLES = ["owner", "admin", "developer", "analyst", "marketer", "vie
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_INFO: Record<Role, { name: string; description: string; rank: number }> = {
-  owner: { name: "Owner", description: "Full access including billing, members and deletion.", rank: 100 },
-  admin: { name: "Admin", description: "Full operational access except billing changes and deleting the organization.", rank: 80 },
-  developer: { name: "Developer", description: "Apps, environments, SDK, keys, events, integrations and webhooks.", rank: 50 },
-  analyst: { name: "Analyst", description: "Analytics, funnels, retention, audiences, attribution and users.", rank: 30 },
-  marketer: { name: "Marketer", description: "Audiences, automations, campaigns, analytics, users and attribution.", rank: 30 },
-  viewer: { name: "Viewer", description: "Read-only access to analytics, activation, audiences and users.", rank: 10 },
+  owner: { name: msg("Owner"), description: msg("Full access including billing, members and deletion."), rank: 100 },
+  admin: { name: msg("Admin"), description: msg("Full operational access except billing changes and deleting the organization."), rank: 80 },
+  developer: { name: msg("Developer"), description: msg("Apps, environments, SDK, keys, events, integrations and webhooks."), rank: 50 },
+  analyst: { name: msg("Analyst"), description: msg("Analytics, funnels, retention, audiences, attribution and users."), rank: 30 },
+  marketer: { name: msg("Marketer"), description: msg("Audiences, automations, campaigns, analytics, users and attribution."), rank: 30 },
+  viewer: { name: msg("Viewer"), description: msg("Read-only access to analytics, activation, audiences and users."), rank: 10 },
 };
 
 const read: Permission[] = ["organization.read", "members.read", "apps.read", "implementation.read"];

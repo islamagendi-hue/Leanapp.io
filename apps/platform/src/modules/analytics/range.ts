@@ -9,6 +9,7 @@
  * same days a year earlier, or with custom days (`cfrom` to `cto`).
  */
 import { z } from "zod";
+import { dateLocale, msg, type Lang, type T } from "@/i18n/translate";
 
 export const RANGES = [7, 15, 30, 90] as const;
 export type RangeDays = (typeof RANGES)[number];
@@ -42,7 +43,7 @@ export const rangeFields = {
  * "custom" the days `cfrom` to `cto`.
  */
 export type Compare = true | "year" | "custom";
-export const COMPARE_LABELS: Record<"1" | "year" | "custom", string> = { "1": "Previous period", year: "Same period last year", custom: "Custom dates" };
+export const COMPARE_LABELS: Record<"1" | "year" | "custom", string> = { "1": msg("Previous period"), year: msg("Same period last year"), custom: msg("Custom dates") };
 
 export function compareKind(v: unknown): Compare | undefined {
   if (v === true || v === "1" || v === "true" || v === "on" || v === "previous") return true;
@@ -102,7 +103,22 @@ export function datesBetween(from: string, to: string): string[] {
   return out;
 }
 
-const fmtDay = (d: string) => new Date(`${d}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+const fmtDay = (d: string, lang: Lang = "en") => new Date(`${d}T00:00:00Z`).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+
+/** "1 Sept 2026 – 10 Sept 2026" (one day alone when both are the same), in the reader's language. */
+export function spanLabel(from: string, to: string, lang: Lang = "en"): string {
+  return from === to ? fmtDay(from, lang) : `${fmtDay(from, lang)} – ${fmtDay(to, lang)}`;
+}
+
+/** A range as a heading reads it: "Last 7 days" for a preset, else its days. Same text as `label` in English. */
+export function rangeLabel(r: { preset: number | null; from: string; to: string }, t: T, lang: Lang): string {
+  return r.preset ? t("Last {n} days", { n: r.preset }) : spanLabel(r.from, r.to, lang);
+}
+
+/** A range inside a sentence: "the last 7 days", else its days ("No events in … yet"). */
+export function rangePhrase(r: { preset: number | null; from: string; to: string }, t: T, lang: Lang): string {
+  return r.preset ? t("the last {n} days", { n: r.preset }) : spanLabel(r.from, r.to, lang);
+}
 
 /** The range a report covers. A custom range wins when both its days are valid. */
 export function resolveRange(input: { days?: unknown; from?: string; to?: string }, timezone: string, now = new Date()): ReportRange {
@@ -118,7 +134,7 @@ export function resolveRange(input: { days?: unknown; from?: string; to?: string
     const start = startOfDay(from, timezone);
     const dayAfter = startOfDay(addDays(to, 1), timezone);
     const end = dayAfter > now ? now : dayAfter;
-    return { preset: null, from, to, start, end, label: from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}` };
+    return { preset: null, from, to, start, end, label: spanLabel(from, to) };
   }
   const days = rangeDays(input.days);
   const start = new Date(now.getTime() - days * DAY);
@@ -132,7 +148,7 @@ export function previousRange(range: ReportRange, timezone: string): ReportRange
   const end = range.start;
   const from = localDate(start, timezone);
   const to = localDate(new Date(end.getTime() - 1), timezone);
-  return { preset: range.preset, from, to, start, end, label: from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}` };
+  return { preset: range.preset, from, to, start, end, label: spanLabel(from, to) };
 }
 
 /** The same instant a calendar year earlier (29 Feb becomes 28 Feb). */
@@ -158,7 +174,7 @@ export function comparisonRange(range: ReportRange, timezone: string, input: { c
     const end = yearEarlier(range.end);
     const from = localDate(start, timezone);
     const to = localDate(new Date(end.getTime() - 1), timezone);
-    return { preset: null, from, to, start, end, label: from === to ? fmtDay(from) : `${fmtDay(from)} – ${fmtDay(to)}` };
+    return { preset: null, from, to, start, end, label: spanLabel(from, to) };
   }
   if (input.compare === "custom" && isoDate.safeParse(input.cfrom).success && isoDate.safeParse(input.cto).success) {
     return resolveRange({ from: input.cfrom, to: input.cto }, timezone);

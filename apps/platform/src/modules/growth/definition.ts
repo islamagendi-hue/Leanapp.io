@@ -5,17 +5,18 @@
  * with the plan. Pure (no database), so it is unit tested.
  */
 import { z } from "zod";
+import { msg } from "@/i18n/translate";
 import { AMOUNT_PROPERTIES, ruleFor } from "@/modules/analytics/revenue-rules";
 import { propertyFilterSchema, propertyName, type PropertyFilter } from "@/modules/analytics/sql";
 
 /** Retention checkpoints: a person is retained on day N when they come back on calendar day N (analytics/retention-rule.ts). */
 export const RETENTION_DAYS = [1, 7, 30] as const;
 
-const eventName = z.string().trim().min(1, "Choose an event.").max(200);
+const eventName = z.string().trim().min(1, msg("Choose an event.")).max(200);
 
 const eventRule = z.object({
   event: eventName,
-  filters: z.array(propertyFilterSchema).max(5, "Up to 5 property conditions.").default([]),
+  filters: z.array(propertyFilterSchema).max(5, msg("Up to 5 property conditions.")).default([]),
 });
 
 export const growthDefinitionSchema = z.object({
@@ -81,6 +82,19 @@ export function derivedDefinition(version: Pick<PlanVersionGrowthSource, "activa
   };
 }
 
+const NOT_IN_PLAN = {
+  activation: msg('Activation: "{event}" is not in the tracking plan. Add it to the plan first.'),
+  core_action: msg('Core action: "{event}" is not in the tracking plan. Add it to the plan first.'),
+  revenue: msg('Revenue: "{event}" is not in the tracking plan. Add it to the plan first.'),
+};
+const RETENTION_NEEDS_CORE = msg("Retention counts returns by the core action, so choose a core action.");
+
+/** Every problem message of growth definitions, for localize() where they're shown. */
+export const DEFINITION_MESSAGES = [
+  ...Object.values(NOT_IN_PLAN), RETENTION_NEEDS_CORE, msg("Choose an event."), msg("Up to 5 property conditions."),
+  "Property names use letters, digits, _ . $ - (up to 64).",
+];
+
 /**
  * Checks a definition against the plan it is saved into: every event it names
  * must be in that plan version. Returns readable problems (empty = valid).
@@ -88,13 +102,13 @@ export function derivedDefinition(version: Pick<PlanVersionGrowthSource, "activa
 export function definitionProblems(def: GrowthDefinition, planEvents: string[]): string[] {
   const inPlan = new Set(planEvents);
   const problems: string[] = [];
-  const check = (label: string, event: string | undefined) => {
-    if (event && !inPlan.has(event)) problems.push(`${label}: "${event}" is not in the tracking plan. Add it to the plan first.`);
+  const check = (problem: string, event: string | undefined) => {
+    if (event && !inPlan.has(event)) problems.push(problem.replace("{event}", () => event));
   };
-  check("Activation", def.activation?.event);
-  check("Core action", def.core_action?.event);
-  check("Revenue", def.revenue?.event);
-  if (def.retention.return_event === "core_action" && !def.core_action) problems.push("Retention counts returns by the core action, so choose a core action.");
+  check(NOT_IN_PLAN.activation, def.activation?.event);
+  check(NOT_IN_PLAN.core_action, def.core_action?.event);
+  check(NOT_IN_PLAN.revenue, def.revenue?.event);
+  if (def.retention.return_event === "core_action" && !def.core_action) problems.push(RETENTION_NEEDS_CORE);
   return problems;
 }
 

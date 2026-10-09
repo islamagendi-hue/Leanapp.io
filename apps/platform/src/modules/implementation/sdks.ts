@@ -5,6 +5,7 @@
  * added from the repository until the owner publishes them (docs/sdk-release.md).
  * Pure and client-safe.
  */
+import { msg } from "@/i18n/translate";
 
 export type SdkKey = "react_native" | "kotlin" | "swift" | "flutter";
 
@@ -28,23 +29,23 @@ export interface SdkRelease {
 export const SDK_RELEASES: SdkRelease[] = [
   {
     key: "react_native", label: "JavaScript / React Native", path: "sdks/javascript", pkg: "@leanapp/analytics", registry: "npm", published: false,
-    verified: "37 unit tests, typecheck and build in CI",
-    gaps: ["Play install referrer on React Native (needs a native module)", "deep_link_url on opens", "in-app message display", "deferred and resolve deep link calls"],
+    verified: msg("37 unit tests, typecheck and build in CI"),
+    gaps: [msg("Play install referrer on React Native (needs a native module)"), msg("deep_link_url on opens"), msg("in-app message display"), msg("deferred and resolve deep link calls")],
   },
   {
     key: "kotlin", label: "Android (Kotlin)", path: "sdks/android", pkg: "io.leanapp:leanapp-android", registry: "Maven Central", published: false,
-    verified: "29 JVM unit tests and the Android library build in CI",
-    gaps: ["consent per purpose (optOut / optIn only)", "in-app message display", "deferred and resolve deep link calls"],
+    verified: msg("29 JVM unit tests and the Android library build in CI"),
+    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("in-app message display"), msg("deferred and resolve deep link calls")],
   },
   {
     key: "swift", label: "iOS (Swift)", path: "sdks/ios", pkg: "LeanApp (Swift Package)", registry: "Swift Package Manager (Git tag)", published: false,
-    verified: "24 XCTest tests and device and simulator builds on macOS in CI",
-    gaps: ["consent per purpose (optOut / optIn only)", "SKAdNetwork / AdAttributionKit conversion values", "in-app message display", "deferred and resolve deep link calls"],
+    verified: msg("24 XCTest tests and device and simulator builds on macOS in CI"),
+    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("SKAdNetwork / AdAttributionKit conversion values"), msg("in-app message display"), msg("deferred and resolve deep link calls")],
   },
   {
     key: "flutter", label: "Flutter (Dart)", path: "sdks/flutter", pkg: "leanapp_analytics", registry: "pub.dev", published: false,
-    verified: "25 tests and flutter analyze in CI",
-    gaps: ["consent per purpose (optOut / optIn only)", "install referrer without a plugin", "in-app message display", "deferred and resolve deep link calls"],
+    verified: msg("25 tests and flutter analyze in CI"),
+    gaps: [msg("consent per purpose (optOut / optIn only)"), msg("install referrer without a plugin"), msg("in-app message display"), msg("deferred and resolve deep link calls")],
   },
 ];
 

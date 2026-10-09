@@ -6,6 +6,7 @@
  * Components with nothing planned are "not applicable" and excluded from the
  * weighted total rather than counted as 100%.
  */
+import { msg } from "@/i18n/translate";
 
 export interface ScoreEvent {
   event_name: string;
@@ -59,13 +60,13 @@ const WEIGHTS: Record<ComponentKey, number> = {
 };
 
 const LABELS: Record<ComponentKey, string> = {
-  sdk_connection: "SDK connection",
-  core_events: "Core events",
-  revenue_events: "Revenue events",
-  user_properties: "User properties",
-  attribution: "Attribution",
-  backend_events: "Backend events",
-  automation_readiness: "Automation readiness",
+  sdk_connection: msg("SDK connection"),
+  core_events: msg("Core events"),
+  revenue_events: msg("Revenue events"),
+  user_properties: msg("User properties"),
+  attribution: msg("Attribution"),
+  backend_events: msg("Backend events"),
+  automation_readiness: msg("Automation readiness"),
 };
 
 /** An event counts fully when valid payloads arrive; half when received but every payload failed validation. */
@@ -101,12 +102,12 @@ export function computeScore(input: ScoreInput): ImplementationScore {
     : null;
 
   const raw: Record<ComponentKey, [number | null, string]> = {
-    sdk_connection: [sdk, !input.lastEventAt ? "No events received yet." : sdk === 100 ? "Events received in the last 7 days." : "No events in the last 7 days."],
+    sdk_connection: [sdk, !input.lastEventAt ? msg("No events received yet.") : sdk === 100 ? msg("Events received in the last 7 days.") : msg("No events in the last 7 days.")],
     core_events: [pct(core), `${core.filter((e) => eventCredit(e) === 1).length}/${core.length} required app events valid.`],
-    revenue_events: [pct(revenue), revenue.length ? `${revenue.filter((e) => eventCredit(e) === 1).length}/${revenue.length} revenue events valid.` : "No revenue events planned."],
+    revenue_events: [pct(revenue), revenue.length ? `${revenue.filter((e) => eventCredit(e) === 1).length}/${revenue.length} revenue events valid.` : msg("No revenue events planned.")],
     user_properties: [upPlanned.size ? Math.round((upSeen.length / upPlanned.size) * 100) : null, `${upSeen.length}/${upPlanned.size} planned user properties seen.`],
-    attribution: [attrPlanned.size ? Math.round((attrSeen.length / attrPlanned.size) * 100) : null, attrPlanned.size ? `${attrSeen.length}/${attrPlanned.size} attribution parameters seen.` : "No attribution rules planned."],
-    backend_events: [backendPct, backend.length ? `${backend.filter((e) => e.status?.sources.includes("backend") && (e.status?.valid ?? 0) > 0).length}/${backend.length} backend events received from a server.` : "No backend events planned."],
+    attribution: [attrPlanned.size ? Math.round((attrSeen.length / attrPlanned.size) * 100) : null, attrPlanned.size ? `${attrSeen.length}/${attrPlanned.size} attribution parameters seen.` : msg("No attribution rules planned.")],
+    backend_events: [backendPct, backend.length ? `${backend.filter((e) => e.status?.sources.includes("backend") && (e.status?.valid ?? 0) > 0).length}/${backend.length} backend events received from a server.` : msg("No backend events planned.")],
     automation_readiness: [pct(automation), `${automation.filter((e) => eventCredit(e) === 1).length}/${automation.length} automation trigger events valid.`],
   };
 

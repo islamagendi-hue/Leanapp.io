@@ -7,6 +7,7 @@
  * monetization answers. Every decision returns its signals so the plan can
  * show *why*.
  */
+import { msg } from "@/i18n/translate";
 import { BUSINESS_MODELS, MODELS, type BusinessModel } from "./catalog/models";
 import type { Answers } from "./questions";
 
@@ -70,7 +71,7 @@ export function classifyBusiness(a: Answers): Classification {
   } else {
     primary = "other";
     confidence = "low";
-    signals.push("No clear business-model keywords yet.");
+    signals.push(msg("No clear business-model keywords yet."));
   }
 
   const secondary = new Set<BusinessModel>();
@@ -78,11 +79,11 @@ export function classifyBusiness(a: Answers): Classification {
   const streams = Array.isArray(a["monetization.streams"]) ? (a["monetization.streams"] as string[]) : [];
   if (streams.includes("subscriptions") && primary !== "subscription" && primary !== "saas") {
     secondary.add("subscription");
-    signals.push("You charge subscriptions, so subscription events are included.");
+    signals.push(msg("You charge subscriptions, so subscription events are included."));
   }
   if (streams.includes("ads") && primary !== "advertising") {
     secondary.add("advertising");
-    signals.push("You earn from ads, so ad revenue is tracked.");
+    signals.push(msg("You earn from ads, so ad revenue is tracked."));
   }
   for (const m of secondary) if (scored.find((s) => s.model === m)) signals.push(`Also looks like ${m} (${scored.find((s) => s.model === m)!.hits.join(", ")}).`);
 

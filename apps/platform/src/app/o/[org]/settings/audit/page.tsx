@@ -1,12 +1,16 @@
 import Link from "next/link";
+import { getLang, getT } from "@/i18n/server";
+import { dateLocale, msg } from "@/i18n/translate";
 import { listAuditLogs } from "@/modules/audit/service";
 import { requirePermission, requireTenant } from "@/server/session";
 
-export const metadata = { title: "Audit log" };
+export async function generateMetadata() {
+  return { title: (await getT())("Audit log") };
+}
 
 const AREAS = [
-  ["", "Everything"], ["organization", "Organization"], ["member", "Members"], ["invitation", "Invitations"], ["app", "Apps"],
-  ["sdk_key", "SDK keys"], ["api_key", "API keys"], ["tracking_plan", "Tracking plan"], ["event_mapping", "Mappings"], ["privacy", "Privacy"], ["billing", "Billing"],
+  ["", msg("Everything")], ["organization", msg("Organization")], ["member", msg("Members")], ["invitation", msg("Invitations")], ["app", msg("Apps")],
+  ["sdk_key", msg("SDK keys")], ["api_key", msg("API keys")], ["tracking_plan", msg("Tracking plan")], ["event_mapping", msg("Mappings")], ["privacy", msg("Privacy")], ["billing", msg("Billing")],
 ] as const;
 
 function details(m: Record<string, unknown>): string {
@@ -26,36 +30,38 @@ export default async function AuditPage(props: PageProps<"/o/[org]/settings/audi
   const before = typeof sp.before === "string" ? sp.before : undefined;
   const { rows, next } = await listAuditLogs(ctx, { area: area || undefined, before });
   const base = `/o/${org}/settings/audit`;
+  const t = await getT();
+  const lang = await getLang();
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="h1">Audit log</h1>
-        <p className="mt-1 text-ink-2">Security-relevant changes in {ctx.organizationName}: who did what, and when. Entries can&apos;t be edited or deleted.</p>
+        <h1 className="h1">{t("Audit log")}</h1>
+        <p className="mt-1 text-ink-2">{t("Security-relevant changes in {org}: who did what, and when. Entries can't be edited or deleted.", { org: ctx.organizationName })}</p>
       </div>
       <div className="flex flex-wrap gap-2 text-sm">
         {AREAS.map(([key, label]) => (
           <Link key={key} href={key ? `${base}?area=${key}` : base} className={`pill ${area === key ? "border-ink bg-ink text-paper" : "border-line text-ink-2 hover:text-ink"}`}>
-            {label}
+            {t(label)}
           </Link>
         ))}
       </div>
       <div className="card overflow-x-auto p-0">
         {rows.length === 0 ? (
-          <p className="p-4 text-sm text-ink-3">Nothing recorded{area ? " in this area" : ""} yet.</p>
+          <p className="p-4 text-sm text-ink-3">{area ? t("Nothing recorded in this area yet.") : t("Nothing recorded yet.")}</p>
         ) : (
           <table className="table">
-            <thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th></tr></thead>
+            <thead><tr><th>{t("When")}</th><th>{t("Who")}</th><th>{t("Action")}</th><th>{t("Details")}</th></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.id}>
-                  <td className="whitespace-nowrap text-xs text-ink-3">{new Date(r.created_at).toLocaleString("en-GB", { timeZone: "UTC" })} UTC</td>
+                  <td className="whitespace-nowrap text-xs text-ink-3">{new Date(r.created_at).toLocaleString(dateLocale(lang), { timeZone: "UTC" })} UTC</td>
                   <td className="text-sm">
-                    {r.actor_type === "user" ? (r.actor_name ?? "Former member") : r.actor_type === "api_key" ? "Secret API key" : r.actor_type === "system" ? "LeanApp (automatic)" : "LeanApp support"}
-                    {r.actor_email && <div className="text-xs text-ink-3">{r.actor_email}</div>}
+                    {r.actor_type === "user" ? (r.actor_name ?? t("Former member")) : r.actor_type === "api_key" ? t("Secret API key") : r.actor_type === "system" ? t("LeanApp (automatic)") : t("LeanApp support")}
+                    {r.actor_email && <div className="text-xs text-ink-3" dir="ltr">{r.actor_email}</div>}
                   </td>
                   <td className="font-mono text-xs">{r.action}</td>
-                  <td className="max-w-md text-xs break-words text-ink-2">{details(r.metadata)}</td>
+                  <td className="max-w-md text-xs break-words text-ink-2" dir="ltr">{details(r.metadata)}</td>
                 </tr>
               ))}
             </tbody>
@@ -64,8 +70,8 @@ export default async function AuditPage(props: PageProps<"/o/[org]/settings/audi
       </div>
       {(before || next) && (
         <div className="flex gap-3 text-sm">
-          {before && <Link className="underline" href={area ? `${base}?area=${area}` : base}>Newest</Link>}
-          {next && <Link className="underline" href={`${base}?${new URLSearchParams({ ...(area ? { area } : {}), before: next })}`}>Older</Link>}
+          {before && <Link className="underline" href={area ? `${base}?area=${area}` : base}>{t("Newest")}</Link>}
+          {next && <Link className="underline" href={`${base}?${new URLSearchParams({ ...(area ? { area } : {}), before: next })}`}>{t("Older")}</Link>}
         </div>
       )}
     </div>

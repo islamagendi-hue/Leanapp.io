@@ -1,4 +1,5 @@
 import "server-only";
+import { msg, type T } from "@/i18n/translate";
 import { displayName } from "@/modules/implementation/plan-input";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { ANY_EVENT } from "./sql";
@@ -9,8 +10,9 @@ export type EventLabels = (name: string) => string;
 /**
  * Display names for an app's events, for report pickers and tables. One small
  * query; the technical name stays the value everywhere (URLs, saved reports).
+ * With `t`, "Any event" reads in the request's language.
  */
-export async function eventLabels(ctx: TenantContext, appId: string): Promise<EventLabels> {
+export async function eventLabels(ctx: TenantContext, appId: string, t: T = (s) => s): Promise<EventLabels> {
   const rows = await tenantTx(ctx, "analytics.read", (db) =>
     db.query<{ event_name: string; display_name: string }>(
       `select e.event_name, e.display_name
@@ -21,7 +23,8 @@ export async function eventLabels(ctx: TenantContext, appId: string): Promise<Ev
     ),
   );
   const known = new Map(rows.filter((r) => r.display_name?.trim()).map((r) => [r.event_name, r.display_name.trim()]));
-  return (name) => (name === ANY_EVENT ? "Any event" : known.get(name) ?? displayName(name));
+  const any = t(msg("Any event"));
+  return (name) => (name === ANY_EVENT ? any : known.get(name) ?? displayName(name));
 }
 
 /** The published plan's events with their display names, for quick search. Empty without a plan. */

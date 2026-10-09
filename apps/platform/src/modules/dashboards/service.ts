@@ -1,5 +1,6 @@
 import "server-only";
 import { z } from "zod";
+import { msg, type T } from "@/i18n/translate";
 import type { Db } from "@/lib/db";
 import { AppError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { cachedReport } from "@/modules/analytics/cache";
@@ -14,6 +15,7 @@ import { compileAudience, parseDefinition } from "@/modules/audiences/definition
 import { growthOverview, type GrowthSummary } from "@/modules/growth/service";
 import { can } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
+import { en } from "./localize";
 import { planTemplate, TEMPLATE_INFO, TEMPLATES, type TemplateFacts } from "./templates";
 
 /**
@@ -65,9 +67,24 @@ export interface Widget {
   h: number;
 }
 
+const TOO_MANY_DASHBOARDS = msg("A project can have at most {n} dashboards.");
+const TOO_MANY_WIDGETS = msg("A dashboard can have at most {n} widgets.");
+const WRONG_REPORT_KIND = msg("That saved report is a {kind}, not a {type}.");
+const CHOOSE_AUDIENCE = msg("Choose an audience.");
+const REPORT_DELETED = msg("The saved report behind this widget was deleted.");
+
+/** Every message this module shows people, for localize() where it's rendered. */
+export const DASHBOARD_MESSAGES = [
+  msg("Name the dashboard."), msg("Invalid input."), CHOOSE_AUDIENCE, TOO_MANY_DASHBOARDS, TOO_MANY_WIDGETS, WRONG_REPORT_KIND, REPORT_DELETED,
+  msg("Only the person who made this dashboard can make it private."), msg("The widget doesn't fit in the grid."), msg("A widget doesn't fit in the grid."),
+  msg("Only report widgets can use a saved report."), msg("You can't create dashboards."), msg("You don't have access to Activation."),
+  msg("That audience doesn't exist in this environment."),
+  msg("Dashboard not found."), msg("Widget not found."), msg("Saved report not found."), msg("Project not found."),
+];
+
 const uuid = z.uuid();
 const dashboardInput = z.object({
-  name: z.string().trim().min(1, "Name the dashboard.").max(80),
+  name: z.string().trim().min(1, msg("Name the dashboard.")).max(80),
   description: z.string().trim().max(500).optional().transform((v) => v || null),
   visibility: z.enum(["workspace", "private"]).default("workspace"),
 });
@@ -90,7 +107,7 @@ const widgetInput = z
 
 function parse<S extends z.ZodType>(schema: S, input: unknown): z.output<S> {
   const r = schema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid input."));
   return r.data;
 }
 
@@ -109,7 +126,7 @@ export function widgetConfig(type: WidgetType, input: unknown): Record<string, u
     case "growth":
       return parse(z.object({ metric: z.enum(GROWTH_METRICS) }), input);
     case "audience_size":
-      return parse(z.object({ audienceId: z.uuid("Choose an audience.") }), input);
+      return parse(z.object({ audienceId: z.uuid(CHOOSE_AUDIENCE) }), input);
   }
 }
 
@@ -165,7 +182,7 @@ async function insertDashboard(db: Db, ctx: TenantContext, appId: string, data: 
   const app = await db.one<{ id: string }>("select id from platform.apps where id = $1", [appId]);
   if (!app) throw new NotFoundError("Project");
   const n = await db.one<{ n: number }>("select count(*)::int as n from platform.dashboards where app_id = $1", [appId]);
-  if (n!.n >= MAX_DASHBOARDS) throw new ValidationError(`A project can have at most ${MAX_DASHBOARDS} dashboards.`);
+  if (n!.n >= MAX_DASHBOARDS) throw new ValidationError(en(TOO_MANY_DASHBOARDS, { n: MAX_DASHBOARDS }));
   const row = await db.one<{ id: string }>(
     `insert into platform.dashboards (organization_id, app_id, name, description, visibility, created_by, updated_by)
      values ($1, $2, $3, $4, $5, $6, $6) returning id`,
@@ -181,7 +198,7 @@ export async function updateDashboard(ctx: TenantContext, id: string, input: unk
     const d = await editable(db, ctx, id);
     // Only the creator can make a shared dashboard private (others would lose it).
     if (data.visibility === "private" && d.visibility === "workspace" && d.created_by !== ctx.userId) {
-      throw new ForbiddenError("Only the person who made this dashboard can make it private.");
+      throw new ForbiddenError(msg("Only the person who made this dashboard can make it private."));
     }
     await db.query("update platform.dashboards set name = $2, description = $3, visibility = $4, updated_by = $5 where id = $1", [id, data.name, data.description, data.visibility, ctx.userId]);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "dashboard.updated", targetType: "dashboard", targetId: id, metadata: { name: data.name, visibility: data.visibility } });
@@ -198,25 +215,25 @@ export async function deleteDashboard(ctx: TenantContext, id: string): Promise<v
 
 export async function addWidget(ctx: TenantContext, dashboardId: string, input: unknown): Promise<{ id: string }> {
   const data = parse(widgetInput, input);
-  if (data.x + data.w > GRID_COLUMNS) throw new ValidationError("The widget doesn't fit in the grid.");
+  if (data.x + data.w > GRID_COLUMNS) throw new ValidationError(msg("The widget doesn't fit in the grid."));
   return write(ctx, async (db) => {
     const d = await editable(db, ctx, dashboardId);
     const count = await db.one<{ n: number; bottom: number }>(
       "select count(*)::int as n, coalesce(max(y + h), 0)::int as bottom from platform.dashboard_widgets where dashboard_id = $1",
       [dashboardId],
     );
-    if (count!.n >= MAX_WIDGETS) throw new ValidationError(`A dashboard can have at most ${MAX_WIDGETS} widgets.`);
+    if (count!.n >= MAX_WIDGETS) throw new ValidationError(en(TOO_MANY_WIDGETS, { n: MAX_WIDGETS }));
     let savedReportId: string | null = null;
     let config: Record<string, unknown> | null = null;
     if (data.savedReportId) {
-      if (!(REPORT_WIDGETS as readonly string[]).includes(data.type)) throw new ValidationError("Only report widgets can use a saved report.");
+      if (!(REPORT_WIDGETS as readonly string[]).includes(data.type)) throw new ValidationError(msg("Only report widgets can use a saved report."));
       const report = await db.one<{ kind: string }>(
         `select r.kind from platform.analytics_saved_reports r join platform.environments e on e.id = r.environment_id
           where r.id = $1 and e.app_id = $2`,
         [data.savedReportId, d.app_id],
       );
       if (!report) throw new NotFoundError("Saved report");
-      if (report.kind !== data.type) throw new ValidationError(`That saved report is a ${report.kind}, not a ${data.type}.`);
+      if (report.kind !== data.type) throw new ValidationError(en(WRONG_REPORT_KIND, { kind: report.kind, type: data.type }));
       savedReportId = data.savedReportId;
     } else {
       config = widgetConfig(data.type, data.config ?? {});
@@ -260,7 +277,7 @@ export async function removeWidget(ctx: TenantContext, dashboardId: string, widg
 /** Saves the grid: every listed widget's position and size (reorder and resize). */
 export async function saveLayout(ctx: TenantContext, dashboardId: string, layout: unknown): Promise<void> {
   const items = parse(z.array(z.object({ id: uuid }).and(position.required({ y: true }))).max(MAX_WIDGETS), layout);
-  for (const i of items) if (i.x + i.w > GRID_COLUMNS) throw new ValidationError("A widget doesn't fit in the grid.");
+  for (const i of items) if (i.x + i.w > GRID_COLUMNS) throw new ValidationError(msg("A widget doesn't fit in the grid."));
   await write(ctx, async (db) => {
     await editable(db, ctx, dashboardId);
     for (const i of items) {
@@ -331,14 +348,15 @@ export async function templateFacts(ctx: TenantContext, scope: Scope): Promise<T
  * need something missing are skipped; their reasons come back. The dashboard
  * and its widgets are written in one transaction.
  */
-export async function createFromTemplate(ctx: TenantContext, scope: Scope, template: unknown, opts: { visibility?: unknown } = {}): Promise<{ id: string; added: number; skipped: string[] }> {
+export async function createFromTemplate(ctx: TenantContext, scope: Scope, template: unknown, opts: { visibility?: unknown; t?: T } = {}): Promise<{ id: string; added: number; skipped: string[] }> {
+  const t = opts.t ?? en;
   const id = parse(z.enum(TEMPLATES), template);
-  if (!can(ctx.role, "analytics.write")) throw new ForbiddenError("You can't create dashboards.");
-  const plan = planTemplate(id, await templateFacts(ctx, scope));
+  if (!can(ctx.role, "analytics.write")) throw new ForbiddenError(msg("You can't create dashboards."));
+  const plan = planTemplate(id, await templateFacts(ctx, scope), t);
   const visibility = parse(dashboardInput.shape.visibility, opts.visibility ?? "workspace");
   const configs = plan.widgets.map((w) => widgetConfig(w.type, w.config));
   const dashboardId = await write(ctx, async (db) => {
-    const dashboardId = await insertDashboard(db, ctx, scope.appId, { name: TEMPLATE_INFO[id].name, description: TEMPLATE_INFO[id].description, visibility });
+    const dashboardId = await insertDashboard(db, ctx, scope.appId, { name: t(TEMPLATE_INFO[id].name), description: t(TEMPLATE_INFO[id].description), visibility });
     for (const [y, w] of plan.widgets.entries()) {
       await db.query(
         `insert into platform.dashboard_widgets (organization_id, dashboard_id, type, title, config, x, y, w, h) values ($1, $2, $3, $4, $5, 0, $6, $7, $8)`,
@@ -389,9 +407,9 @@ export async function runWidget(
 
 async function widgetInputOf(ctx: TenantContext, widget: Widget): Promise<Record<string, unknown>> {
   if (widget.config) return widget.config;
-  if (!widget.saved_report_id) throw new ValidationError("The saved report behind this widget was deleted.");
+  if (!widget.saved_report_id) throw new ValidationError(REPORT_DELETED);
   const row = await analyticsTx(ctx, (db) => db.one<{ config: Record<string, unknown> }>("select config from platform.analytics_saved_reports where id = $1", [widget.saved_report_id]));
-  if (!row) throw new ValidationError("The saved report behind this widget was deleted.");
+  if (!row) throw new ValidationError(REPORT_DELETED);
   return row.config;
 }
 
@@ -422,7 +440,7 @@ async function run(ctx: TenantContext, scope: { appId: string; environmentId: st
     }
     case "growth": {
       const metric = (widget.config?.metric ?? "people") as GrowthMetric;
-      if (!can(ctx.role, "growth.read")) throw new ForbiddenError("You don't have access to Activation.");
+      if (!can(ctx.role, "growth.read")) throw new ForbiddenError(msg("You don't have access to Activation."));
       const o = await growthOverview(ctx, scope.appId, scope.environmentId);
       return { type: "growth", metric, enabled: o.enabled, ...growthValue(o.summary, metric), summary: o.summary };
     }
@@ -454,13 +472,13 @@ export function growthValue(s: GrowthSummary | null, metric: GrowthMetric): { va
 
 /** Members of an audience in the environment, computed now (drafts included). */
 async function audienceSize(ctx: TenantContext, environmentId: string, id: string): Promise<WidgetData> {
-  if (!uuid.safeParse(id).success) throw new ValidationError("Choose an audience.");
+  if (!uuid.safeParse(id).success) throw new ValidationError(CHOOSE_AUDIENCE);
   return analyticsTx(ctx, async (db) => {
     const a = await db.one<{ name: string; definition: unknown }>(
       "select name, definition from platform.audiences where id = $1 and environment_id = $2 and status <> 'archived'",
       [id, environmentId],
     );
-    if (!a) throw new ValidationError("That audience doesn't exist in this environment.");
+    if (!a) throw new ValidationError(msg("That audience doesn't exist in this environment."));
     const { sql, params } = compileAudience(parseDefinition(a.definition), environmentId);
     const row = await db.one<{ n: string }>(`with target as (${sql}) select count(*) as n from target`, params);
     return { type: "audience_size" as const, name: a.name, size: Number(row!.n) };

@@ -1,4 +1,6 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
+import { withParams } from "@/modules/organizations/messages";
 import { withSystem, type Db } from "@/lib/db";
 import { PlanLimitError } from "@/lib/errors";
 import { asLimit, canAdd, eventHardCap, eventState, LIMIT_FEATURES, usagePeriod, type LimitKey, type LimitState } from "./limits";
@@ -41,7 +43,11 @@ export async function assertCanAddApp(db: Db, organizationId: string): Promise<v
   if (limit === null) return;
   const row = await db.one<{ n: string }>("select count(*) as n from platform.apps where organization_id = $1 and status = 'active'", [organizationId]);
   if (!canAdd(Number(row!.n), limit))
-    throw new PlanLimitError(`Your plan includes ${limit} app${limit === 1 ? "" : "s"}. Upgrade the plan to add another.`, "apps");
+    throw withParams(
+      (m) => new PlanLimitError(m, "apps"),
+      limit === 1 ? msg("Your plan includes {limit} app. Upgrade the plan to add another.") : msg("Your plan includes {limit} apps. Upgrade the plan to add another."),
+      { limit },
+    );
 }
 
 /**
@@ -65,9 +71,16 @@ export async function assertCanInvite(db: Db, organizationId: string): Promise<v
   if (limit === null) return;
   const { members, pending } = await seatsUsed(db, organizationId);
   if (!canAdd(members + pending, limit))
-    throw new PlanLimitError(
-      `Your plan includes ${limit} member${limit === 1 ? "" : "s"} and ${members + pending} ${members + pending === 1 ? "is" : "are"} taken by members and pending invitations. Revoke an invitation or upgrade the plan.`,
-      "seats",
+    throw withParams(
+      (m) => new PlanLimitError(m, "seats"),
+      limit === 1
+        ? members + pending === 1
+          ? msg("Your plan includes {limit} member and {taken} is taken by members and pending invitations. Revoke an invitation or upgrade the plan.")
+          : msg("Your plan includes {limit} member and {taken} are taken by members and pending invitations. Revoke an invitation or upgrade the plan.")
+        : members + pending === 1
+          ? msg("Your plan includes {limit} members and {taken} is taken by members and pending invitations. Revoke an invitation or upgrade the plan.")
+          : msg("Your plan includes {limit} members and {taken} are taken by members and pending invitations. Revoke an invitation or upgrade the plan."),
+      { limit, taken: members + pending },
     );
 }
 
@@ -78,7 +91,7 @@ export async function assertCanJoin(db: Db, organizationId: string): Promise<voi
   if (limit === null) return;
   const { members } = await seatsUsed(db, organizationId);
   if (!canAdd(members, limit))
-    throw new PlanLimitError("This organization has no free seats on its plan. Ask an owner to upgrade the plan or remove a member.", "seats");
+    throw new PlanLimitError(msg("This organization has no free seats on its plan. Ask an owner to upgrade the plan or remove a member."), "seats");
 }
 
 // ── Monthly events ──────────────────────────────────────────────────────────

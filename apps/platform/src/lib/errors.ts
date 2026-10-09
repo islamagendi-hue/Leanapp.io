@@ -1,3 +1,5 @@
+import { msg } from "@/i18n/translate";
+
 /** Typed domain errors. Route handlers and actions map them to HTTP / form errors. */
 export class AppError extends Error {
   constructor(
@@ -15,12 +17,12 @@ export class NotFoundError extends AppError {
   }
 }
 export class ForbiddenError extends AppError {
-  constructor(message = "You don't have permission to do that.") {
+  constructor(message = msg("You don't have permission to do that.")) {
     super("forbidden", message, 403);
   }
 }
 export class UnauthorizedError extends AppError {
-  constructor(message = "Sign in required.") {
+  constructor(message = msg("Sign in required.")) {
     super("unauthorized", message, 401);
   }
 }
@@ -36,7 +38,7 @@ export class ConflictError extends AppError {
 }
 export class RateLimitError extends AppError {
   constructor(public readonly retryAfterSeconds: number) {
-    super("rate_limited", "Too many requests.", 429);
+    super("rate_limited", msg("Too many requests."), 429);
   }
 }
 /** A plan limit (apps, members, monthly events) is reached. `limit` names it. */

@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { ValidationError } from "@/lib/errors";
+import { msg } from "@/i18n/translate";
 
 /**
  * Postback URLs are customer-supplied and fetched from our servers, so they
@@ -15,12 +16,12 @@ export function assertPostbackUrlShape(url: string, env: Record<string, string |
   try {
     u = new URL(url);
   } catch {
-    throw new ValidationError("The postback URL is not a valid URL.");
+    throw new ValidationError(msg("The postback URL is not a valid URL."));
   }
-  if (u.username || u.password) throw new ValidationError("Put credentials in the Authorization field, not in the URL.");
-  if (u.protocol !== "https:" && !(u.protocol === "http:" && !deployed(env))) throw new ValidationError("The postback URL must use https://.");
+  if (u.username || u.password) throw new ValidationError(msg("Put credentials in the Authorization field, not in the URL."));
+  if (u.protocol !== "https:" && !(u.protocol === "http:" && !deployed(env))) throw new ValidationError(msg("The postback URL must use https://."));
   if (deployed(env) && (isPrivateAddress(u.hostname.replace(/^\[|\]$/g, "")) || /^(localhost|.*\.local|.*\.internal)$/i.test(u.hostname))) {
-    throw new ValidationError("The postback URL must point at a public host.");
+    throw new ValidationError(msg("The postback URL must point at a public host."));
   }
   return u;
 }
@@ -47,5 +48,5 @@ export async function assertSafeDestination(url: string, env: Record<string, str
   if (!deployed(env)) return;
   const host = u.hostname.replace(/^\[|\]$/g, "");
   const addrs = isIP(host) ? [{ address: host }] : await lookup(host, { all: true });
-  if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) throw new ValidationError("The postback host resolves to a private address.");
+  if (!addrs.length || addrs.some((a) => isPrivateAddress(a.address))) throw new ValidationError(msg("The postback host resolves to a private address."));
 }

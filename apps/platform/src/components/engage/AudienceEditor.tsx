@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { ActionForm, type FormState } from "@/components/ActionForm";
+import { useT } from "@/i18n/client";
 import { ConditionBuilder, type Json, type PropertyLists } from "./ConditionBuilder";
 
 type Node = Json & { type: string };
@@ -19,15 +20,16 @@ export function AudienceEditor({
   const [result, setResult] = useState<Awaited<ReturnType<typeof preview>> | null>(null);
   const [pending, start] = useTransition();
   const json = JSON.stringify(definition);
+  const t = useT();
 
   return (
-    <ActionForm action={save} submitLabel="Save audience" className="space-y-5">
+    <ActionForm action={save} submitLabel={t("Save audience")} className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-[2fr_3fr_1fr]">
-        <label className="block"><span className="label">Name</span><input name="name" className="input" defaultValue={initial.name} required maxLength={80} /></label>
-        <label className="block"><span className="label">Description</span><input name="description" className="input" defaultValue={initial.description} maxLength={500} /></label>
-        <label className="block"><span className="label">Recompute every</span>
+        <label className="block"><span className="label">{t("Name")}</span><input name="name" className="input" defaultValue={initial.name} required maxLength={80} /></label>
+        <label className="block"><span className="label">{t("Description")}</span><input name="description" className="input" defaultValue={initial.description} maxLength={500} /></label>
+        <label className="block"><span className="label">{t("Recompute every")}</span>
           <select name="refreshMinutes" className="input" defaultValue={String(initial.refreshMinutes)}>
-            {[5, 15, 60, 360, 1440].map((m) => <option key={m} value={m}>{m < 60 ? `${m} min` : m === 60 ? "hour" : m === 1440 ? "day" : `${m / 60} hours`}</option>)}
+            {[5, 15, 60, 360, 1440].map((m) => <option key={m} value={m}>{m < 60 ? t("{n} min", { n: m }) : m === 60 ? t("hour") : m === 1440 ? t("day") : t("{n} hours", { n: m / 60 })}</option>)}
           </select>
         </label>
       </div>
@@ -35,13 +37,13 @@ export function AudienceEditor({
       <ConditionBuilder value={definition} onChange={setDefinition} events={events} properties={properties} />
       <div className="flex flex-wrap items-center gap-3 rounded-lg bg-paper-2 px-3 py-2 text-sm">
         <button type="button" className="btn-secondary min-h-9" disabled={pending} onClick={() => start(async () => setResult(await preview(json)))}>
-          {pending ? "Counting…" : "Preview size"}
+          {pending ? t("Counting…") : t("Preview size")}
         </button>
-        {result?.error && <span className="text-alert">{result.error}</span>}
+        {result?.error && <span className="text-alert">{t(result.error)}</span>}
         {result && !result.error && (
           <span>
-            <strong>{result.size?.toLocaleString("en-US")}</strong> people match right now
-            {result.sample?.length ? <span className="text-ink-3"> · e.g. <span className="font-mono text-xs">{result.sample.slice(0, 5).join(", ")}</span></span> : null}
+            {t("{n} people match right now", { n: result.size?.toLocaleString("en-US") ?? "" })}
+            {result.sample?.length ? <span className="text-ink-3"> · {t("e.g.")} <span className="font-mono text-xs" dir="ltr">{result.sample.slice(0, 5).join(", ")}</span></span> : null}
           </span>
         )}
       </div>

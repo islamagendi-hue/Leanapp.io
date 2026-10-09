@@ -1,4 +1,6 @@
 import { SideNav } from "@/components/AppNav";
+import { getT } from "@/i18n/server";
+import { msg } from "@/i18n/translate";
 import { listApps } from "@/modules/apps/service";
 import { settingsMenu, type NavGroup } from "@/modules/navigation/menu";
 import { requireTenant } from "@/server/session";
@@ -11,12 +13,13 @@ export default async function SettingsLayout(props: LayoutProps<"/o/[org]/settin
   const menu: NavGroup[] = settingsMenu(ctx.role, org);
   if (projects.length) {
     // After You and Workspace, before Security: projects (Project + Dev Ops settings).
-    menu.splice(menu.findIndex((g) => g.label === "Workspace") + 1, 0, { label: "Project settings", items: projects.map((p) => ({ label: p.name, href: `/o/${org}/apps/${p.slug}/settings` })) });
+    menu.splice(menu.findIndex((g) => g.label === "Workspace") + 1, 0, { label: msg("Project settings"), items: projects.map((p) => ({ label: p.name, href: `/o/${org}/apps/${p.slug}/settings` })) });
   }
+  const t = await getT();
   return (
     <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[220px_1fr]">
       <aside className="lg:sticky lg:top-20 lg:self-start">
-        <SideNav title="Settings" back={{ href: `/o/${org}`, label: "All projects" }} menu={menu} />
+        <SideNav title={t("Settings")} back={{ href: `/o/${org}`, label: t("All projects") }} menu={menu} />
       </aside>
       <main className="min-w-0 space-y-6">{props.children}</main>
     </div>

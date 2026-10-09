@@ -3,6 +3,7 @@
  * Pure: no database. Names follow the same rules as the generated catalog
  * (docs/events.md "Naming conventions"): snake_case, object_action, past tense.
  */
+import { msg } from "@/i18n/translate";
 import { z } from "zod";
 import { ValidationError } from "@/lib/errors";
 import { SYSTEM_EVENT_NAMES } from "@/modules/ingestion/schema";
@@ -36,14 +37,14 @@ export interface NameCheck {
 /** Throws for names the plan can't hold; returns non-blocking advice otherwise. */
 export function checkEventName(name: string): NameCheck {
   if (!EVENT_NAME_RE.test(name)) {
-    throw new ValidationError("Event names are snake_case: start with a lowercase letter, then lowercase letters, digits or _ (2–64 characters).");
+    throw new ValidationError(msg("Event names are snake_case: start with a lowercase letter, then lowercase letters, digits or _ (2–64 characters)."));
   }
   if (RESERVED_EVENT_NAMES.has(name)) throw new ValidationError(`${name} is sent by the SDK for identify / alias / push-token calls and can't be planned as a custom event.`);
-  if (/__|_$/.test(name)) throw new ValidationError("Event names can't contain double underscores or end with _.");
+  if (/__|_$/.test(name)) throw new ValidationError(msg("Event names can't contain double underscores or end with _."));
   const warnings: string[] = [];
   const parts = name.split("_");
-  if (parts.length < 2) warnings.push("Use object_action, e.g. order_completed, so related events group together.");
-  else if (!PAST_TENSE.test(parts[parts.length - 1])) warnings.push("Name the action in the past tense (…_viewed, …_completed): events record something that happened.");
+  if (parts.length < 2) warnings.push(msg("Use object_action, e.g. order_completed, so related events group together."));
+  else if (!PAST_TENSE.test(parts[parts.length - 1])) warnings.push(msg("Name the action in the past tense (…_viewed, …_completed): events record something that happened."));
   let similar: string | null = null;
   if (!EVENT_LIBRARY[name]) {
     let best = 0;
@@ -63,7 +64,7 @@ export function checkEventName(name: string): NameCheck {
 }
 
 export function checkPropertyName(name: string, kind: "event" | "user"): string[] {
-  if (!PROPERTY_NAME_RE.test(name)) throw new ValidationError("Property names are snake_case: start with a lowercase letter, then lowercase letters, digits or _ (≤64 characters).");
+  if (!PROPERTY_NAME_RE.test(name)) throw new ValidationError(msg("Property names are snake_case: start with a lowercase letter, then lowercase letters, digits or _ (≤64 characters)."));
   if (kind === "event" && RESERVED_PROPERTY_NAMES.has(name)) throw new ValidationError(`${name} is a top-level event field, not a property.`);
   if (kind === "user" && isVolatilePropertyName(name)) {
     throw new ValidationError(`${name} describes an action, not the person. Make it an event property instead.`);
@@ -76,7 +77,7 @@ const example = z.union([z.string().max(200), z.number().finite(), z.boolean()])
 
 export const eventPropertyInput = z.object({
   name: z.string().trim(),
-  type: z.enum(EVENT_PROPERTY_TYPES, "Unknown property type."),
+  type: z.enum(EVENT_PROPERTY_TYPES, msg("Unknown property type.")),
   required: z.boolean().default(false),
   description: text(500).default(""),
   allowed_values: z.array(z.string().trim().min(1).max(100)).max(50).nullable().optional(),
@@ -89,10 +90,10 @@ const eventFields = {
   description: text(1000).optional(),
   category: text(40).optional(),
   trigger: text(500).optional(),
-  source: z.enum(EVENT_SOURCES, "Unknown source.").optional(),
-  priority: z.enum(PRIORITIES, "Unknown priority.").optional(),
+  source: z.enum(EVENT_SOURCES, msg("Unknown source.")).optional(),
+  priority: z.enum(PRIORITIES, msg("Unknown priority.")).optional(),
   required: z.boolean().optional(),
-  platforms: z.array(z.enum(PLATFORMS, "Unknown platform.")).max(PLATFORMS.length).optional(),
+  platforms: z.array(z.enum(PLATFORMS, msg("Unknown platform."))).max(PLATFORMS.length).optional(),
   revenue_relevance: z.boolean().optional(),
   conversion_relevance: z.boolean().optional(),
   attribution_relevance: z.boolean().optional(),
@@ -107,14 +108,14 @@ export const newEventInput = z.object({
 });
 export type NewEventInput = z.infer<typeof newEventInput>;
 
-export const eventUpdateInput = z.object(eventFields).refine((o) => Object.values(o).some((v) => v !== undefined), "Nothing to change.");
+export const eventUpdateInput = z.object(eventFields).refine((o) => Object.values(o).some((v) => v !== undefined), msg("Nothing to change."));
 export type EventUpdateInput = z.infer<typeof eventUpdateInput>;
 
 export const userPropertyInput = z.object({
   name: z.string().trim(),
-  type: z.enum(USER_PROPERTY_TYPES, "Unknown user property type."),
+  type: z.enum(USER_PROPERTY_TYPES, msg("Unknown user property type.")),
   description: text(500).default(""),
-  source: z.enum(USER_PROPERTY_SOURCES, "Unknown source.").default("mobile_sdk"),
+  source: z.enum(USER_PROPERTY_SOURCES, msg("Unknown source.")).default("mobile_sdk"),
   reason: text(500).default("Added by hand."),
 });
 export type UserPropertyInput = z.infer<typeof userPropertyInput>;
@@ -125,7 +126,7 @@ export function parseInput<S extends z.ZodType>(schema: S, input: unknown): z.in
   if (!r.success) {
     const issue = r.error.issues[0];
     const where = issue?.path.length ? `${issue.path.join(".")}: ` : "";
-    throw new ValidationError(`${where}${issue?.message ?? "Invalid input."}`);
+    throw new ValidationError(`${where}${issue?.message ?? msg("Invalid input.")}`);
   }
   return r.data;
 }

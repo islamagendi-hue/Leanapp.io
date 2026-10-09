@@ -13,6 +13,8 @@ import { findTemplate } from "@/modules/whatsapp/service";
 import { recordUsage } from "@/modules/usage/service";
 import { enqueueDelivery } from "@/modules/webhooks/service";
 import { MESSAGE_STEPS, parseAutomation, renderTemplate, type AutomationDefinition, type Step } from "./definition";
+import { fill } from "./messages";
+import { RUN_LOG } from "./run-log";
 import type { RunLogEntry } from "./service";
 import { nextScheduled, quietHoursEnd } from "./time";
 
@@ -236,7 +238,7 @@ export async function stepRuns(opts: { limit?: number; deadline?: number; runIds
                   finished_at = case when $2 = 'failed' then now() end,
                   log = log || jsonb_build_array(jsonb_build_object('at', now(), 'step', current_step, 'type', 'run', 'outcome', 'failed', 'detail', $3::text))
             where id = $1`,
-          [run.id, final ? "failed" : "pending", final ? "Internal error; gave up after 3 attempts." : "Internal error; will retry."],
+          [run.id, final ? "failed" : "pending", final ? RUN_LOG.internalGaveUp : RUN_LOG.internalRetry],
         ),
       );
     }
@@ -289,7 +291,7 @@ async function executeRun(db: Db, run: RunClaim, creds: DeliveryCredentials, now
   );
   if (deleting) {
     status = "cancelled";
-    entries.push({ at: now().toISOString(), step, type: "run", outcome: "cancelled", detail: "A data deletion request is pending for this person." });
+    entries.push({ at: now().toISOString(), step, type: "run", outcome: "cancelled", detail: RUN_LOG.deletionPending });
   } else if ((exit = await exitReason(env, definition))) {
     // Goal reached (with stop on conversion) or exit event: no further steps.
     entries.push({ at: now().toISOString(), step, type: "run", outcome: "exit", detail: exit });
@@ -340,7 +342,7 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
     // Quiet hours first (the run waits and retries this step), then the frequency cap at send time.
     if (def.quietHours && s.type !== "in_app") {
       const until = quietHoursEnd(now(), env.timezone, def.quietHours);
-      if (until) return { next: "wait", until, advance: false, entry: { type: s.type, outcome: "waiting", detail: `Quiet hours (${def.quietHours.start}–${def.quietHours.end} ${env.timezone}); sending at ${until.toISOString()}` } };
+      if (until) return { next: "wait", until, advance: false, entry: { type: s.type, outcome: "waiting", detail: fill(RUN_LOG.quietHours, { start: def.quietHours.start, end: def.quietHours.end, timezone: env.timezone, until: until.toISOString() }) } };
     }
     if (def.frequencyCap) {
       const sent = await db.one<{ n: string }>(
@@ -349,7 +351,7 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
         [run.environment_id, run.user_key, def.frequencyCap.hours],
       );
       if (Number(sent!.n) >= def.frequencyCap.messages) {
-        return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: `Frequency cap: ${sent!.n} messages in the last ${def.frequencyCap.hours} h (limit ${def.frequencyCap.messages}).` } };
+        return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: fill(RUN_LOG.frequencyCap, { n: sent!.n, hours: def.frequencyCap.hours, limit: def.frequencyCap.messages }) } };
       }
     }
   }
@@ -358,23 +360,23 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
     case "delay": {
       const ms = s.amount * { minutes: 60_000, hours: 3_600_000, days: 86_400_000 }[s.unit];
       const until = new Date(now().getTime() + ms);
-      return { next: "wait", until, advance: true, entry: { type: "delay", outcome: "waiting", detail: `Until ${until.toISOString()}` } };
+      return { next: "wait", until, advance: true, entry: { type: "delay", outcome: "waiting", detail: fill(RUN_LOG.until, { until: until.toISOString() }) } };
     }
     case "branch": {
       const ok = await personMatches(db, run.environment_id, run.user_key, s.condition, triggerTime(run));
-      if (ok) return { next: "continue", entry: { type: "branch", outcome: "done", detail: "Condition met" } };
-      if (s.else === "exit") return { next: "exit", entry: { type: "branch", outcome: "exit", detail: "Condition not met: run ends" } };
-      return { next: "goto", to: s.else.goto, entry: { type: "branch", outcome: "done", detail: `Condition not met: going to step ${s.else.goto + 1}` } };
+      if (ok) return { next: "continue", entry: { type: "branch", outcome: "done", detail: RUN_LOG.conditionMet } };
+      if (s.else === "exit") return { next: "exit", entry: { type: "branch", outcome: "exit", detail: RUN_LOG.conditionNotMetEnd } };
+      return { next: "goto", to: s.else.goto, entry: { type: "branch", outcome: "done", detail: fill(RUN_LOG.conditionNotMetGoto, { n: s.else.goto + 1 }) } };
     }
     case "webhook": {
       const w = await db.one<{ status: string }>("select status from platform.webhooks where id = $1 and environment_id = $2", [s.webhookId, run.environment_id]);
-      if (!w || w.status !== "active") return { next: "continue", entry: { type: "webhook", outcome: "failed", detail: w ? "Webhook is disabled" : "Webhook no longer exists" } };
+      if (!w || w.status !== "active") return { next: "continue", entry: { type: "webhook", outcome: "failed", detail: w ? RUN_LOG.webhookDisabled : RUN_LOG.webhookGone } };
       const id = await enqueueDelivery(db, {
         organizationId: run.organization_id, environmentId: run.environment_id, webhookId: s.webhookId, eventType: "automation.webhook",
         idempotencyKey: `run:${run.id}:${index}`, automationRunId: run.id,
         data: { automation: { id: run.automation_id, name: automation.name, version: run.version }, run_id: run.id, step: index, user_key: run.user_key, user_id: userId, anonymous_id: anonymousId, trigger: run.trigger_data },
       });
-      return { next: "continue", entry: { type: "webhook", outcome: "done", detail: id ? `Delivery ${id} queued` : "Already queued" } };
+      return { next: "continue", entry: { type: "webhook", outcome: "done", detail: id ? fill(RUN_LOG.deliveryQueued, { id }) : RUN_LOG.alreadyQueued } };
     }
     case "push":
       return sendPush(env, s, index, vars);
@@ -384,7 +386,7 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
       return sendWhatsAppStep(env, s, index, vars);
     case "in_app": {
       const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "in_app");
-      if (blocked) return { next: "continue", entry: { type: "in_app", outcome: "skipped", detail: `Not sent: ${blocked}` } };
+      if (blocked) return { next: "continue", entry: { type: "in_app", outcome: "skipped", detail: fill(RUN_LOG.notSent, { message: blocked }) } };
       const appId = await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [run.environment_id]);
       const row = await db.one(
         `insert into platform.in_app_messages (organization_id, app_id, environment_id, user_key, automation_id, automation_run_id, step, title, body, button_text, deep_link, expires_at)
@@ -393,7 +395,7 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
         [run.organization_id, appId!.app_id, run.environment_id, run.user_key, run.automation_id, run.id, index,
          renderTemplate(s.title, vars), renderTemplate(s.body, vars), s.buttonText ?? null, s.deepLink ?? null, s.expiresInHours],
       );
-      return { next: "continue", entry: { type: "in_app", outcome: "done", detail: row ? `Queued for the app (expires in ${s.expiresInHours} h)` : "Already queued" } };
+      return { next: "continue", entry: { type: "in_app", outcome: "done", detail: row ? fill(RUN_LOG.queuedForApp, { hours: s.expiresInHours }) : RUN_LOG.alreadyQueued } };
     }
     case "update_user_property": {
       const value = JSON.stringify(s.value);
@@ -404,12 +406,12 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
               where environment_id = $1 and anonymous_id = $2 returning 1`,
             [run.environment_id, anonymousId, s.property, value],
           );
-      if (!updated.length) return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: "No profile for this person" } };
+      if (!updated.length) return { next: "continue", entry: { type: s.type, outcome: "skipped", detail: RUN_LOG.noProfile } };
       env.profile = { ...env.profile, [s.property]: s.value };
       return { next: "continue", entry: { type: s.type, outcome: "done", detail: `${s.property} = ${value}` } };
     }
     case "exit":
-      return { next: "exit", entry: { type: "exit", outcome: "exit", detail: "Exit step" } };
+      return { next: "exit", entry: { type: "exit", outcome: "exit", detail: RUN_LOG.exitStep } };
     case "send_event": {
       const ids = await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [run.environment_id]);
       const row = await db.one(
@@ -420,7 +422,7 @@ async function executeStep(env: RunEnv, s: Step, index: number): Promise<StepRes
          JSON.stringify(s.properties), JSON.stringify({ automation: { id: run.automation_id, run_id: run.id } })],
       );
       if (row) await recordUsage(db, run.organization_id, "events", 1);
-      return { next: "continue", entry: { type: s.type, outcome: "done", detail: row ? `Sent ${s.event}` : "Already sent" } };
+      return { next: "continue", entry: { type: s.type, outcome: "done", detail: row ? fill(RUN_LOG.sentEvent, { event: s.event }) : RUN_LOG.alreadySent } };
     }
   }
 }
@@ -437,8 +439,8 @@ export function triggerTime(run: Pick<RunClaim, "trigger_data" | "started_at">):
 async function exitReason(env: RunEnv, d: AutomationDefinition): Promise<string | null> {
   const did = (event: string) =>
     personMatches(env.db, env.run.environment_id, env.run.user_key, { type: "event", event, did: true, countOp: "gte", count: 1, withinDays: 30, sinceTrigger: true, where: [] }, triggerTime(env.run));
-  if (d.goal?.stopOnConversion && (await did(d.goal.event))) return `Converted: did ${d.goal.event}`;
-  if (d.exitEvent && (await did(d.exitEvent))) return `Exit event: did ${d.exitEvent}`;
+  if (d.goal?.stopOnConversion && (await did(d.goal.event))) return fill(RUN_LOG.converted, { event: d.goal.event });
+  if (d.exitEvent && (await did(d.exitEvent))) return fill(RUN_LOG.exitEvent, { event: d.exitEvent });
   return null;
 }
 
@@ -447,15 +449,15 @@ const target = (run: RunClaim, step: number) => ({ organizationId: run.organizat
 async function sendPush(env: RunEnv, s: Extract<Step, { type: "push" }>, index: number, vars: Parameters<typeof renderTemplate>[1]): Promise<StepResult> {
   const { db, run, creds } = env;
   const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "push");
-  if (blocked) return { next: "continue", entry: { type: "push", outcome: "skipped", detail: `Not sent: ${blocked}` } };
+  if (blocked) return { next: "continue", entry: { type: "push", outcome: "skipped", detail: fill(RUN_LOG.notSent, { message: blocked }) } };
   const content: PushContent = {
     title: renderTemplate(s.title, vars),
     body: renderTemplate(s.body, vars),
     data: { automation_id: run.automation_id, run_id: run.id, ...(s.deepLink ? { deep_link: s.deepLink } : {}) },
   };
   const r = await deliverPush(db, creds, target(run, index), content);
-  if (!r.devices) return { next: "continue", entry: { type: "push", outcome: "skipped", detail: "No active push token" } };
-  const detail = [`Sent to ${r.sent} of ${r.devices} device${r.devices === 1 ? "" : "s"}`, ...r.problems].join("; ");
+  if (!r.devices) return { next: "continue", entry: { type: "push", outcome: "skipped", detail: RUN_LOG.noPushToken } };
+  const detail = [fill(r.devices === 1 ? RUN_LOG.sentToDevice : RUN_LOG.sentToDevices, { sent: r.sent, devices: r.devices }), ...r.problems].join("; ");
   return { next: "continue", entry: { type: "push", outcome: r.sent ? "done" : "failed", detail } };
 }
 
@@ -464,37 +466,37 @@ const EMAIL = /^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/;
 async function sendEmailStep(env: RunEnv, s: Extract<Step, { type: "email" }>, index: number, vars: Parameters<typeof renderTemplate>[1]): Promise<StepResult> {
   const { db, run, creds } = env;
   const to = typeof env.profile.email === "string" ? env.profile.email.trim() : "";
-  if (!to || !EMAIL.test(to)) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: "No email user property" } };
+  if (!to || !EMAIL.test(to)) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: RUN_LOG.noEmail } };
   const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "email");
-  if (blocked) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: `Not sent: ${blocked}` } };
+  if (blocked) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: fill(RUN_LOG.notSent, { message: blocked }) } };
   let content = { subject: s.subject ?? "", body: s.body ?? "" };
   if (s.templateId) {
     const t = await getEmailTemplate(db, run.environment_id, s.templateId);
-    if (!t) return { next: "continue", entry: { type: "email", outcome: "failed", detail: "The email template was deleted" } };
+    if (!t) return { next: "continue", entry: { type: "email", outcome: "failed", detail: RUN_LOG.templateDeleted } };
     content = { subject: t.subject, body: t.body };
   }
   const r = await deliverEmail(db, creds, target(run, index), {
     to, subject: renderTemplate(content.subject, vars), body: renderTemplate(content.body, vars), templateId: s.templateId ?? null, tag: run.automation_id,
   });
-  if (!r.attempted) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: "Already attempted" } };
-  return { next: "continue", entry: { type: "email", outcome: r.ok ? "done" : "failed", detail: r.ok ? "Sent" : r.error ?? "Failed" } };
+  if (!r.attempted) return { next: "continue", entry: { type: "email", outcome: "skipped", detail: RUN_LOG.alreadyAttempted } };
+  return { next: "continue", entry: { type: "email", outcome: r.ok ? "done" : "failed", detail: r.ok ? RUN_LOG.sent : r.error ?? RUN_LOG.failed } };
 }
 
 async function sendWhatsAppStep(env: RunEnv, s: Extract<Step, { type: "whatsapp" }>, index: number, vars: Parameters<typeof renderTemplate>[1]): Promise<StepResult> {
   const { db, run, creds } = env;
   const to = toE164(env.profile[s.phoneProperty]);
-  if (!to) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: `No valid E.164 phone number in the ${s.phoneProperty} user property` } };
+  if (!to) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: fill(RUN_LOG.noPhone, { property: s.phoneProperty }) } };
   const blocked = await messagingBlocked(db, run.environment_id, run.user_key, "whatsapp");
-  if (blocked) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: `Not sent: ${blocked}` } };
+  if (blocked) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: fill(RUN_LOG.notSent, { message: blocked }) } };
   const template = await findTemplate(db, run.environment_id, s.template, s.language);
   if (!template || template.status !== "APPROVED") {
-    return { next: "continue", entry: { type: "whatsapp", outcome: "failed", detail: template ? `Template ${s.template} is ${template.status.toLowerCase()}, not approved` : `Template ${s.template} (${s.language}) is no longer synced` } };
+    return { next: "continue", entry: { type: "whatsapp", outcome: "failed", detail: template ? fill(RUN_LOG.templateNotApproved, { template: s.template, status: template.status.toLowerCase() }) : fill(RUN_LOG.templateNotSynced, { template: s.template, language: s.language }) } };
   }
   const r = await deliverWhatsApp(db, creds, target(run, index), {
     to, template: s.template, language: s.language,
     bodyParams: s.bodyParams.map((p) => renderTemplate(p, vars).trim() || "-"),
     headerParams: s.headerParams.map((p) => renderTemplate(p, vars).trim() || "-"),
   });
-  if (!r.attempted) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: "Already attempted" } };
-  return { next: "continue", entry: { type: "whatsapp", outcome: r.ok ? "done" : "failed", detail: r.ok ? "Sent (template)" : r.error ?? "Failed" } };
+  if (!r.attempted) return { next: "continue", entry: { type: "whatsapp", outcome: "skipped", detail: RUN_LOG.alreadyAttempted } };
+  return { next: "continue", entry: { type: "whatsapp", outcome: r.ok ? "done" : "failed", detail: r.ok ? RUN_LOG.sentTemplate : r.error ?? RUN_LOG.failed } };
 }

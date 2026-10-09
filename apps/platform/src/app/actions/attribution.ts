@@ -5,6 +5,8 @@ import { createLink, createPostback, setLinkStatus, setPostbackStatus, updateSet
 import { toActionError, type ActionState } from "@/server/action-result";
 import { publicBaseUrl } from "@/server/env";
 import { loadApp } from "@/server/session";
+import { getT } from "@/i18n/server";
+import { msg } from "@/i18n/translate";
 
 const text = (form: FormData, k: string) => (typeof form.get(k) === "string" ? (form.get(k) as string) : undefined);
 
@@ -25,7 +27,8 @@ export async function createLinkAction(orgSlug: string, appSlug: string, _: Acti
       deepLinkPath: text(form, "deepLinkPath"),
     });
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition/links`);
-    return { ok: true, message: `Link created: ${publicBaseUrl()}/l/${link.code}` };
+    const t = await getT();
+    return { ok: true, message: t("Link created: {url}", { url: `${publicBaseUrl()}/l/${link.code}` }) };
   } catch (err) {
     return toActionError(err);
   }
@@ -53,7 +56,7 @@ export async function updateSettingsAction(orgSlug: string, appSlug: string, _: 
       reengagementEnabled: text(form, "reengagementEnabled"),
     });
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution`);
-    return { ok: true, message: "Saved. New installs and conversions use these settings; past attributions are not recomputed." };
+    return { ok: true, message: msg("Saved. New installs and conversions use these settings; past attributions are not recomputed.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -77,7 +80,7 @@ export async function createPostbackAction(orgSlug: string, appSlug: string, _: 
       credentials: prefixed("secret."),
     });
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution/postbacks`);
-    return { ok: true, message: "Postback saved. Deliveries are sent by the scheduled worker (every 5 minutes)." };
+    return { ok: true, message: msg("Postback saved. Deliveries are sent by the scheduled worker (every 5 minutes).") };
   } catch (err) {
     return toActionError(err);
   }

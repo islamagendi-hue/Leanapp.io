@@ -3,9 +3,14 @@
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import { useT } from "@/i18n/client";
+import { msg } from "@/i18n/translate";
+import { LanguageSwitch } from "@/components/LanguageSwitch";
 import { DEFAULT_ENVIRONMENT, ENV_COOKIE, ENVIRONMENT_ORDER, isEnvironmentName, type EnvironmentName } from "@/lib/environment";
 
 type Option = { slug: string; name: string };
+
+const ENV_LABELS: Record<EnvironmentName, string> = { development: msg("Development"), staging: msg("Staging"), production: msg("Production") };
 
 /** The project slug in /o/{org}/apps/{app}/…, if the page belongs to a project. */
 function projectInPath(path: string): string | undefined {
@@ -32,15 +37,16 @@ function Menu({ label, title, children, summary, align = "start" }: { label: str
 const itemClass = (current: boolean) => `block rounded-md px-3 py-1.5 ${current ? "bg-paper-2 font-medium" : "hover:bg-paper-2"}`;
 
 export function WorkspaceSwitcher({ current, workspaces }: { current: Option; workspaces: Option[] }) {
+  const t = useT();
   return (
-    <Menu label={current.name} title="Switch workspace">
-      <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">Workspaces</p>
+    <Menu label={current.name} title={t("Switch workspace")}>
+      <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">{t("Workspaces")}</p>
       {workspaces.map((w) => (
         <Link key={w.slug} href={`/o/${w.slug}`} className={itemClass(w.slug === current.slug)}>{w.name}</Link>
       ))}
       <hr className="my-1 border-line" />
-      <Link href={`/o/${current.slug}/settings`} className={itemClass(false)}>Workspace settings</Link>
-      <Link href="/onboarding" className={itemClass(false)}>Create a workspace</Link>
+      <Link href={`/o/${current.slug}/settings`} className={itemClass(false)}>{t("Workspace settings")}</Link>
+      <Link href="/onboarding" className={itemClass(false)}>{t("Create a workspace")}</Link>
     </Menu>
   );
 }
@@ -48,18 +54,19 @@ export function WorkspaceSwitcher({ current, workspaces }: { current: Option; wo
 /** Archived projects aren't offered, but an open one still names itself in the bar. */
 export function ProjectSwitcher({ org, projects, archived = [], canCreate }: { org: string; projects: Option[]; archived?: Option[]; canCreate: boolean }) {
   const slug = projectInPath(usePathname());
+  const t = useT();
   const current = projects.find((p) => p.slug === slug);
   const openArchived = current ? undefined : archived.find((p) => p.slug === slug);
   return (
-    <Menu label={current?.name ?? (openArchived ? `${openArchived.name} (archived)` : "All projects")} title="Switch project">
-      <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">Projects</p>
+    <Menu label={current?.name ?? (openArchived ? t("{name} (archived)", { name: openArchived.name }) : t("All projects"))} title={t("Switch project")}>
+      <p className="px-3 pb-1 pt-2 font-mono text-[11px] uppercase tracking-wide text-ink-3">{t("Projects")}</p>
       {projects.map((p) => (
         <Link key={p.slug} href={`/o/${org}/apps/${p.slug}`} className={itemClass(p.slug === slug)}>{p.name}</Link>
       ))}
-      {projects.length === 0 && <p className="px-3 py-1.5 text-ink-3">No projects yet.</p>}
+      {projects.length === 0 && <p className="px-3 py-1.5 text-ink-3">{t("No projects yet.")}</p>}
       <hr className="my-1 border-line" />
-      <Link href={`/o/${org}`} className={itemClass(false)}>All projects</Link>
-      {canCreate && <Link href={`/o/${org}/apps/new`} className={itemClass(false)}>New project</Link>}
+      <Link href={`/o/${org}`} className={itemClass(false)}>{t("All projects")}</Link>
+      {canCreate && <Link href={`/o/${org}/apps/new`} className={itemClass(false)}>{t("New project")}</Link>}
     </Menu>
   );
 }
@@ -78,6 +85,7 @@ export function EnvironmentSelect({ initial }: { initial?: EnvironmentName }) {
   const path = usePathname();
   const params = useSearchParams();
   const router = useRouter();
+  const t = useT();
   // Re-read on every render (navigation re-renders this); the server's value until hydrated.
   const remembered = useSyncExternalStore(() => () => {}, readCookie, () => initial);
   if (!projectInPath(path)) return null;
@@ -91,7 +99,7 @@ export function EnvironmentSelect({ initial }: { initial?: EnvironmentName }) {
   };
 
   return (
-    <div className="inline-flex rounded-lg border border-line bg-card p-0.5 text-xs" role="radiogroup" aria-label="Environment">
+    <div className="inline-flex rounded-lg border border-line bg-card p-0.5 text-xs" role="radiogroup" aria-label={t("Environment")}>
       {ENVIRONMENT_ORDER.map((env) => (
         <button
           key={env}
@@ -101,7 +109,7 @@ export function EnvironmentSelect({ initial }: { initial?: EnvironmentName }) {
           onClick={() => env !== current && choose(env)}
           className={`rounded-md px-2.5 py-1 capitalize ${env === current ? (env === "production" ? "bg-alert text-paper" : "bg-ink text-paper") : "text-ink-2 hover:bg-paper-2"}`}
         >
-          {env}
+          {t(ENV_LABELS[env])}
         </button>
       ))}
     </div>
@@ -121,9 +129,10 @@ export function AccountMenu({ name, email, initials, role, links, signOut }: {
   links: { label: string; href: string }[];
   signOut: () => Promise<void>;
 }) {
+  const t = useT();
   return (
     <Menu
-      label="Your account"
+      label={t("Your account")}
       title={email}
       align="end"
       summary={<span className="grid size-8 place-items-center rounded-full bg-ink text-xs font-bold text-paper">{initials}</span>}
@@ -131,13 +140,17 @@ export function AccountMenu({ name, email, initials, role, links, signOut }: {
       <div className="px-3 pb-2 pt-2">
         <p className="truncate font-medium text-ink">{name}</p>
         <p className="truncate text-xs text-ink-3">{email}</p>
-        <span className="pill mt-1 border-line text-ink-3">{role}</span>
+        <span className="pill mt-1 border-line text-ink-3">{t(role)}</span>
       </div>
       <hr className="my-1 border-line" />
-      {links.map((l) => <Link key={l.href} href={l.href} className={itemClass(false)}>{l.label}</Link>)}
+      {links.map((l) => <Link key={l.href} href={l.href} className={itemClass(false)}>{t(l.label)}</Link>)}
+      <div className="flex items-center justify-between px-3 py-1.5">
+        <span className="text-ink-3">{t("Language")}</span>
+        <LanguageSwitch className="font-medium text-ink hover:underline" />
+      </div>
       <hr className="my-1 border-line" />
       <form action={signOut}>
-        <button type="submit" className={`${itemClass(false)} w-full text-start`}>Sign out</button>
+        <button type="submit" className={`${itemClass(false)} w-full text-start`}>{t("Sign out")}</button>
       </form>
     </Menu>
   );

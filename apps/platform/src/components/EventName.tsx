@@ -6,7 +6,7 @@ export function EventName({ name, labels, technical = true }: { name: string; la
   return (
     <span className="inline-flex flex-col leading-tight" title={name}>
       <span>{label}</span>
-      {technical && label !== name && <span className="font-mono text-[11px] text-ink-3">{name}</span>}
+      {technical && label !== name && <span className="font-mono text-[11px] text-ink-3" dir="ltr">{name}</span>}
     </span>
   );
 }

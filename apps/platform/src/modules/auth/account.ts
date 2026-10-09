@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 import { z } from "zod";
 import { hashPassword, randomToken, sha256, verifyPassword } from "@/lib/crypto";
 import { withSystem, type Db } from "@/lib/db";
@@ -74,7 +75,7 @@ export async function verifyEmail(token: string): Promise<{ userId: string } | n
 }
 
 // ── Password reset ──────────────────────────────────────────────────────────
-const resetRequestSchema = z.object({ email: z.string().trim().toLowerCase().email("Enter a valid email.").max(200) });
+const resetRequestSchema = z.object({ email: z.string().trim().toLowerCase().email(msg("Enter a valid email.")).max(200) });
 
 /**
  * Always resolves the same way whether or not the account exists, so the form
@@ -112,13 +113,13 @@ export async function resetPassword(token: string, newPassword: unknown): Promis
   const hash = await hashPassword(password);
   const user = await withSystem(async (db) => {
     const t = await consumeToken(db, token, "reset_password");
-    if (!t) throw new ValidationError("This reset link is invalid or has expired. Ask for a new one.");
+    if (!t) throw new ValidationError(msg("This reset link is invalid or has expired. Ask for a new one."));
     const u = await db.one<{ id: string; email: string; name: string }>(
       `update platform.users set password_hash = $2, email_verified_at = coalesce(email_verified_at, now())
         where id = $1 and lower(email) = lower($3) and status = 'active' returning id, email, name`,
       [t.user_id, hash, t.email],
     );
-    if (!u) throw new ValidationError("This reset link is invalid or has expired. Ask for a new one.");
+    if (!u) throw new ValidationError(msg("This reset link is invalid or has expired. Ask for a new one."));
     await db.query("update platform.auth_sessions set revoked_at = now() where user_id = $1 and revoked_at is null", [u.id]);
     await audit(db, { organizationId: null, actorUserId: u.id, action: "auth.password_reset" });
     return u;
@@ -127,7 +128,7 @@ export async function resetPassword(token: string, newPassword: unknown): Promis
 }
 
 // ── Signed-in account management ────────────────────────────────────────────
-const changePasswordSchema = z.object({ currentPassword: z.string().min(1, "Enter your current password.").max(200), newPassword: newPasswordSchema });
+const changePasswordSchema = z.object({ currentPassword: z.string().min(1, msg("Enter your current password.")).max(200), newPassword: newPasswordSchema });
 
 /** Changes the password after re-checking the current one; other sessions are signed out, the current one stays. */
 export async function changePassword(userId: string, input: unknown, currentSessionToken: string | null): Promise<void> {
@@ -137,9 +138,9 @@ export async function changePassword(userId: string, input: unknown, currentSess
     db.one<{ email: string; name: string; password_hash: string | null }>("select email, name, password_hash from platform.users where id = $1", [userId]),
   );
   if (!u?.password_hash || !(await verifyPassword(data.currentPassword, u.password_hash))) {
-    throw new UnauthorizedError("Current password is incorrect.");
+    throw new UnauthorizedError(msg("Current password is incorrect."));
   }
-  if (data.currentPassword === data.newPassword) throw new ValidationError("Choose a password you haven't used here.");
+  if (data.currentPassword === data.newPassword) throw new ValidationError(msg("Choose a password you haven't used here."));
   const hash = await hashPassword(data.newPassword);
   await withSystem(async (db) => {
     await db.query("update platform.users set password_hash = $2 where id = $1", [userId, hash]);
@@ -149,7 +150,7 @@ export async function changePassword(userId: string, input: unknown, currentSess
   await sendEmail(passwordChangedMessage(u.email, u.name));
 }
 
-const profileSchema = z.object({ name: z.string().trim().min(2, "Enter your name.").max(120) });
+const profileSchema = z.object({ name: z.string().trim().min(2, msg("Enter your name.")).max(120) });
 
 /** Changes the name shown to teammates (members list, audit log, emails). */
 export async function updateProfile(userId: string, input: unknown): Promise<void> {

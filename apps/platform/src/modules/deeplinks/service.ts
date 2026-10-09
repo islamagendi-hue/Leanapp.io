@@ -17,6 +17,7 @@ import {
   IOS_APP_STORE_ID, IOS_BUNDLE_ID, IOS_TEAM_ID, iosSchemeUrl, linkBase, normalizeFingerprint, parseLinkPath, PREFIX_PATTERN, RESERVED_PREFIXES, URI_SCHEME,
   type AssociationConfig, type DeepLinkPayload,
 } from "./pure";
+import { msg } from "@/i18n/translate";
 
 /**
  * Deep linking (docs/deep-links.md):
@@ -28,7 +29,7 @@ import {
  * - the "Open in app" page for social in-app browsers.
  */
 
-const issue = (e: z.ZodError) => new ValidationError(e.issues[0]?.message ?? "Invalid input.", Object.fromEntries(e.issues.map((i) => [i.path.join(".") || "form", i.message])));
+const issue = (e: z.ZodError) => new ValidationError(e.issues[0]?.message ?? msg("Invalid input."), Object.fromEntries(e.issues.map((i) => [i.path.join(".") || "form", i.message])));
 
 export interface DeepLinkConfig {
   id: string;
@@ -86,32 +87,32 @@ const list = (max: number) =>
   );
 
 const configSchema = z.object({
-  environmentId: z.string().uuid("Choose an environment."),
+  environmentId: z.string().uuid(msg("Choose an environment.")),
   linkPrefix: z.string().trim().toLowerCase()
-    .refine((v) => PREFIX_PATTERN.test(v), "Link prefix: 3–32 lowercase letters, digits or dashes (e.g. myapp or myapp-dev).")
-    .refine((v) => !RESERVED_PREFIXES.has(v), "That link prefix is reserved. Pick another."),
+    .refine((v) => PREFIX_PATTERN.test(v), msg("Link prefix: 3–32 lowercase letters, digits or dashes (e.g. myapp or myapp-dev)."))
+    .refine((v) => !RESERVED_PREFIXES.has(v), msg("That link prefix is reserved. Pick another.")),
   customDomain: optional(253).transform((v) => (v ? v.toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "") : null))
-    .refine((v) => !v || DOMAIN.test(v), "Custom domain: a hostname like links.example.com (no path, no port)."),
-  iosTeamId: optional(10).transform((v) => v?.toUpperCase() ?? null).refine((v) => !v || IOS_TEAM_ID.test(v), "Apple Team ID is 10 letters or digits (Membership details in your Apple developer account)."),
-  iosBundleIds: list(10).refine((v) => v.length <= 10, "At most 10 bundle ids.").refine((v) => v.every((b) => IOS_BUNDLE_ID.test(b)), "Bundle ids look like com.example.app."),
-  iosAppStoreId: optional(12).transform((v) => v?.replace(/^id/i, "") ?? null).refine((v) => !v || IOS_APP_STORE_ID.test(v), "App Store id is the number in your App Store URL (id123456789)."),
+    .refine((v) => !v || DOMAIN.test(v), msg("Custom domain: a hostname like links.example.com (no path, no port).")),
+  iosTeamId: optional(10).transform((v) => v?.toUpperCase() ?? null).refine((v) => !v || IOS_TEAM_ID.test(v), msg("Apple Team ID is 10 letters or digits (Membership details in your Apple developer account).")),
+  iosBundleIds: list(10).refine((v) => v.length <= 10, msg("At most 10 bundle ids.")).refine((v) => v.every((b) => IOS_BUNDLE_ID.test(b)), msg("Bundle ids look like com.example.app.")),
+  iosAppStoreId: optional(12).transform((v) => v?.replace(/^id/i, "") ?? null).refine((v) => !v || IOS_APP_STORE_ID.test(v), msg("App Store id is the number in your App Store URL (id123456789).")),
   uriScheme: optional(41).transform((v) => v?.toLowerCase().replace(/:\/*$/, "") ?? null)
     .refine((v) => !v || (URI_SCHEME.test(v) && !["http", "https", "javascript", "data", "file", "intent"].includes(v)), "URL scheme: letters, digits, + . - (e.g. myapp)."),
-  androidPackage: optional(200).refine((v) => !v || ANDROID_PACKAGE.test(v), "Package name looks like com.example.app."),
-  androidSha256: list(10).refine((v) => v.length <= 10, "At most 10 certificate fingerprints.")
+  androidPackage: optional(200).refine((v) => !v || ANDROID_PACKAGE.test(v), msg("Package name looks like com.example.app.")),
+  androidSha256: list(10).refine((v) => v.length <= 10, msg("At most 10 certificate fingerprints."))
     .transform((v, c) => v.map((f) => {
       const n = normalizeFingerprint(f);
-      if (!n) c.addIssue({ code: "custom", message: "SHA-256 fingerprints are 32 bytes in hex (AB:CD:…), from Play Console → App integrity → App signing." });
+      if (!n) c.addIssue({ code: "custom", message: msg("SHA-256 fingerprints are 32 bytes in hex (AB:CD:…), from Play Console → App integrity → App signing.") });
       return n ?? "";
     })),
-  androidPlayStoreId: optional(200).refine((v) => !v || ANDROID_PACKAGE.test(v), "Play Store id is the id= value of your Play listing (usually the package name)."),
+  androidPlayStoreId: optional(200).refine((v) => !v || ANDROID_PACKAGE.test(v), msg("Play Store id is the id= value of your Play listing (usually the package name).")),
   deferredEnabled: formBool,
   interstitialEnabled: formBool,
 }).superRefine((c, ctx) => {
-  if (c.iosBundleIds.length && !c.iosTeamId) ctx.addIssue({ code: "custom", path: ["iosTeamId"], message: "Add the Apple Team ID for the bundle ids." });
-  if (c.iosTeamId && !c.iosBundleIds.length) ctx.addIssue({ code: "custom", path: ["iosBundleIds"], message: "Add at least one bundle id." });
-  if (c.androidSha256.length && !c.androidPackage) ctx.addIssue({ code: "custom", path: ["androidPackage"], message: "Add the Android package name for the fingerprints." });
-  if (c.androidPackage && !c.androidSha256.length) ctx.addIssue({ code: "custom", path: ["androidSha256"], message: "Add the app signing certificate SHA-256 fingerprint (App Links can't be verified without it)." });
+  if (c.iosBundleIds.length && !c.iosTeamId) ctx.addIssue({ code: "custom", path: ["iosTeamId"], message: msg("Add the Apple Team ID for the bundle ids.") });
+  if (c.iosTeamId && !c.iosBundleIds.length) ctx.addIssue({ code: "custom", path: ["iosBundleIds"], message: msg("Add at least one bundle id.") });
+  if (c.androidSha256.length && !c.androidPackage) ctx.addIssue({ code: "custom", path: ["androidPackage"], message: msg("Add the Android package name for the fingerprints.") });
+  if (c.androidPackage && !c.androidSha256.length) ctx.addIssue({ code: "custom", path: ["androidSha256"], message: msg("Add the app signing certificate SHA-256 fingerprint (App Links can't be verified without it).") });
 });
 
 export async function saveConfig(ctx: TenantContext, appId: string, input: unknown): Promise<DeepLinkConfig> {
@@ -121,11 +122,11 @@ export async function saveConfig(ctx: TenantContext, appId: string, input: unkno
   if (c.customDomain) {
     const host = c.customDomain;
     if (host === defaultLinkHost() || host === hostnameOf(publicBaseUrl()) || /(^|\.)leanapp\.io$/.test(host)) {
-      throw new ValidationError("Leave the custom domain empty to use the LeanApp link host.");
+      throw new ValidationError(msg("Leave the custom domain empty to use the LeanApp link host."));
     }
     // A domain belongs to one organization: another org's apps must never be added to its association files.
     const taken = await withSystem((db) => db.one("select 1 from platform.deep_link_configs where custom_domain = $1 and organization_id <> $2 limit 1", [host, ctx.organizationId]));
-    if (taken) throw new ValidationError("That domain is already used by another organization.");
+    if (taken) throw new ValidationError(msg("That domain is already used by another organization."));
   }
   return tenantTx(ctx, "deep_links.manage", async (db) => {
     const env = await db.one("select 1 from platform.environments where id = $1 and app_id = $2", [c.environmentId, appId]);
@@ -152,7 +153,7 @@ export async function saveConfig(ctx: TenantContext, appId: string, input: unkno
       return row!;
     } catch (err) {
       await db.query("rollback to savepoint dl_config");
-      if (isUniqueViolation(err)) throw new ValidationError("That link prefix is already taken. Pick another.", { linkPrefix: "That link prefix is already taken." });
+      if (isUniqueViolation(err)) throw new ValidationError(msg("That link prefix is already taken. Pick another."), { linkPrefix: msg("That link prefix is already taken.") });
       throw err;
     }
   });
@@ -216,11 +217,11 @@ async function fetchWellKnown(url: string, fetcher: typeof fetch): Promise<{ sta
     let body: unknown = null;
     if (res.status === 200) {
       const text = await res.text();
-      if (text.length > 128_000) problems.push("The file is over 128 KB (Apple's limit).");
+      if (text.length > 128_000) problems.push(msg("The file is over 128 KB (Apple's limit)."));
       try {
         body = JSON.parse(text);
       } catch {
-        problems.push("The body is not valid JSON.");
+        problems.push(msg("The body is not valid JSON."));
       }
     }
     return { status: res.status, contentType, body, problems };
@@ -263,7 +264,7 @@ export async function checkWellKnown(ctx: TenantContext, appId: string, environm
       const cdnUrl = `https://app-site-association.cdn-apple.com/a/v1/${host}`;
       const c = await fetchWellKnown(cdnUrl, fetcher);
       const listed = JSON.stringify(c.body ?? "").includes(`${config.ios_team_id}.${config.ios_bundle_ids[0]}`);
-      if (c.body !== null && !listed) c.problems.push("Apple's cached copy doesn't list this app yet (Apple refreshes it within about 24 hours).");
+      if (c.body !== null && !listed) c.problems.push(msg("Apple's cached copy doesn't list this app yet (Apple refreshes it within about 24 hours)."));
       results.push({ file: "apple-cdn", url: cdnUrl, ok: c.problems.length === 0, warning: true, status: c.status, problems: c.problems.filter((p) => !p.startsWith("Content-Type")) });
     }
   }
@@ -272,7 +273,7 @@ export async function checkWellKnown(ctx: TenantContext, appId: string, environm
     const r = await fetchWellKnown(url, fetcher);
     if (r.body !== null) {
       const statements = Array.isArray(r.body) ? (r.body as { relation?: string[]; target?: { namespace?: string; package_name?: string; sha256_cert_fingerprints?: string[] } }[]) : [];
-      if (!Array.isArray(r.body)) r.problems.push("assetlinks.json must be a JSON array.");
+      if (!Array.isArray(r.body)) r.problems.push(msg("assetlinks.json must be a JSON array."));
       const mine = statements.filter((s) => s.target?.namespace === "android_app" && s.target.package_name === config.android_package && s.relation?.includes("delegate_permission/common.handle_all_urls"));
       if (!mine.length) r.problems.push(`${config.android_package} is not listed with delegate_permission/common.handle_all_urls.`);
       for (const fp of config.android_sha256) {

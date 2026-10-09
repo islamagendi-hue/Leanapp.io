@@ -1,11 +1,13 @@
 import "server-only";
 import { z } from "zod";
+import { msg } from "@/i18n/translate";
 import { withSystem, withTenant, type Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { log } from "@/lib/log";
 import { audit } from "@/modules/audit/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { enqueueAudienceDeliveries } from "@/modules/webhooks/service";
+import { fill } from "@/modules/automation/messages";
 import { compileAudience, DefinitionError, describeNode, parseDefinition, type AudienceNode } from "./definition";
 
 /**
@@ -38,22 +40,22 @@ export interface AudienceRow {
 }
 
 const metaSchema = z.object({
-  name: z.string().trim().min(2, "Name the audience.").max(80),
+  name: z.string().trim().min(2, msg("Name the audience.")).max(80),
   description: z.string().trim().max(500).optional().transform((v) => v || null),
-  refreshMinutes: z.coerce.number().int().min(5, "Recompute at most every 5 minutes.").max(1440).default(15),
+  refreshMinutes: z.coerce.number().int().min(5, msg("Recompute at most every 5 minutes.")).max(1440).default(15),
 });
 
 function parseDef(input: unknown): AudienceNode {
   try {
     return parseDefinition(typeof input === "string" ? JSON.parse(input) : input);
   } catch (err) {
-    throw new ValidationError(err instanceof DefinitionError ? err.message : "The audience definition is not valid.");
+    throw new ValidationError(err instanceof DefinitionError ? err.message : msg("The audience definition is not valid."));
   }
 }
 
 function parseMeta(input: unknown) {
   const r = metaSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid input."));
   return r.data;
 }
 
@@ -149,7 +151,7 @@ export async function previewAudience(ctx: TenantContext, environmentId: string,
 export async function activateAudience(ctx: TenantContext, id: string): Promise<{ size: number }> {
   await tenantTx(ctx, "audiences.manage", async (db) => {
     const row = await db.one("update platform.audiences set status = 'active', activated_at = coalesce(activated_at, now()), updated_by = $2 where id = $1 and status = 'draft' returning id", [id, ctx.userId]);
-    if (!row) throw new ConflictError("Only a draft audience can be activated.");
+    if (!row) throw new ConflictError(msg("Only a draft audience can be activated."));
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "audience.activated", targetType: "audience", targetId: id });
   });
   const result = await withTenant({ organizationId: ctx.organizationId, userId: ctx.userId }, (db) => computeAudience(db, id));
@@ -163,7 +165,7 @@ export async function archiveAudience(ctx: TenantContext, id: string): Promise<v
       `select name from platform.automations where status in ('active', 'paused') and definition->'trigger'->>'audienceId' = $1::text limit 1`,
       [id],
     );
-    if (used) throw new ConflictError(`The automation "${used.name}" uses this audience. Archive or change it first.`);
+    if (used) throw new ConflictError(fill(msg('The automation "{name}" uses this audience. Archive or change it first.'), { name: used.name }));
     const row = await db.one("update platform.audiences set status = 'archived', updated_by = $2 where id = $1 and status <> 'archived' returning id", [id, ctx.userId]);
     if (!row) throw new NotFoundError("Audience");
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "audience.archived", targetType: "audience", targetId: id });
@@ -255,7 +257,7 @@ export async function recomputeDueAudiences(opts: { limit?: number; deadline?: n
     } catch (err) {
       failed++;
       log.error("audience.compute_failed", { audience_id: a.id, organization_id: a.organization_id, error: err });
-      const message = (err as { code?: string }).code === "57014" ? "Timed out: simplify the conditions or shorten the time windows." : "Computation failed.";
+      const message = (err as { code?: string }).code === "57014" ? msg("Timed out: simplify the conditions or shorten the time windows.") : msg("Computation failed.");
       await withSystem((db) => db.query("update platform.audiences set last_compute_error = $2, last_computed_at = now() where id = $1", [a.id, message]));
     }
   }

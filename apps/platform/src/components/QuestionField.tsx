@@ -1,3 +1,7 @@
+"use client";
+
+import { useT } from "@/i18n/client";
+import { msg } from "@/i18n/translate";
 import type { AnswerValue, Option, QuestionType } from "@/modules/implementation/questions";
 
 export interface SerializedQuestion {
@@ -13,7 +17,11 @@ export interface SerializedQuestion {
   error?: string;
 }
 
+const YES_NO = [["true", msg("Yes")], ["false", msg("No")]];
+
+/** One questionnaire question. Text (prompt, help, options) arrives already translated. */
 export function QuestionField({ q }: { q: SerializedQuestion }) {
+  const t = useT();
   const id = q.key.replace(/\./g, "-");
   const v = q.value;
   const optionValues = new Set(q.options.map((o) => o.value));
@@ -22,7 +30,7 @@ export function QuestionField({ q }: { q: SerializedQuestion }) {
     <fieldset className="space-y-2">
       <input type="hidden" name={`${q.key}__shown`} value="1" />
       <legend className="text-[15px] font-medium">
-        {q.prompt} {!q.required && <span className="font-normal text-ink-3">(optional)</span>}
+        {q.prompt} {!q.required && <span className="font-normal text-ink-3">{t("(optional)")}</span>}
       </legend>
       {q.help && <p className="help -mt-1">{q.help}</p>}
       {q.type === "text" && <input className="input" id={id} name={q.key} defaultValue={typeof v === "string" ? v : ""} placeholder={q.placeholder} required={q.required} />}
@@ -31,10 +39,10 @@ export function QuestionField({ q }: { q: SerializedQuestion }) {
       )}
       {q.type === "boolean" && (
         <div className="flex gap-2">
-          {[["true", "Yes"], ["false", "No"]].map(([val, label]) => (
+          {YES_NO.map(([val, label]) => (
             <label key={val} className="flex min-h-10 items-center gap-2 rounded-lg border border-line px-4 text-sm has-checked:border-accent has-checked:bg-accent-soft">
               <input type="radio" name={q.key} value={val} defaultChecked={String(v) === val} required={q.required} />
-              {label}
+              {t(label)}
             </label>
           ))}
         </div>
@@ -55,13 +63,13 @@ export function QuestionField({ q }: { q: SerializedQuestion }) {
           {q.allowOther && (
             <label className="flex min-h-10 items-center gap-2 rounded-lg border border-line px-3 py-1.5 text-sm has-checked:border-accent sm:col-span-2">
               <input type="radio" name={q.key} value="__other" defaultChecked={!!other} />
-              <span className="shrink-0">Other event:</span>
+              <span className="shrink-0">{t("Other event:")}</span>
               <input className="input min-h-8" name={`${q.key}__other`} defaultValue={other} placeholder="first_address_saved" pattern="[a-z][a-z0-9_]{1,63}" />
             </label>
           )}
         </div>
       )}
-      {q.error && <p className="text-sm text-alert">{q.error}</p>}
+      {q.error && <p className="text-sm text-alert">{t(q.error)}</p>}
     </fieldset>
   );
 }

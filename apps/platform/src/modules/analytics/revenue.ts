@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
+import { msg } from "@/i18n/translate";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { revenueRules, type RevenueRule } from "./revenue-rules";
 import { bucketKeys, bucketSql, defaultInterval, intervalField, comparisonRange, rangeFields, resolveRange, type Interval, type ReportRange } from "./range";
@@ -108,7 +109,7 @@ const round = (n: number) => Math.round(n * 100) / 100;
 
 export async function revenueReport(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<RevenueReport> {
   const r = revenueSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid revenue report.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid revenue report."));
   const { breakdown, cohortId } = r.data;
   const range = resolveRange(r.data, scope.timezone);
   const interval = defaultInterval(range, r.data.interval);

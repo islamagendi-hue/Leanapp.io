@@ -1,8 +1,10 @@
-/** Campaign choices and the form shape, shared with the client form. Pure, no dependencies. */
+/** Campaign choices and the form shape, shared with the client form. Pure. */
+import { msg } from "@/i18n/translate";
 
 export const CHANNELS = ["push", "in_app", "email", "whatsapp"] as const;
 export type Channel = (typeof CHANNELS)[number];
-export const CHANNEL_LABELS: Record<Channel, string> = { push: "Push", in_app: "In-app", email: "Email", whatsapp: "WhatsApp" };
+/** Channel names, translated where shown (WhatsApp is a product name). */
+export const CHANNEL_LABELS: Record<Channel, string> = { push: msg("Push"), in_app: msg("In-app"), email: msg("Email"), whatsapp: "WhatsApp" };
 
 export const SCHEDULES = ["now", "later", "daily", "weekly"] as const;
 export type ScheduleMode = (typeof SCHEDULES)[number];

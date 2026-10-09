@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 import { z } from "zod";
 import { DUMMY_PASSWORD_HASH, hashPassword, needsRehash, randomToken, sha256, verifyPassword } from "@/lib/crypto";
 import { isUniqueViolation, withSystem } from "@/lib/db";
@@ -20,21 +21,21 @@ export interface AuthUser {
 }
 
 export const signUpSchema = z.object({
-  name: z.string().trim().min(2, "Enter your name.").max(120),
-  email: z.string().trim().toLowerCase().email("Enter a valid email.").max(200),
+  name: z.string().trim().min(2, msg("Enter your name.")).max(120),
+  email: z.string().trim().toLowerCase().email(msg("Enter a valid email.")).max(200),
   password: z
     .string()
-    .min(10, "Use at least 10 characters.")
+    .min(10, msg("Use at least 10 characters."))
     .max(200)
-    .refine((p) => /[a-zA-Z]/.test(p) && /[0-9]/.test(p), "Use letters and at least one number."),
+    .refine((p) => /[a-zA-Z]/.test(p) && /[0-9]/.test(p), msg("Use letters and at least one number.")),
 });
 
 /** Same rules as sign-up, for password changes and resets. */
 export const newPasswordSchema = signUpSchema.shape.password;
 
 export const signInSchema = z.object({
-  email: z.string().trim().toLowerCase().email("Enter a valid email.").max(200),
-  password: z.string().min(1, "Enter your password.").max(200),
+  email: z.string().trim().toLowerCase().email(msg("Enter a valid email.")).max(200),
+  password: z.string().min(1, msg("Enter your password.")).max(200),
 });
 
 export interface SessionResult {
@@ -45,7 +46,7 @@ export interface SessionResult {
 
 export function parse<T>(schema: z.ZodType<T>, input: unknown): T {
   const r = schema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.", z.flattenError(r.error).fieldErrors);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid input."), z.flattenError(r.error).fieldErrors);
   return r.data;
 }
 
@@ -78,7 +79,7 @@ export async function signUp(input: unknown, meta: { userAgent?: string | null; 
       return { id: row!.id, email: data.email, name: data.name, isPlatformAdmin: false, emailVerified: false };
     });
   } catch (err) {
-    if (isUniqueViolation(err)) throw new ConflictError("An account with this email already exists. Sign in instead.");
+    if (isUniqueViolation(err)) throw new ConflictError(msg("An account with this email already exists. Sign in instead."));
     throw err;
   }
   const session = await createSession(user.id, meta.userAgent ?? null);
@@ -109,7 +110,7 @@ export async function signIn(input: unknown, meta: { userAgent?: string | null; 
   if (!row || !row.password_hash || !ok || row.status !== "active") {
     await Promise.all(failKeys.map((k) => consumeRateLimit(k, Number.MAX_SAFE_INTEGER, 900)));
     if (row) await withSystem((db) => audit(db, { organizationId: null, actorUserId: row.id, action: "auth.login_failed" }));
-    throw new UnauthorizedError("Email or password is incorrect.");
+    throw new UnauthorizedError(msg("Email or password is incorrect."));
   }
   // Upgrade hashes made with older scrypt parameters while we have the plaintext.
   const rehash = needsRehash(row.password_hash) ? await hashPassword(data.password) : null;

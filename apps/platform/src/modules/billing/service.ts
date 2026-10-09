@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 import { ConflictError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { can } from "@/modules/rbac/authorize";
@@ -109,16 +110,16 @@ const billingPage = (ctx: TenantContext) => `${publicAppUrl()}/o/${ctx.organizat
  * subscription goes through the Customer Portal instead.
  */
 export async function startCheckout(ctx: TenantContext, planId: unknown): Promise<string> {
-  if (typeof planId !== "string" || !/^[a-z0-9_-]{1,40}$/.test(planId)) throw new ValidationError("Choose a plan.");
+  if (typeof planId !== "string" || !/^[a-z0-9_-]{1,40}$/.test(planId)) throw new ValidationError(msg("Choose a plan."));
   const pre = await tenantTx(ctx, "billing.manage", async (db) => {
     if (!paymentsConnected()) throw new PaymentsNotConnectedError();
     const plan = await db.one<{ id: string; name: string; stripe_price_id: string | null }>(
       "select id, name, stripe_price_id from platform.plans where id = $1 and is_public",
       [planId],
     );
-    if (!plan?.stripe_price_id) throw new ValidationError("This plan can't be bought online yet. Contact sales@leanapp.io.");
+    if (!plan?.stripe_price_id) throw new ValidationError(msg("This plan can't be bought online yet. Contact sales@leanapp.io."));
     const live = await db.one("select 1 from platform.subscriptions where provider = 'stripe' and status = any($1) limit 1", [LIVE]);
-    if (live) throw new ConflictError("This organization already has a subscription. Use Manage billing to change plans.");
+    if (live) throw new ConflictError(msg("This organization already has a subscription. Use Manage billing to change plans."));
     const org = await db.one<{ billing_customer_id: string | null; name: string }>(
       "select billing_customer_id, name from platform.organizations where id = $1",
       [ctx.organizationId],
@@ -167,7 +168,7 @@ export async function openBillingPortal(ctx: TenantContext): Promise<string> {
   const customerId = await tenantTx(ctx, "billing.manage", async (db) => {
     if (!paymentsConnected()) throw new PaymentsNotConnectedError();
     const org = await db.one<{ billing_customer_id: string | null }>("select billing_customer_id from platform.organizations where id = $1", [ctx.organizationId]);
-    if (!org?.billing_customer_id) throw new ConflictError("There's no billing account yet. Upgrade to a paid plan first.");
+    if (!org?.billing_customer_id) throw new ConflictError(msg("There's no billing account yet. Upgrade to a paid plan first."));
     return org.billing_customer_id;
   });
   const session = await stripeApi<{ url: string }>("POST", "/v1/billing_portal/sessions", { customer: customerId, return_url: billingPage(ctx) });

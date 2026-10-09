@@ -6,6 +6,7 @@
  * definition and back. Pure.
  */
 import { z } from "zod";
+import { msg } from "@/i18n/translate";
 import { AutomationDefinitionError, parseAutomation, type AutomationDefinition, type Step } from "@/modules/automation/definition";
 import { localParts, zonedTime } from "@/modules/automation/time";
 import { CHANNELS, SCHEDULES, type CampaignForm, type Channel } from "./options";
@@ -38,9 +39,9 @@ function trigger(f: CampaignForm, timezone: string, now: Date): AutomationDefini
   if (mode === "now") return { type: "once", audienceId, at: now.toISOString() };
   if (mode === "later") {
     const m = LOCAL_DATETIME.exec(f.sendAt ?? "");
-    if (!m) throw new CampaignError("Choose the date and time to send.");
+    if (!m) throw new CampaignError(msg("Choose the date and time to send."));
     const at = zonedTime(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]), timezone);
-    if (at.getTime() < now.getTime() - 60_000) throw new CampaignError("The send time has passed. Choose a later time, or Send now.");
+    if (at.getTime() < now.getTime() - 60_000) throw new CampaignError(msg("The send time has passed. Choose a later time, or Send now."));
     return { type: "once", audienceId, at: at.toISOString() };
   }
   return { type: "schedule", audienceId, every: mode === "daily" ? "day" : "week", at: f.time ?? "", weekday: mode === "weekly" ? Number(f.weekday ?? 0) : undefined };
@@ -49,8 +50,8 @@ function trigger(f: CampaignForm, timezone: string, now: Date): AutomationDefini
 /** The automation definition of a campaign; throws CampaignError with a message for the form. */
 export function buildCampaign(f: CampaignForm, timezone: string, now = new Date()): AutomationDefinition {
   const channel = CHANNELS.find((c) => c === f.channel);
-  if (!channel) throw new CampaignError("Choose a channel.");
-  if (!z.uuid().safeParse(f.audienceId).success) throw new CampaignError("Choose an audience.");
+  if (!channel) throw new CampaignError(msg("Choose a channel."));
+  if (!z.uuid().safeParse(f.audienceId).success) throw new CampaignError(msg("Choose an audience."));
   const cap = f.capMessages ? { messages: f.capMessages, hours: f.capHours || 24 } : null;
   try {
     return parseAutomation({

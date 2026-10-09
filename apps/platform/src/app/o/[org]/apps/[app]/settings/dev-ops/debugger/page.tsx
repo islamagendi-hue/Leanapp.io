@@ -3,9 +3,12 @@ import { listKeys } from "@/modules/credentials/service";
 import { testEventCurl } from "@/modules/implementation/codegen";
 import { can } from "@/modules/rbac/authorize";
 import { publicBaseUrl } from "@/server/env";
+import { getT } from "@/i18n/server";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "Event debugger" };
+export async function generateMetadata() {
+  return { title: (await getT())("Event debugger") };
+}
 
 export default async function DebuggerPage(props: PageProps<"/o/[org]/apps/[app]/settings/dev-ops/debugger">) {
   const { org, app } = await props.params;
@@ -13,6 +16,7 @@ export default async function DebuggerPage(props: PageProps<"/o/[org]/apps/[app]
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "events.read");
   const env = await pickEnvironment(environments, sp.env);
+  const t = await getT();
   let pk = "<your public SDK key>";
   if (can(ctx.role, "credentials.read")) {
     const keys = await listKeys(ctx, a.id);
@@ -24,8 +28,8 @@ export default async function DebuggerPage(props: PageProps<"/o/[org]/apps/[app]
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="h1">Event debugger</h1>
-          <p className="mt-1 text-ink-2">Every event this environment receives, as it arrives, checked against your published tracking plan.</p>
+          <h1 className="h1">{t("Event debugger")}</h1>
+          <p className="mt-1 text-ink-2">{t("Every event this environment receives, as it arrives, checked against your published tracking plan.")}</p>
         </div>
       </div>
       {/* key forces a fresh feed when the environment changes */}

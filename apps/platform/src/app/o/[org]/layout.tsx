@@ -6,6 +6,8 @@ import { LogoMark } from "@/components/Logo";
 import { PlanBanner } from "@/components/PlanBanner";
 import { initials } from "@/components/account/AccountSections";
 import { AccountMenu, EnvironmentSelect, ProjectSwitcher, WorkspaceSwitcher } from "@/components/TopBar";
+import { getT } from "@/i18n/server";
+import { msg } from "@/i18n/translate";
 import { ENV_COOKIE, isEnvironmentName } from "@/lib/environment";
 import { listApps, listArchivedApps } from "@/modules/apps/service";
 import { listOrganizationsForUser } from "@/modules/organizations/service";
@@ -20,12 +22,13 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
   const [workspaces, projects, archived] = await Promise.all([user ? listOrganizationsForUser(user.id) : [], listApps(ctx), listArchivedApps(ctx)]);
   const env = (await cookies()).get(ENV_COOKIE)?.value;
   const ws = `/o/${org}/settings`;
+  const t = await getT();
   const accountLinks = [
-    { label: "Your profile", href: `${ws}/profile`, show: true },
-    { label: "Organization settings", href: ws, show: can(ctx.role, "organization.read") },
-    { label: "Members & invitations", href: `${ws}/members`, show: can(ctx.role, "members.read") },
-    { label: "API keys", href: `${ws}/api-keys`, show: can(ctx.role, "credentials.read") },
-    { label: "Billing & plan", href: `${ws}/billing`, show: can(ctx.role, "billing.read") },
+    { label: msg("Your profile"), href: `${ws}/profile`, show: true },
+    { label: msg("Organization settings"), href: ws, show: can(ctx.role, "organization.read") },
+    { label: msg("Members & invitations"), href: `${ws}/members`, show: can(ctx.role, "members.read") },
+    { label: msg("API keys"), href: `${ws}/api-keys`, show: can(ctx.role, "credentials.read") },
+    { label: msg("Billing & plan"), href: `${ws}/billing`, show: can(ctx.role, "billing.read") },
   ].filter((l) => l.show).map(({ label, href }) => ({ label, href }));
   return (
     <div className="min-h-dvh">
@@ -34,7 +37,7 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
           <Link href={`/o/${org}`} className="flex items-center" aria-label="LeanApp home">
             <LogoMark size={24} />
           </Link>
-          <nav aria-label="Workspace and project" className="flex flex-wrap items-center gap-1 text-sm font-medium">
+          <nav aria-label={t("Workspace and project")} className="flex flex-wrap items-center gap-1 text-sm font-medium">
             <WorkspaceSwitcher current={{ slug: ctx.organizationSlug, name: ctx.organizationName }} workspaces={workspaces.map((w) => ({ slug: w.slug, name: w.name }))} />
             <span aria-hidden className="text-ink-3">/</span>
             <ProjectSwitcher
@@ -61,8 +64,8 @@ export default async function OrgLayout(props: LayoutProps<"/o/[org]">) {
       </header>
       {user && !user.emailVerified && (
         <div className="border-b border-line bg-warn-soft px-4 py-2 text-center text-sm text-warn">
-          Please confirm your email address ({user.email}).{" "}
-          <Link href={`/o/${org}/settings/profile`} className="underline">Resend the link</Link>
+          {t("Please confirm your email address ({email}).", { email: user.email })}{" "}
+          <Link href={`/o/${org}/settings/profile`} className="underline">{t("Resend the link")}</Link>
         </div>
       )}
       <PlanBanner ctx={ctx} />

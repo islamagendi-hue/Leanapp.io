@@ -1,6 +1,8 @@
 "use client";
 
 import { createContext, useContext, useId, useState } from "react";
+import { useT } from "@/i18n/client";
+import { msg } from "@/i18n/translate";
 
 /**
  * Editor for an audience condition tree. Works on the same JSON the server
@@ -26,17 +28,17 @@ function useLists(scope: "user" | "event", name: string) {
 }
 
 const PROPERTY_OPS: [string, string][] = [
-  ["eq", "is"], ["neq", "is not"], ["gt", ">"], ["gte", "≥"], ["lt", "<"], ["lte", "≤"],
-  ["contains", "contains"], ["not_contains", "doesn't contain"], ["in", "is one of"], ["exists", "is set"], ["not_exists", "is not set"],
+  ["eq", msg("is")], ["neq", msg("is not")], ["gt", ">"], ["gte", "≥"], ["lt", "<"], ["lte", "≤"],
+  ["contains", msg("contains")], ["not_contains", msg("doesn't contain")], ["in", msg("is one of")], ["exists", msg("is set")], ["not_exists", msg("is not set")],
 ];
 const PLATFORMS = ["android", "ios", "web", "react_native", "flutter", "backend"];
 const KINDS: [string, string][] = [
-  ["event", "Did / didn't do an event"],
-  ["user_property", "User property"],
-  ["first_seen", "First seen"],
-  ["last_seen", "Last seen"],
-  ["platform", "Platform"],
-  ["revenue", "Revenue total"],
+  ["event", msg("Did / didn't do an event")],
+  ["user_property", msg("User property")],
+  ["first_seen", msg("First seen")],
+  ["last_seen", msg("Last seen")],
+  ["platform", msg("Platform")],
+  ["revenue", msg("Revenue total")],
 ];
 
 export function defaultLeaf(type: string): Node {
@@ -98,14 +100,15 @@ export function ConditionBuilder({ value, onChange, events, properties, allowSin
 function NodeEditor({ node, onChange, onRemove, listId, allowSinceTrigger, depth }: {
   node: Node; onChange: (n: Node) => void; onRemove?: () => void; listId: string; allowSinceTrigger: boolean; depth: number;
 }) {
+  const t = useT();
   const negated = node.type === "not";
   const inner = (negated ? (node.child as Node) : node);
   const set = (n: Node) => onChange(negated ? { type: "not", child: n } : n);
   const toggleNot = () => onChange(negated ? inner : { type: "not", child: node });
   const header = (
     <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3">
-      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={negated} onChange={toggleNot} /> Exclude people matching this</label>
-      {onRemove && <button type="button" className="ms-auto text-alert hover:underline" onClick={onRemove}>Remove</button>}
+      <label className="inline-flex items-center gap-1"><input type="checkbox" checked={negated} onChange={toggleNot} /> {t("Exclude people matching this")}</label>
+      {onRemove && <button type="button" className="ms-auto text-alert hover:underline" onClick={onRemove}>{t("Remove")}</button>}
     </div>
   );
 
@@ -115,12 +118,12 @@ function NodeEditor({ node, onChange, onRemove, listId, allowSinceTrigger, depth
     return (
       <div className={`space-y-3 rounded-lg border p-3 ${negated ? "border-alert/40 bg-alert-soft/30" : "border-line"} ${depth ? "bg-paper/40" : ""}`}>
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span>People who match</span>
+          <span>{t("People who match")}</span>
           <select className="input w-auto" value={inner.type} onChange={(e) => set({ ...inner, type: e.target.value })}>
-            <option value="and">all</option>
-            <option value="or">any</option>
+            <option value="and">{t("all")}</option>
+            <option value="or">{t("any")}</option>
           </select>
-          <span>of these conditions</span>
+          <span>{t("of these conditions")}</span>
         </div>
         {header}
         <ul className="space-y-3">
@@ -134,12 +137,12 @@ function NodeEditor({ node, onChange, onRemove, listId, allowSinceTrigger, depth
         </ul>
         <div className="flex flex-wrap gap-2">
           <select className="input w-auto text-sm" value="" onChange={(e) => e.target.value && set({ ...inner, children: [...children, defaultLeaf(e.target.value)] })}>
-            <option value="">+ Add condition…</option>
-            {KINDS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            <option value="">{t("+ Add condition…")}</option>
+            {KINDS.map(([k, label]) => <option key={k} value={k}>{t(label)}</option>)}
           </select>
           {depth < 3 && (
             <button type="button" className="btn-secondary min-h-9 text-sm" onClick={() => set({ ...inner, children: [...children, { type: inner.type === "and" ? "or" : "and", children: [defaultLeaf("event")] }] })}>
-              + Add group
+              {t("+ Add group")}
             </button>
           )}
         </div>
@@ -151,7 +154,7 @@ function NodeEditor({ node, onChange, onRemove, listId, allowSinceTrigger, depth
     <div className={`space-y-2 rounded-lg border p-3 ${negated ? "border-alert/40 bg-alert-soft/30" : "border-line bg-card"}`}>
       <div className="flex flex-wrap items-center gap-2">
         <select className="input w-auto text-sm" value={inner.type} onChange={(e) => set(defaultLeaf(e.target.value))}>
-          {KINDS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          {KINDS.map(([k, label]) => <option key={k} value={k}>{t(label)}</option>)}
         </select>
       </div>
       <LeafEditor leaf={inner} onChange={set} listId={listId} allowSinceTrigger={allowSinceTrigger} />
@@ -163,23 +166,25 @@ function NodeEditor({ node, onChange, onRemove, listId, allowSinceTrigger, depth
 function FilterRow({ f, scope, onChange, onRemove, prefix }: { f: Json; scope: "user" | "event"; onChange: (f: Json) => void; onRemove?: () => void; prefix?: string }) {
   const op = String(f.op ?? "eq");
   const lists = useLists(scope, String(f.property ?? ""));
+  const t = useT();
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
       {prefix && <span className="text-ink-3">{prefix}</span>}
-      <input className="input w-40" list={lists.names} placeholder="property" value={String(f.property ?? "")} onChange={(e) => onChange({ ...f, property: e.target.value })} aria-label="Property" />
-      <select className="input w-auto" value={op} onChange={(e) => onChange({ ...f, op: e.target.value, value: parseValue(e.target.value, valueText(f.value)) })} aria-label="Operator">
-        {PROPERTY_OPS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+      <input className="input w-40" list={lists.names} placeholder={t("property")} value={String(f.property ?? "")} onChange={(e) => onChange({ ...f, property: e.target.value })} aria-label={t("Property")} dir="ltr" />
+      <select className="input w-auto" value={op} onChange={(e) => onChange({ ...f, op: e.target.value, value: parseValue(e.target.value, valueText(f.value)) })} aria-label={t("Operator")}>
+        {PROPERTY_OPS.map(([k, label]) => <option key={k} value={k}>{t(label)}</option>)}
       </select>
       {op !== "exists" && op !== "not_exists" && (
-        <ParsedInput key={op} className="input w-44" list={lists.values} placeholder={op === "in" ? "a, b, c" : "value"} value={f.value} parse={(raw) => parseValue(op, raw)} onChange={(v) => onChange({ ...f, value: v })} aria-label="Value" />
+        <ParsedInput key={op} className="input w-44" list={lists.values} placeholder={op === "in" ? "a, b, c" : t("value")} value={f.value} parse={(raw) => parseValue(op, raw)} onChange={(v) => onChange({ ...f, value: v })} aria-label={t("Value")} />
       )}
-      {onRemove && <button type="button" className="text-xs text-alert hover:underline" onClick={onRemove}>remove</button>}
+      {onRemove && <button type="button" className="text-xs text-alert hover:underline" onClick={onRemove}>{t("remove")}</button>}
     </div>
   );
 }
 
 function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node; onChange: (n: Node) => void; listId: string; allowSinceTrigger: boolean }) {
   const num = (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => onChange({ ...leaf, [k]: e.target.value === "" ? "" : Number(e.target.value) });
+  const t = useT();
   switch (leaf.type) {
     case "event": {
       const where = (leaf.where as Json[]) ?? [];
@@ -187,40 +192,40 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
         <div className="space-y-2 text-sm">
           <div className="flex flex-wrap items-center gap-2">
             <select className="input w-auto" value={leaf.did === false ? "no" : "yes"} onChange={(e) => onChange({ ...leaf, did: e.target.value === "yes" })}>
-              <option value="yes">did</option>
-              <option value="no">did not do</option>
+              <option value="yes">{t("did")}</option>
+              <option value="no">{t("did not do")}</option>
             </select>
-            <input className="input w-56" list={listId} placeholder="event name" value={String(leaf.event ?? "")} onChange={(e) => onChange({ ...leaf, event: e.target.value })} aria-label="Event" />
+            <input className="input w-56" list={listId} placeholder={t("event name")} value={String(leaf.event ?? "")} onChange={(e) => onChange({ ...leaf, event: e.target.value })} aria-label={t("Event")} dir="ltr" />
             {leaf.did !== false && (
               <>
-                <select className="input w-auto" value={String(leaf.countOp ?? "gte")} onChange={(e) => onChange({ ...leaf, countOp: e.target.value })} aria-label="Count">
-                  <option value="gte">at least</option>
-                  <option value="eq">exactly</option>
-                  <option value="lte">at most</option>
+                <select className="input w-auto" value={String(leaf.countOp ?? "gte")} onChange={(e) => onChange({ ...leaf, countOp: e.target.value })} aria-label={t("Count")}>
+                  <option value="gte">{t("at least")}</option>
+                  <option value="eq">{t("exactly")}</option>
+                  <option value="lte">{t("at most")}</option>
                 </select>
-                <input className="input w-20" type="number" min={1} value={String(leaf.count ?? 1)} onChange={num("count")} aria-label="Times" />
-                <span>times</span>
+                <input className="input w-20" type="number" min={1} value={String(leaf.count ?? 1)} onChange={num("count")} aria-label={t("Times")} />
+                <span>{t("times")}</span>
               </>
             )}
-            {leaf.sinceTrigger ? <span>since the trigger</span> : (
+            {leaf.sinceTrigger ? <span>{t("since the trigger")}</span> : (
               <>
-                <select className="input w-auto" value={leaf.between ? "between" : "last"} aria-label="When"
+                <select className="input w-auto" value={leaf.between ? "between" : "last"} aria-label={t("When")}
                   onChange={(e) => {
                     onChange(e.target.value === "between" ? { ...leaf, between: { from: daysAgo(Number(leaf.withinDays) || 30), to: daysAgo(0) } } : { ...leaf, between: undefined });
                   }}>
-                  <option value="last">in the last</option>
-                  <option value="between">between</option>
+                  <option value="last">{t("in the last")}</option>
+                  <option value="between">{t("between")}</option>
                 </select>
                 {leaf.between ? (
                   <>
-                    <input className="input w-40" type="date" value={String((leaf.between as Json).from ?? "")} onChange={(e) => onChange({ ...leaf, between: { ...(leaf.between as Json), from: e.target.value } })} aria-label="From" />
-                    <span>and</span>
-                    <input className="input w-40" type="date" value={String((leaf.between as Json).to ?? "")} onChange={(e) => onChange({ ...leaf, between: { ...(leaf.between as Json), to: e.target.value } })} aria-label="To" />
+                    <input className="input w-40" type="date" value={String((leaf.between as Json).from ?? "")} onChange={(e) => onChange({ ...leaf, between: { ...(leaf.between as Json), from: e.target.value } })} aria-label={t("From")} />
+                    <span>{t("and")}</span>
+                    <input className="input w-40" type="date" value={String((leaf.between as Json).to ?? "")} onChange={(e) => onChange({ ...leaf, between: { ...(leaf.between as Json), to: e.target.value } })} aria-label={t("To")} />
                   </>
                 ) : (
                   <>
-                    <input className="input w-20" type="number" min={1} max={365} value={String(leaf.withinDays ?? 30)} onChange={num("withinDays")} aria-label="Days" />
-                    <span>days</span>
+                    <input className="input w-20" type="number" min={1} max={365} value={String(leaf.withinDays ?? 30)} onChange={num("withinDays")} aria-label={t("Days")} />
+                    <span>{t("days")}</span>
                   </>
                 )}
               </>
@@ -228,14 +233,14 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
           </div>
           {allowSinceTrigger && (
             <label className="inline-flex items-center gap-1 text-xs text-ink-2">
-              <input type="checkbox" checked={Boolean(leaf.sinceTrigger)} onChange={(e) => onChange({ ...leaf, sinceTrigger: e.target.checked || undefined, ...(e.target.checked ? { between: undefined } : {}) })} /> Count only since the automation was triggered
+              <input type="checkbox" checked={Boolean(leaf.sinceTrigger)} onChange={(e) => onChange({ ...leaf, sinceTrigger: e.target.checked || undefined, ...(e.target.checked ? { between: undefined } : {}) })} /> {t("Count only since the automation was triggered")}
             </label>
           )}
           {where.map((f, i) => (
-            <FilterRow key={i} f={f} scope="event" prefix={i === 0 ? "where" : "and"} onChange={(nf) => onChange({ ...leaf, where: where.map((x, j) => (j === i ? nf : x)) })} onRemove={() => onChange({ ...leaf, where: where.filter((_, j) => j !== i) })} />
+            <FilterRow key={i} f={f} scope="event" prefix={i === 0 ? t("where") : t("and")} onChange={(nf) => onChange({ ...leaf, where: where.map((x, j) => (j === i ? nf : x)) })} onRemove={() => onChange({ ...leaf, where: where.filter((_, j) => j !== i) })} />
           ))}
           {where.length < 5 && (
-            <button type="button" className="text-xs text-accent-ink hover:underline" onClick={() => onChange({ ...leaf, where: [...where, { property: "", op: "eq", value: "" }] })}>+ event property filter</button>
+            <button type="button" className="text-xs text-accent-ink hover:underline" onClick={() => onChange({ ...leaf, where: [...where, { property: "", op: "eq", value: "" }] })}>{t("+ event property filter")}</button>
           )}
         </div>
       );
@@ -247,11 +252,11 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
       return (
         <div className="flex flex-wrap items-center gap-2 text-sm">
           <select className="input w-auto" value={String(leaf.op)} onChange={(e) => onChange({ ...leaf, op: e.target.value })}>
-            <option value="within_days">in the last</option>
-            <option value="before_days">more than</option>
+            <option value="within_days">{t("in the last")}</option>
+            <option value="before_days">{t("more than")}</option>
           </select>
-          <input className="input w-20" type="number" min={1} max={365} value={String(leaf.days ?? 7)} onChange={num("days")} aria-label="Days" />
-          <span>days{leaf.op === "before_days" ? " ago" : ""}</span>
+          <input className="input w-20" type="number" min={1} max={365} value={String(leaf.days ?? 7)} onChange={num("days")} aria-label={t("Days")} />
+          <span>{leaf.op === "before_days" ? t("days ago") : t("days")}</span>
         </div>
       );
     case "platform": {
@@ -278,19 +283,20 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
 
 function RevenueLeaf({ leaf, onChange, num }: { leaf: Node; onChange: (n: Node) => void; num: (k: string) => (e: React.ChangeEvent<HTMLInputElement>) => void }) {
   const lists = useLists("event", String(leaf.property ?? "revenue"));
+  const t = useT();
   return (
     <div className="flex flex-wrap items-center gap-2 text-sm">
-      <span>sum of</span>
-      <input className="input w-28" list={lists.names} value={String(leaf.property ?? "revenue")} onChange={(e) => onChange({ ...leaf, property: e.target.value })} aria-label="Revenue property" />
-      <select className="input w-auto" value={String(leaf.op)} onChange={(e) => onChange({ ...leaf, op: e.target.value })} aria-label="Comparison">
+      <span>{t("sum of")}</span>
+      <input className="input w-28" list={lists.names} value={String(leaf.property ?? "revenue")} onChange={(e) => onChange({ ...leaf, property: e.target.value })} aria-label={t("Revenue property")} dir="ltr" />
+      <select className="input w-auto" value={String(leaf.op)} onChange={(e) => onChange({ ...leaf, op: e.target.value })} aria-label={t("Comparison")}>
         {[["gte", "≥"], ["gt", ">"], ["lte", "≤"], ["lt", "<"], ["eq", "="]].map(([k, l]) => <option key={k} value={k}>{l}</option>)}
       </select>
-      <input className="input w-28" type="number" min={0} value={String(leaf.amount ?? 0)} onChange={num("amount")} aria-label="Amount" />
-      <span>in the last</span>
-      <input className="input w-20" type="number" min={1} max={365} value={String(leaf.withinDays ?? 90)} onChange={num("withinDays")} aria-label="Days" />
-      <span>days, from</span>
-      <ParsedInput className="input w-56" placeholder="any event (or: purchase, renewal)" value={leaf.events ?? []} parse={commaList}
-        onChange={(v) => onChange({ ...leaf, events: v })} aria-label="Events" />
+      <input className="input w-28" type="number" min={0} value={String(leaf.amount ?? 0)} onChange={num("amount")} aria-label={t("Amount")} />
+      <span>{t("in the last")}</span>
+      <input className="input w-20" type="number" min={1} max={365} value={String(leaf.withinDays ?? 90)} onChange={num("withinDays")} aria-label={t("Days")} />
+      <span>{t("days, from")}</span>
+      <ParsedInput className="input w-56" placeholder={t("any event (or: purchase, renewal)")} value={leaf.events ?? []} parse={commaList}
+        onChange={(v) => onChange({ ...leaf, events: v })} aria-label={t("Events")} />
     </div>
   );
 }

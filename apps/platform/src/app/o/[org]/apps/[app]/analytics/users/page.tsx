@@ -3,19 +3,25 @@ import { AutoApply } from "@/components/AutoApply";
 import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
 import { CohortSelect } from "@/components/CohortSelect";
 import { PropertyFilters } from "@/components/PropertyFilters";
+import { getLang, getT } from "@/i18n/server";
+import { dateLocale } from "@/i18n/translate";
 import { MAX_USER_COLUMNS, MAX_USER_FILTERS, searchPeople } from "@/modules/analytics/profiles";
 import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { filtersFromSearch } from "@/modules/properties/filters";
 import { cohortFilter } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "Users" };
+export async function generateMetadata() {
+  const t = await getT();
+  return { title: t("Users") };
+}
 
 export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/analytics/users">) {
   const { org, app } = await props.params;
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
-  const when = (d: Date) => new Date(d).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: a.timezone });
+  const [t, lang] = await Promise.all([getT(), getLang()]);
+  const when = (d: Date) => new Date(d).toLocaleString(dateLocale(lang), { dateStyle: "medium", timeStyle: "short", timeZone: a.timezone });
   requirePermission(ctx, "users.read");
   const env = await pickEnvironment(environments, sp.env);
   const q = param(sp.q)?.trim() ?? "";
@@ -32,19 +38,19 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title="Users" description="Find one of your app's users by their user ID or an install's anonymous ID, and see everything they did." env={env.type} />
+      <AnalyticsHeader title={t("Users")} description={t("Find one of your app's users by their user ID or an install's anonymous ID, and see everything they did.")} env={env.type} />
 
       <form method="get" className="card space-y-4">
         <input type="hidden" name="env" value={env.type} />
         <AutoApply />
-        <label className="block max-w-xl"><span className="label">User ID or anonymous ID</span>
-          <input name="q" className="input font-mono" defaultValue={q} maxLength={256} placeholder="Starts with…" autoComplete="off" />
+        <label className="block max-w-xl"><span className="label">{t("User ID or anonymous ID")}</span>
+          <input name="q" className="input font-mono" defaultValue={q} maxLength={256} placeholder={t("Starts with…")} autoComplete="off" />
         </label>
         <div className="max-w-xs"><CohortSelect cohorts={audience.cohorts} value={audience.cohortId} /></div>
-        <PropertyFilters options={userProps} initial={parts} max={MAX_USER_FILTERS} label="User properties" />
+        <PropertyFilters options={userProps} initial={parts} max={MAX_USER_FILTERS} label={t("User properties")} />
         {userProps.length > 0 && (
           <details className="text-sm" open={cols.length > 0}>
-            <summary className="cursor-pointer text-ink-2">Columns ({cols.length}/{MAX_USER_COLUMNS})</summary>
+            <summary className="cursor-pointer text-ink-2">{t("Columns ({n}/{max})", { n: cols.length, max: MAX_USER_COLUMNS })}</summary>
             <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
               {userProps.slice(0, 40).map((o) => (
                 <label key={o.name} className="inline-flex items-center gap-1 font-mono text-xs"><input type="checkbox" name="col" value={o.name} defaultChecked={cols.includes(o.name)} />{o.name}</label>
@@ -52,24 +58,24 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
             </div>
           </details>
         )}
-        <button className="btn" type="submit">Search</button>
+        <button className="btn" type="submit">{t("Search")}</button>
       </form>
 
-      {audience.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the list isn&apos;t limited to it.</p>}
+      {audience.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the list isn't limited to it.")}</p>}
 
       <section className="card overflow-x-auto p-0">
-        <h2 className="h2 px-5 pt-4">{q || filtering ? "Users" : "Recently seen users"}</h2>
+        <h2 className="h2 px-5 pt-4">{q || filtering ? t("Users") : t("Recently seen users")}</h2>
         {res.users.length === 0 ? (
           <p className="px-5 py-4 text-sm text-ink-3">
-            {filtering ? "No user matches these filters." : q ? "No user ID starts with that." : "No identified users in this environment yet. Users appear once your app calls identify()."}
+            {filtering ? t("No user matches these filters.") : q ? t("No user ID starts with that.") : t("No identified users in this environment yet. Users appear once your app calls identify().")}
           </p>
         ) : (
           <table className="table">
             <thead>
               <tr>
-                <th className="text-start">User ID</th>
+                <th className="text-start">{t("User ID")}</th>
                 {cols.map((c) => <th key={c} className="text-start font-mono text-xs">{c}</th>)}
-                <th className="text-start">First seen</th><th className="text-start">Last seen</th>
+                <th className="text-start">{t("First seen")}</th><th className="text-start">{t("Last seen")}</th>
               </tr>
             </thead>
             <tbody>
@@ -88,12 +94,12 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
 
       {q && !filtering && (
         <section className="card overflow-x-auto p-0">
-          <h2 className="h2 px-5 pt-4">Installs</h2>
+          <h2 className="h2 px-5 pt-4">{t("Installs")}</h2>
           {res.installs.length === 0 ? (
-            <p className="px-5 py-4 text-sm text-ink-3">No anonymous ID starts with that.</p>
+            <p className="px-5 py-4 text-sm text-ink-3">{t("No anonymous ID starts with that.")}</p>
           ) : (
             <table className="table">
-              <thead><tr><th className="text-start">Anonymous ID</th><th className="text-start">Platform</th><th className="text-start">Linked users</th><th className="text-start">Last seen</th></tr></thead>
+              <thead><tr><th className="text-start">{t("Anonymous ID")}</th><th className="text-start">{t("Platform")}</th><th className="text-start">{t("Linked users")}</th><th className="text-start">{t("Last seen")}</th></tr></thead>
               <tbody>
                 {res.installs.map((i) => (
                   <tr key={i.anonymousId}>
@@ -102,9 +108,9 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
                     </td>
                     <td>{i.platform ?? "–"}</td>
                     <td className="text-sm">
-                      {i.linkedUsers.length === 0 ? <span className="text-ink-3">Anonymous</span>
+                      {i.linkedUsers.length === 0 ? <span className="text-ink-3">{t("Anonymous")}</span>
                         : i.linkedUsers.length === 1 ? <span className="font-mono">{i.linkedUsers[0]}</span>
-                        : <span title="Linked to several users, so its anonymous activity isn't merged into any of them">Shared device · {i.linkedUsers.length} users</span>}
+                        : <span title={t("Linked to several users, so its anonymous activity isn't merged into any of them")}>{t("Shared device · {n} users", { n: i.linkedUsers.length })}</span>}
                     </td>
                     <td className="whitespace-nowrap">{when(i.lastSeen)}</td>
                   </tr>
@@ -115,7 +121,7 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
         </section>
       )}
       <p className="text-xs text-ink-3">
-        Search matches the start of an ID, exact matches first. Audience and property filters apply to identified users. Property filters use the same properties as Audiences and Analytics (Settings → Dev Ops → Attributes). Up to 50 users are listed. Times are in the app&apos;s timezone ({a.timezone}).
+        {t("Search matches the start of an ID, exact matches first. Audience and property filters apply to identified users. Property filters use the same properties as Audiences and Analytics (Settings → Dev Ops → Attributes). Up to 50 users are listed. Times are in the app's timezone ({timezone}).", { timezone: a.timezone })}
       </p>
     </div>
   );

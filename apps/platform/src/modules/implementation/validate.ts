@@ -3,6 +3,7 @@
  * Used by the background processor (stored results, implementation status)
  * and by the event debugger (live verdict per event).
  */
+import { msg } from "@/i18n/translate";
 import { isVolatilePropertyName, type PropertyType } from "./catalog/properties";
 
 export interface SpecProperty {
@@ -102,7 +103,7 @@ export function validateEvent(
     if (!declared.has(k) && k !== "screen_name") warnings.push({ property: k, code: "unknown_property", message: `${k} is not in the tracking plan` });
   }
   if ((spec.revenue_relevance || spec.conversion_relevance) && !payload.user_id) {
-    warnings.push({ code: "not_identified", message: "Conversion sent without user_id; it can only be attributed through the anonymous id" });
+    warnings.push({ code: "not_identified", message: msg("Conversion sent without user_id; it can only be attributed through the anonymous id") });
   }
   for (const k of Object.keys(payload.user_properties ?? {})) {
     if (isVolatilePropertyName(k)) {

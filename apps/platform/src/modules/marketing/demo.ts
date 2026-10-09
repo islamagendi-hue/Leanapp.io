@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 import { createHash } from "node:crypto";
 import { randomToken } from "@/lib/crypto";
 import { withSystem } from "@/lib/db";
@@ -30,7 +31,7 @@ const USERS_PER_DAY = 14;
 
 export const demoEnabled = () => process.env.DEMO_ENABLED === "1";
 /** What the demo account sees when it tries to change itself or create an organization. */
-export const DEMO_LOCKED = "This is the shared demo account, so it can't be changed. Create a free account to try this.";
+export const DEMO_LOCKED = msg("This is the shared demo account, so it can't be changed. Create a free account to try this.");
 export const isDemoUser = (user: { email: string } | null | undefined) => user?.email.toLowerCase() === DEMO_EMAIL;
 
 export interface DemoRefs {
@@ -63,7 +64,7 @@ async function createDemo(): Promise<DemoRefs> {
   const { user: viewer } = await signUp({ name: "Demo visitor", email: DEMO_EMAIL, password: randomToken(24) }, { ip: "demo" });
   const org = await createOrganization(owner.id, { name: DEMO_ORG_NAME, country: "SA", timezone: "Asia/Riyadh", defaultCurrency: "SAR", industry: "" });
   const ctx = await resolveTenant(owner.id, org.slug);
-  const app = await createApp(ctx, { name: DEMO_APP_NAME, description: "Food delivery in Saudi Arabia (sample data)", platforms: ["android", "ios"] });
+  const app = await createApp(ctx, { name: DEMO_APP_NAME, description: "Food delivery app (sample data)", platforms: ["android", "ios"] });
   await withSystem(async (db) => {
     await db.query("update platform.users set email_verified_at = now() where id = any($1::uuid[])", [[owner.id, viewer.id]]);
     await db.query("insert into platform.organization_members (organization_id, user_id, role_id) values ($1, $2, 'viewer') on conflict do nothing", [

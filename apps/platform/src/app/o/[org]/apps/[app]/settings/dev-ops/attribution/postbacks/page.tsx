@@ -7,11 +7,16 @@ import { NETWORK_SPECS, NETWORKS, type Network } from "@/modules/attribution/net
 import { POSTBACK_MACROS } from "@/modules/attribution/pure";
 import { listPostbacks } from "@/modules/attribution/service";
 import { can } from "@/modules/rbac/authorize";
+import { rich, envName, statusName } from "@/components/acquisition/rich";
+import { getLang, getT } from "@/i18n/server";
+import { dateLocale, type Lang } from "@/i18n/translate";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "Postbacks" };
+export async function generateMetadata() {
+  return { title: (await getT())("Postbacks") };
+}
 
-const fmt = (d: Date | null) => (d ? new Date(d).toLocaleString("en-GB") : "–");
+const fmt = (d: Date | null, lang: Lang) => (d ? new Date(d).toLocaleString(dateLocale(lang)) : "–");
 
 export default async function PostbacksPage(props: PageProps<"/o/[org]/apps/[app]/settings/dev-ops/attribution/postbacks">) {
   const { org, app } = await props.params;
@@ -26,51 +31,51 @@ export default async function PostbacksPage(props: PageProps<"/o/[org]/apps/[app
   const network: Network = (NETWORKS as readonly string[]).includes(requested ?? "") ? (requested as Network) : "custom";
   const spec = NETWORK_SPECS[network];
   const canEncrypt = encryptionAvailable();
+  const [t, lang] = await Promise.all([getT(), getLang()]);
 
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="h1">Postbacks</h1>
+          <h1 className="h1">{t("Postbacks")}</h1>
           <p className="mt-1 max-w-2xl text-ink-2">
-            Tell ad networks and your own systems about the installs and conversions they drove. Deliveries are queued as events are processed and sent by the
-            scheduled worker, with retries (1 min → 12 h) on errors.
+            {t("Tell ad networks and your own systems about the installs and conversions they drove. Deliveries are queued as events are processed and sent by the scheduled worker, with retries (1 min → 12 h) on errors.")}
           </p>
         </div>
       </div>
 
       <section className="card overflow-x-auto p-0">
         {postbacks.length === 0 ? (
-          <p className="p-5 text-sm text-ink-3">No postbacks in {env.type}.</p>
+          <p className="p-5 text-sm text-ink-3">{t("No postbacks in {env}.", { env: envName(t, env.type) })}</p>
         ) : (
           <table className="table">
-            <thead><tr><th>Postback</th><th>Events</th><th>Status</th><th className="text-end">Sent</th><th className="text-end">Queued</th><th className="text-end">Failed</th><th></th></tr></thead>
+            <thead><tr><th>{t("Postback")}</th><th>{t("Events")}</th><th>{t("Status")}</th><th className="text-end">{t("Sent")}</th><th className="text-end">{t("Queued")}</th><th className="text-end">{t("Failed")}</th><th></th></tr></thead>
             <tbody>
               {postbacks.map((p) => (
                 <tr key={p.id}>
                   <td>
                     <div className="font-medium">{p.name}</div>
                     <div className="text-xs text-ink-3">
-                      {NETWORK_SPECS[p.network].label}
-                      {!NETWORK_SPECS[p.network].verified && <span className="pill ms-2 border-warn/40 text-warn">not verified with the live network</span>}
+                      {t(NETWORK_SPECS[p.network].label)}
+                      {!NETWORK_SPECS[p.network].verified && <span className="pill ms-2 border-warn/40 text-warn">{t("not verified with the live network")}</span>}
                     </div>
-                    {p.url_template && <code className="mt-1 block font-mono text-xs break-all text-ink-2">{p.http_method} {p.url_template}</code>}
-                    {p.network !== "custom" && !p.has_credentials && <div className="text-xs text-alert">Not connected: no credentials stored.</div>}
+                    {p.url_template && <code className="mt-1 block font-mono text-xs break-all text-ink-2" dir="ltr">{p.http_method} {p.url_template}</code>}
+                    {p.network !== "custom" && !p.has_credentials && <div className="text-xs text-alert">{t("Not connected: no credentials stored.")}</div>}
                   </td>
                   <td className="font-mono text-xs">
                     {p.events.join(", ")}
-                    {p.sources.length > 0 && <div className="text-ink-3">sources: {p.sources.join(", ")}</div>}
-                    {p.include_organic && <div className="text-ink-3">+ organic</div>}
+                    {p.sources.length > 0 && <div className="text-ink-3">{t("sources: {list}", { list: p.sources.join(", ") })}</div>}
+                    {p.include_organic && <div className="text-ink-3">{t("+ organic")}</div>}
                   </td>
-                  <td>{p.status}</td>
+                  <td>{statusName(t, p.status)}</td>
                   <td className="text-end tabular-nums">{p.succeeded}</td>
                   <td className="text-end tabular-nums">{p.pending}</td>
                   <td className="text-end tabular-nums">{p.failed}</td>
                   <td className="space-y-1">
                     {manage && (
                       <>
-                        <ActionForm action={setPostbackStatusAction.bind(null, org, app, p.id, p.status === "active" ? "paused" : "active")} submitLabel={p.status === "active" ? "Pause" : "Resume"} buttonClass="btn-secondary min-h-8 px-3" className="" />
-                        <ActionForm action={setPostbackStatusAction.bind(null, org, app, p.id, "deleted")} submitLabel="Delete" buttonClass="btn-danger" className="" confirm="Delete this postback and its delivery history?" />
+                        <ActionForm action={setPostbackStatusAction.bind(null, org, app, p.id, p.status === "active" ? "paused" : "active")} submitLabel={p.status === "active" ? t("Pause") : t("Resume")} buttonClass="btn-secondary min-h-8 px-3" className="" />
+                        <ActionForm action={setPostbackStatusAction.bind(null, org, app, p.id, "deleted")} submitLabel={t("Delete")} buttonClass="btn-danger" className="" confirm={t("Delete this postback and its delivery history?")} />
                       </>
                     )}
                   </td>
@@ -83,62 +88,64 @@ export default async function PostbacksPage(props: PageProps<"/o/[org]/apps/[app
 
       {manage && (
         <section className="card space-y-4">
-          <h2 className="h2">New postback</h2>
-          <nav className="flex flex-wrap gap-2 text-sm" aria-label="Network">
+          <h2 className="h2">{t("New postback")}</h2>
+          <nav className="flex flex-wrap gap-2 text-sm" aria-label={t("Network")}>
             {NETWORKS.map((n) => (
               <Link key={n} href={`${base}?${new URLSearchParams({ env: env.type, network: n })}`} className={`rounded-md border px-3 py-1.5 ${n === network ? "border-ink bg-ink text-paper" : "border-line text-ink-2 hover:bg-paper-2"}`}>
-                {NETWORK_SPECS[n].label}
+                {t(NETWORK_SPECS[n].label)}
               </Link>
             ))}
           </nav>
           {!spec.verified && (
             <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">
-              The {spec.label} integration follows the network&apos;s published API but is <strong>not verified with the live network</strong> yet. Check the first
-              deliveries below and in the network&apos;s event manager before relying on it.
+              {rich(t("The {network} integration follows the network's published API but is {notVerified} yet. Check the first deliveries below and in the network's event manager before relying on it."), {
+                network: t(spec.label),
+                notVerified: <strong>{t("not verified with the live network")}</strong>,
+              })}
             </p>
           )}
           {spec.credentials.some((c) => c.required) && !canEncrypt && (
             <p className="rounded-lg bg-alert-soft px-3 py-2 text-sm text-alert">
-              Credentials can&apos;t be saved on this server yet: INTEGRATIONS_ENCRYPTION_KEY isn&apos;t configured. Until it is, use a custom URL postback.
+              {t("Credentials can't be saved on this server yet: INTEGRATIONS_ENCRYPTION_KEY isn't configured. Until it is, use a custom URL postback.")}
             </p>
           )}
-          <ActionForm action={createPostbackAction.bind(null, org, app)} submitLabel="Save postback" className="space-y-4">
+          <ActionForm action={createPostbackAction.bind(null, org, app)} submitLabel={t("Save postback")} className="space-y-4">
             <input type="hidden" name="environmentId" value={env.id} />
             <input type="hidden" name="network" value={network} />
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="block"><span className="label">Name</span><input name="name" className="input" required maxLength={120} defaultValue={network === "custom" ? "" : spec.label} /></label>
-              <label className="block"><span className="label">Events</span><input name="events" className="input" required defaultValue="install" placeholder="install, re_engagement, purchase_completed" />
-                <span className="help">install, reinstall, re_engagement, and conversion event names from your tracking plan.</span></label>
-              <label className="block"><span className="label">Only these sources (optional)</span><input name="sources" className="input" placeholder={network === "custom" ? "tiktok, snapchat" : ""} />
-                <span className="help">{network === "custom" ? "Empty: every attributed install." : `Empty: installs attributed to ${spec.label.split(" ")[0]} (by source or click id).`}</span></label>
+              <label className="block"><span className="label">{t("Name")}</span><input name="name" className="input" required maxLength={120} defaultValue={network === "custom" ? "" : spec.label} /></label>
+              <label className="block"><span className="label">{t("Events")}</span><input name="events" className="input" required defaultValue="install" placeholder="install, re_engagement, purchase_completed" />
+                <span className="help">{t("install, reinstall, re_engagement, and conversion event names from your tracking plan.")}</span></label>
+              <label className="block"><span className="label">{t("Only these sources (optional)")}</span><input name="sources" className="input" placeholder={network === "custom" ? "tiktok, snapchat" : ""} />
+                <span className="help">{network === "custom" ? t("Empty: every attributed install.") : t("Empty: installs attributed to {network} (by source or click id).", { network: spec.label.split(" ")[0] })}</span></label>
               {network === "custom" && (
-                <label className="flex items-center gap-2 pt-6"><input type="checkbox" name="includeOrganic" /> <span className="text-sm">Also send organic installs and conversions</span></label>
+                <label className="flex items-center gap-2 pt-6"><input type="checkbox" name="includeOrganic" /> <span className="text-sm">{t("Also send organic installs and conversions")}</span></label>
               )}
             </div>
             {network === "custom" && (
               <div className="space-y-3">
                 <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
-                  <label className="block"><span className="label">URL template</span>
-                    <input name="urlTemplate" className="input font-mono text-sm" required placeholder="https://example.com/postback?click={click_id}&event={event}&value={revenue}&cur={currency}&ts={timestamp}" /></label>
-                  <label className="block"><span className="label">Method</span>
+                  <label className="block"><span className="label">{t("URL template")}</span>
+                    <input name="urlTemplate" className="input font-mono text-sm" dir="ltr" required placeholder="https://example.com/postback?click={click_id}&event={event}&value={revenue}&cur={currency}&ts={timestamp}" /></label>
+                  <label className="block"><span className="label">{t("Method")}</span>
                     <select name="httpMethod" className="input"><option>GET</option><option>POST</option></select></label>
                 </div>
-                <p className="text-xs text-ink-3">Macros: {POSTBACK_MACROS.map((m) => `{${m}}`).join(" ")}. Values are URL-encoded. POST also sends them as a JSON body.</p>
+                <p className="text-xs text-ink-3">{rich(t("Macros: {macros}. Values are URL-encoded. POST also sends them as a JSON body."), { macros: <span dir="ltr">{POSTBACK_MACROS.map((m) => `{${m}}`).join(" ")}</span> })}</p>
               </div>
             )}
             {spec.config.length > 0 && (
               <div className="grid gap-3 sm:grid-cols-2">
                 {spec.config.map((f) => (
-                  <label key={f.key} className="block"><span className="label">{f.label}</span><input name={`config.${f.key}`} className="input" required={f.required} maxLength={500} /></label>
+                  <label key={f.key} className="block"><span className="label">{t(f.label)}</span><input name={`config.${f.key}`} className="input" required={f.required} maxLength={500} /></label>
                 ))}
               </div>
             )}
             {spec.credentials.length > 0 && (
               <div className="grid gap-3 sm:grid-cols-2">
                 {spec.credentials.map((f) => (
-                  <label key={f.key} className="block"><span className="label">{f.label}</span><input name={`secret.${f.key}`} type="password" autoComplete="off" className="input" required={f.required} maxLength={4000} /></label>
+                  <label key={f.key} className="block"><span className="label">{t(f.label)}</span><input name={`secret.${f.key}`} type="password" autoComplete="off" className="input" required={f.required} maxLength={4000} /></label>
                 ))}
-                <p className="help sm:col-span-2">Encrypted at rest and never shown again. To change it, create a new postback and delete this one.</p>
+                <p className="help sm:col-span-2">{t("Encrypted at rest and never shown again. To change it, create a new postback and delete this one.")}</p>
               </div>
             )}
           </ActionForm>
@@ -146,22 +153,22 @@ export default async function PostbacksPage(props: PageProps<"/o/[org]/apps/[app
       )}
 
       <section className="card overflow-x-auto p-0">
-        <h2 className="h2 px-5 pt-5">Recent deliveries</h2>
+        <h2 className="h2 px-5 pt-5">{t("Recent deliveries")}</h2>
         {deliveries.length === 0 ? (
-          <p className="px-5 pb-5 pt-2 text-sm text-ink-3">Nothing sent yet.</p>
+          <p className="px-5 pb-5 pt-2 text-sm text-ink-3">{t("Nothing sent yet.")}</p>
         ) : (
           <table className="table mt-3">
-            <thead><tr><th>Queued</th><th>Postback</th><th>Event</th><th>Status</th><th className="text-end">Attempts</th><th>Last response</th><th>Next try</th></tr></thead>
+            <thead><tr><th>{t("Queued")}</th><th>{t("Postback")}</th><th>{t("Event")}</th><th>{t("Status")}</th><th className="text-end">{t("Attempts")}</th><th>{t("Last response")}</th><th>{t("Next try")}</th></tr></thead>
             <tbody>
               {deliveries.map((d) => (
                 <tr key={d.id}>
-                  <td className="text-ink-3">{fmt(d.created_at)}</td>
+                  <td className="text-ink-3">{fmt(d.created_at, lang)}</td>
                   <td>{d.postback_name}</td>
                   <td className="font-mono text-xs">{d.event_name}</td>
-                  <td>{d.status === "succeeded" ? d.status : <span className={d.status === "pending" ? "" : "text-alert"}>{d.status}</span>}</td>
+                  <td>{d.status === "succeeded" ? statusName(t, d.status) : <span className={d.status === "pending" ? "" : "text-alert"}>{statusName(t, d.status)}</span>}</td>
                   <td className="text-end tabular-nums">{d.attempts}</td>
-                  <td className="text-xs break-all text-ink-2">{d.last_status_code ?? ""} {d.last_error ?? ""}</td>
-                  <td className="text-ink-3">{d.status === "pending" ? fmt(d.next_attempt_at) : "–"}</td>
+                  <td className="text-xs break-all text-ink-2">{d.last_status_code ?? ""} {d.last_error ? t(d.last_error) : ""}</td>
+                  <td className="text-ink-3">{d.status === "pending" ? fmt(d.next_attempt_at, lang) : "–"}</td>
                 </tr>
               ))}
             </tbody>

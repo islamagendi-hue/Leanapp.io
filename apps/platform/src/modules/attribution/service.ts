@@ -12,8 +12,9 @@ import { NETWORK_SPECS, NETWORKS, type Network } from "./networks";
 import { destinationFor, isBot, isPrefetch, NETWORK_CLICK_IDS, parseUserAgent, unknownMacros, type LinkDestinations } from "./pure";
 import { assertPostbackUrlShape } from "./url-safety";
 import { envNumber } from "@/lib/env-number";
+import { msg } from "@/i18n/translate";
 
-const issue = (e: z.ZodError) => new ValidationError(e.issues[0]?.message ?? "Invalid input.", Object.fromEntries(e.issues.map((i) => [i.path.join(".") || "form", i.message])));
+const issue = (e: z.ZodError) => new ValidationError(e.issues[0]?.message ?? msg("Invalid input."), Object.fromEntries(e.issues.map((i) => [i.path.join(".") || "form", i.message])));
 
 async function assertEnvironment(db: Db, appId: string, environmentId: string) {
   const env = await db.one<{ id: string }>("select id from platform.environments where id = $1 and app_id = $2", [environmentId, appId]);
@@ -34,10 +35,10 @@ export async function getSettings(ctx: TenantContext, appId: string): Promise<At
 
 const formBool = z.union([z.boolean(), z.string()]).optional().transform((v) => v === true || v === "on" || v === "true" || v === "1");
 const settingsSchema = z.object({
-  clickLookbackDays: z.coerce.number().int().min(1, "Click lookback is 1–90 days.").max(90, "Click lookback is 1–90 days."),
+  clickLookbackDays: z.coerce.number().int().min(1, msg("Click lookback is 1–90 days.")).max(90, msg("Click lookback is 1–90 days.")),
   probabilisticEnabled: formBool,
-  probabilisticWindowHours: z.coerce.number().int().min(1, "Probabilistic window is 1–168 hours.").max(168, "Probabilistic window is 1–168 hours."),
-  conversionWindowDays: z.coerce.number().int().min(1, "Conversion window is 1–730 days.").max(730, "Conversion window is 1–730 days."),
+  probabilisticWindowHours: z.coerce.number().int().min(1, msg("Probabilistic window is 1–168 hours.")).max(168, msg("Probabilistic window is 1–168 hours.")),
+  conversionWindowDays: z.coerce.number().int().min(1, msg("Conversion window is 1–730 days.")).max(730, msg("Conversion window is 1–730 days.")),
   reengagementEnabled: formBool,
 });
 
@@ -63,7 +64,7 @@ export async function updateSettings(ctx: TenantContext, appId: string, input: u
 
 // ── Links ───────────────────────────────────────────────────────────────────
 const opt = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
-const httpsUrl = (label: string) =>
+const httpsUrl = (message: string) =>
   z.string().trim().max(2000).optional().transform((v) => v || null)
     .refine((v) => {
       if (!v) return true;
@@ -73,23 +74,23 @@ const httpsUrl = (label: string) =>
       } catch {
         return false;
       }
-    }, `${label} must be an https:// URL.`);
+    }, message);
 
 const linkSchema = z
   .object({
-    environmentId: z.string().uuid("Choose an environment."),
-    name: z.string().trim().min(1, "Name the link.").max(120),
-    source: z.string().trim().min(1, "Source is required (e.g. tiktok, snapchat, google, instagram).").max(100),
+    environmentId: z.string().uuid(msg("Choose an environment.")),
+    name: z.string().trim().min(1, msg("Name the link.")).max(120),
+    source: z.string().trim().min(1, msg("Source is required (e.g. tiktok, snapchat, google, instagram).")).max(100),
     medium: opt(100),
     campaign: opt(100),
     adGroup: opt(100),
     creative: opt(100),
-    iosUrl: httpsUrl("App Store URL"),
-    androidUrl: httpsUrl("Play Store URL"),
-    webUrl: httpsUrl("Web fallback URL"),
-    deepLinkPath: opt(500).refine((v) => !v || (/^(\/|[a-z][a-z0-9+.-]*:\/\/)/i.test(v) && !/^(javascript|data|vbscript):/i.test(v)), "Deep link must be a path (/product/123) or an app URL (myapp://…)."),
+    iosUrl: httpsUrl(msg("App Store URL must be an https:// URL.")),
+    androidUrl: httpsUrl(msg("Play Store URL must be an https:// URL.")),
+    webUrl: httpsUrl(msg("Web fallback URL must be an https:// URL.")),
+    deepLinkPath: opt(500).refine((v) => !v || (/^(\/|[a-z][a-z0-9+.-]*:\/\/)/i.test(v) && !/^(javascript|data|vbscript):/i.test(v)), msg("Deep link must be a path (/product/123) or an app URL (myapp://…).")),
   })
-  .refine((l) => l.iosUrl || l.androidUrl || l.webUrl, { message: "Add at least one destination.", path: ["iosUrl"] });
+  .refine((l) => l.iosUrl || l.androidUrl || l.webUrl, { message: msg("Add at least one destination."), path: ["iosUrl"] });
 
 export interface LinkRow extends LinkDestinations {
   id: string;
@@ -130,7 +131,7 @@ export async function createLink(ctx: TenantContext, appId: string, input: unkno
 }
 
 export async function setLinkStatus(ctx: TenantContext, appId: string, linkId: string, status: "active" | "paused"): Promise<void> {
-  if (!z.string().uuid().safeParse(linkId).success || !["active", "paused"].includes(status)) throw new ValidationError("Invalid link.");
+  if (!z.string().uuid().safeParse(linkId).success || !["active", "paused"].includes(status)) throw new ValidationError(msg("Invalid link."));
   await tenantTx(ctx, "attribution.manage", async (db) => {
     const row = await db.one("update platform.attribution_links set status = $3 where id = $1 and app_id = $2 returning id", [linkId, appId, status]);
     if (!row) throw new NotFoundError("Link");
@@ -246,11 +247,11 @@ const list = (max: number) =>
   );
 
 const postbackSchema = z.object({
-  environmentId: z.string().uuid("Choose an environment."),
-  network: z.enum(NETWORKS, "Choose a network."),
-  name: z.string().trim().min(1, "Name the postback.").max(120),
-  events: list(50).refine((v) => v.length > 0, "List at least one event (install, re_engagement, or a conversion event name).")
-    .refine((v) => v.every((e) => EVENT_NAME.test(e)), "Event names are lowercase snake_case (e.g. install, purchase_completed)."),
+  environmentId: z.string().uuid(msg("Choose an environment.")),
+  network: z.enum(NETWORKS, msg("Choose a network.")),
+  name: z.string().trim().min(1, msg("Name the postback.")).max(120),
+  events: list(50).refine((v) => v.length > 0, msg("List at least one event (install, re_engagement, or a conversion event name)."))
+    .refine((v) => v.every((e) => EVENT_NAME.test(e)), msg("Event names are lowercase snake_case (e.g. install, purchase_completed).")),
   sources: list(20).transform((v) => v.map((s) => s.toLowerCase().slice(0, 100))),
   includeOrganic: formBool,
   urlTemplate: z.string().trim().max(2000).optional().transform((v) => v || null),
@@ -295,15 +296,15 @@ export async function createPostback(ctx: TenantContext, appId: string, input: u
     else if (f.required) throw new ValidationError(`${f.label} is required for ${spec.label}.`);
   }
   if (p.network === "custom") {
-    if (!p.urlTemplate) throw new ValidationError("Enter the postback URL template.");
+    if (!p.urlTemplate) throw new ValidationError(msg("Enter the postback URL template."));
     const unknown = unknownMacros(p.urlTemplate);
     if (unknown.length) throw new ValidationError(`Unknown macro: {${unknown[0]}}.`);
     assertPostbackUrlShape(p.urlTemplate.replace(/\{[a-z_]+\}/g, "x"));
   } else if (p.includeOrganic) {
-    throw new ValidationError("Ad networks only receive installs they drove; organic events can go to a custom postback.");
+    throw new ValidationError(msg("Ad networks only receive installs they drove; organic events can go to a custom postback."));
   }
   if (Object.keys(credentials).length && !encryptionAvailable()) {
-    throw new ValidationError("Credentials can't be stored: the server has no INTEGRATIONS_ENCRYPTION_KEY configured. Ask your LeanApp administrator.");
+    throw new ValidationError(msg("Credentials can't be stored: the server has no INTEGRATIONS_ENCRYPTION_KEY configured. Ask your LeanApp administrator."));
   }
   const enc = Object.keys(credentials).length ? encryptSecret(JSON.stringify(credentials)) : null;
   return tenantTx(ctx, "attribution.manage", async (db) => {
@@ -325,7 +326,7 @@ export async function createPostback(ctx: TenantContext, appId: string, input: u
 }
 
 export async function setPostbackStatus(ctx: TenantContext, appId: string, id: string, status: "active" | "paused" | "deleted"): Promise<void> {
-  if (!z.string().uuid().safeParse(id).success || !["active", "paused", "deleted"].includes(status)) throw new ValidationError("Invalid postback.");
+  if (!z.string().uuid().safeParse(id).success || !["active", "paused", "deleted"].includes(status)) throw new ValidationError(msg("Invalid postback."));
   await tenantTx(ctx, "attribution.manage", async (db) => {
     const row = status === "deleted"
       ? await db.one("delete from platform.attribution_postbacks where id = $1 and app_id = $2 returning id", [id, appId])

@@ -5,6 +5,8 @@
  * Unit-tested in pure.test.ts.
  */
 
+import { msg } from "@/i18n/translate";
+
 /** Tracking link codes (attribution_links.code). */
 export const CODE_PATTERN = /^[A-Za-z0-9_-]{6,32}$/;
 /** Per-environment link prefix: /l/{prefix}/{code}. */
@@ -247,12 +249,12 @@ export function interstitialCsp(nonce: string): string {
  * per QR placement) keeps reporting clean; the same link works in every channel.
  */
 export const CHANNEL_PRESETS = [
-  { id: "email", label: "Email", source: "email", medium: "email", hint: "Newsletter or lifecycle email. Campaign = the email or flow name." },
-  { id: "sms", label: "SMS", source: "sms", medium: "sms", hint: "Keep the link short; the deep link opens the app directly when installed." },
-  { id: "whatsapp", label: "WhatsApp", source: "whatsapp", medium: "messaging", hint: "Broadcasts and click-to-chat. WhatsApp shows a preview: previews are not counted as clicks." },
-  { id: "qr", label: "QR code", source: "qr", medium: "offline", hint: "Print, packaging, in-store. Use the creative field for the placement (e.g. riyadh_mall_poster)." },
-  { id: "influencer", label: "Influencer", source: "influencer", medium: "influencer", hint: "One link per creator: put the handle in Creative." },
-  { id: "web_banner", label: "Web banner", source: "website", medium: "banner", hint: "Smart banner or button on your site. Ad group = the page." },
-  { id: "social_organic", label: "Social (organic)", source: "instagram", medium: "social", hint: "Bio links and posts. Social in-app browsers get the Open-in-app page." },
+  { id: "email", label: msg("Email"), source: "email", medium: "email", hint: msg("Newsletter or lifecycle email. Campaign = the email or flow name.") },
+  { id: "sms", label: msg("SMS"), source: "sms", medium: "sms", hint: msg("Keep the link short; the deep link opens the app directly when installed.") },
+  { id: "whatsapp", label: "WhatsApp", source: "whatsapp", medium: "messaging", hint: msg("Broadcasts and click-to-chat. WhatsApp shows a preview: previews are not counted as clicks.") },
+  { id: "qr", label: msg("QR code"), source: "qr", medium: "offline", hint: msg("Print, packaging, in-store. Use the creative field for the placement (e.g. riyadh_mall_poster).") },
+  { id: "influencer", label: msg("Influencer"), source: "influencer", medium: "influencer", hint: msg("One link per creator: put the handle in Creative.") },
+  { id: "web_banner", label: msg("Web banner"), source: "website", medium: "banner", hint: msg("Smart banner or button on your site. Ad group = the page.") },
+  { id: "social_organic", label: msg("Social (organic)"), source: "instagram", medium: "social", hint: msg("Bio links and posts. Social in-app browsers get the Open-in-app page.") },
 ] as const;
 export type ChannelPreset = (typeof CHANNEL_PRESETS)[number];

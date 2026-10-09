@@ -2,6 +2,7 @@ import "server-only";
 import type { Db } from "@/lib/db";
 import { datesBetween, rangeDays, resolveRange, type ReportRange } from "@/modules/analytics/range";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
+import { msg } from "@/i18n/translate";
 
 export { RANGES as ATTRIBUTION_RANGES } from "@/modules/analytics/range";
 
@@ -102,8 +103,8 @@ export async function attributionOverview(ctx: TenantContext, scope: { environme
       trend: {
         days: dayKeys,
         series: [
-          { key: "Attributed", counts: dayKeys.map((d) => n(at.get(d)?.attributed)) },
-          { key: "Organic", counts: dayKeys.map((d) => n(at.get(d)?.organic)) },
+          { key: msg("Attributed"), counts: dayKeys.map((d) => n(at.get(d)?.attributed)) },
+          { key: msg("Organic"), counts: dayKeys.map((d) => n(at.get(d)?.organic)) },
         ],
       },
       bySource: bySource.map((r) => ({ ...r, installs: n(r.installs), deterministic: n(r.deterministic), probabilistic: n(r.probabilistic), reengagements: n(r.reengagements) })),

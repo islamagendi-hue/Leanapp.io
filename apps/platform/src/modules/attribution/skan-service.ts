@@ -10,6 +10,7 @@ import type { IngestionPrincipal } from "@/modules/credentials/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { AAK_PRODUCTION_KID, networkOfSkanId, parseAakPostback, parseSkanPostback, SKAN_ID, type SkanRecord } from "./skan";
 import { parseConversionSchema, type ConversionSchema } from "./skan-schema";
+import { msg } from "@/i18n/translate";
 
 /**
  * SKAdNetwork / AdAttributionKit developer postbacks and conversion value
@@ -107,7 +108,7 @@ export async function getSkanSettings(ctx: TenantContext, appId: string): Promis
 
 const settingsSchema = z.object({
   appStoreId: z.string().trim().optional().transform((v) => (v ? v.replace(/^id/i, "") : null))
-    .refine((v) => v === null || /^[1-9]\d{3,14}$/.test(v), "The App Store id is the number in your App Store URL (apps.apple.com/app/id123456789)."),
+    .refine((v) => v === null || /^[1-9]\d{3,14}$/.test(v), msg("The App Store id is the number in your App Store URL (apps.apple.com/app/id123456789).")),
   networkIds: z.union([z.string(), z.array(z.string())]).optional().transform((v) =>
     [...new Set((Array.isArray(v) ? v : (v ?? "").split(/[\s,<>]+/)).map((x) => x.trim().toLowerCase()).filter((x) => x.endsWith(".skadnetwork")))].slice(0, 500),
   ).refine((ids) => ids.every((id) => SKAN_ID.test(id)), "SKAdNetwork ids look like abcd1234.skadnetwork."),
@@ -115,7 +116,7 @@ const settingsSchema = z.object({
 
 export async function updateSkanSettings(ctx: TenantContext, appId: string, input: unknown): Promise<void> {
   const r = settingsSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid input."));
   const s = r.data;
   await tenantTx(ctx, "attribution.manage", async (db) => {
     const app = await db.one("select 1 from platform.apps where id = $1", [appId]);
@@ -129,7 +130,7 @@ export async function updateSkanSettings(ctx: TenantContext, appId: string, inpu
       );
     } catch (err) {
       await db.query("rollback to savepoint skan_settings");
-      if (isUniqueViolation(err)) throw new ValidationError("This App Store id is already connected to another LeanApp app. If the app is yours, contact LeanApp support.");
+      if (isUniqueViolation(err)) throw new ValidationError(msg("This App Store id is already connected to another LeanApp app. If the app is yours, contact LeanApp support."));
       throw err;
     }
     await audit(db, {

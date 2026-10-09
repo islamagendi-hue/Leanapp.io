@@ -1,6 +1,7 @@
 import "server-only";
 import { AppError } from "@/lib/errors";
 import { log } from "@/lib/log";
+import { msg } from "@/i18n/translate";
 
 export interface ActionState {
   error?: string;
@@ -23,5 +24,5 @@ export function toActionError(err: unknown): ActionState {
   // Next.js uses thrown errors for redirect()/notFound(); let them through.
   if (err && typeof err === "object" && "digest" in err) throw err;
   log.error("action.failed", { error: err });
-  return { error: "Something went wrong. Please try again." };
+  return { error: msg("Something went wrong. Please try again.") };
 }

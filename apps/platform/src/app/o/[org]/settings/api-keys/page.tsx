@@ -1,13 +1,17 @@
 import Link from "next/link";
+import { getLang, getT } from "@/i18n/server";
+import { dateLocale, type Lang, type T } from "@/i18n/translate";
 import { listKeys } from "@/modules/credentials/service";
 import { getAppBySlug, listApps } from "@/modules/apps/service";
 import { can } from "@/modules/rbac/authorize";
 import { requirePermission, requireTenant } from "@/server/session";
 
-export const metadata = { title: "API keys" };
+export async function generateMetadata() {
+  return { title: (await getT())("API keys") };
+}
 
 const ORDER = { production: 0, staging: 1, development: 2 } as const;
-const when = (d: Date | null) => (d ? new Date(d).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "Never");
+const when = (d: Date | null, t: T, lang: Lang) => (d ? new Date(d).toLocaleDateString(dateLocale(lang), { day: "numeric", month: "short", year: "numeric" }) : t("Never"));
 const live = (k: { status: string; expires_at: Date | null }) => k.status === "active" && (!k.expires_at || new Date(k.expires_at) > new Date());
 
 /**
@@ -35,33 +39,37 @@ export default async function ApiKeysPage(props: PageProps<"/o/[org]/settings/ap
     }),
   );
   const manage = can(ctx.role, "credentials.manage");
+  const t = await getT();
+  const lang = await getLang();
+  // The sentence is translated whole; {link} marks where the link goes.
+  const noProjects = t("No projects yet. {link} to get its keys.").split("{link}");
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="h1">API keys</h1>
+        <h1 className="h1">{t("API keys")}</h1>
         <p className="mt-1 max-w-2xl text-ink-2">
-          Each project has three environments, each with its own keys and its own data. The public SDK key goes in your app; secret API keys are for your servers only.
-          {manage ? " Create, rotate or revoke keys from Manage." : " Ask an owner or admin to create or revoke keys."}
+          {t("Each project has three environments, each with its own keys and its own data. The public SDK key goes in your app; secret API keys are for your servers only.")}
+          {" "}{manage ? t("Create, rotate or revoke keys from Manage.") : t("Ask an owner or admin to create or revoke keys.")}
         </p>
       </div>
-      {projects.length === 0 && <p className="card text-sm text-ink-2">No projects yet. <Link className="underline" href={`/o/${org}`}>Create one</Link> to get its keys.</p>}
+      {projects.length === 0 && <p className="card text-sm text-ink-2">{noProjects[0]}<Link className="underline" href={`/o/${org}`}>{t("Create one")}</Link>{noProjects[1]}</p>}
       {projects.map(({ app, rows }) => (
         <section key={app.id} className="card overflow-x-auto p-0" aria-label={app.name}>
           <h2 className="h2 px-5 pt-5">{app.name}</h2>
           <table className="table mt-3">
-            <thead><tr><th>Environment</th><th>Public SDK key</th><th className="text-end">Secret API keys</th><th>Last used</th><th /></tr></thead>
+            <thead><tr><th>{t("Environment")}</th><th>{t("Public SDK key")}</th><th className="text-end">{t("Secret API keys")}</th><th>{t("Last used")}</th><th /></tr></thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.env.id}>
                   <td>
-                    <span className="font-medium">{r.env.name}</span>
-                    {r.env.status === "disabled" && <span className="pill ms-2 border-warn/40 text-warn">Paused</span>}
+                    <span className="font-medium">{t(r.env.name)}</span>
+                    {r.env.status === "disabled" && <span className="pill ms-2 border-warn/40 text-warn">{t("Paused")}</span>}
                   </td>
-                  <td className="font-mono text-xs">{r.sdk ? <>{r.sdk.slice(0, 14)}…{r.sdkCount > 1 && <span className="ms-1 text-ink-3">+{r.sdkCount - 1} rotating</span>}</> : <span className="text-ink-3">None active</span>}</td>
+                  <td className="font-mono text-xs" dir="ltr">{r.sdk ? <>{r.sdk.slice(0, 14)}…{r.sdkCount > 1 && <span className="ms-1 text-ink-3">{t("+{n} rotating", { n: r.sdkCount - 1 })}</span>}</> : <span className="text-ink-3">{t("None active")}</span>}</td>
                   <td className="text-end tabular-nums">{r.apiCount}</td>
-                  <td className="text-sm text-ink-3">{when(r.used)}</td>
-                  <td className="text-end"><Link className="text-sm underline" href={`/o/${org}/apps/${app.slug}/settings/dev-ops/sdk?env=${r.env.type}`}>{manage ? "Manage" : "View"}</Link></td>
+                  <td className="text-sm text-ink-3">{when(r.used, t, lang)}</td>
+                  <td className="text-end"><Link className="text-sm underline" href={`/o/${org}/apps/${app.slug}/settings/dev-ops/sdk?env=${r.env.type}`}>{manage ? t("Manage") : t("View")}</Link></td>
                 </tr>
               ))}
             </tbody>

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AppNav } from "@/components/AppNav";
 import { QuickSearch } from "@/components/QuickSearch";
+import { getT } from "@/i18n/server";
 import { planEventList } from "@/modules/analytics/labels";
 import { can } from "@/modules/rbac/authorize";
 import { projectMenu, settingsMenu } from "@/modules/navigation/menu";
@@ -13,6 +14,7 @@ export default async function AppLayout(props: LayoutProps<"/o/[org]/apps/[app]"
   const menu = projectMenu(ctx.role, base);
   const settings = settingsMenu(ctx.role, org, base);
   const events = can(ctx.role, "analytics.read") ? await planEventList(ctx, a.id) : [];
+  const t = await getT();
   return (
     <div className="mx-auto grid max-w-7xl gap-6 px-4 py-6 lg:grid-cols-[220px_1fr]">
       <aside className="lg:sticky lg:top-20 lg:self-start">
@@ -22,8 +24,8 @@ export default async function AppLayout(props: LayoutProps<"/o/[org]/apps/[app]"
       <main className="min-w-0">
         {a.status === "archived" && (
           <p className="mb-6 rounded-lg border border-warn/40 bg-warn-soft px-4 py-3 text-sm" role="status">
-            This project is archived, so it receives no events. Its data is kept.{" "}
-            <Link className="font-medium underline underline-offset-2" href={`${base}/settings/project`}>Project settings</Link>
+            {t("This project is archived, so it receives no events. Its data is kept.")}{" "}
+            <Link className="font-medium underline underline-offset-2" href={`${base}/settings/project`}>{t("Project settings")}</Link>
           </p>
         )}
         {props.children}

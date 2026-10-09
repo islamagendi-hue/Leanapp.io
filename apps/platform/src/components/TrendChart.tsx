@@ -16,7 +16,7 @@ export function TrendChart({ days, series, label }: { days: string[]; series: { 
   const labelEvery = Math.max(1, Math.ceil(days.length / 8));
   return (
     <figure className="space-y-2">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={label}>
+      <svg style={{ direction: "ltr" }} viewBox={`0 0 ${W} ${H}`} className="h-auto w-full" role="img" aria-label={label}>
         {ticks.map((v) => (
           <g key={v}>
             <line x1={pad.l} x2={W - pad.r} y1={y(v)} y2={y(v)} stroke="#d8d4ca" strokeDasharray={v ? "3 3" : undefined} />

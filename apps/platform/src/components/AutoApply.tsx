@@ -2,6 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useTransition } from "react";
+import { useT } from "@/i18n/client";
 
 /**
  * Put inside a report's GET form: any change re-runs the report at once, as a
@@ -15,6 +16,7 @@ export function AutoApply() {
   const router = useRouter();
   const pathname = usePathname();
   const [pending, start] = useTransition();
+  const t = useT();
 
   useEffect(() => {
     const form = ref.current?.closest("form");
@@ -56,7 +58,7 @@ export function AutoApply() {
 
   return (
     <span ref={ref} hidden={!pending}>
-      <span className="fixed inset-x-0 top-0 z-50 block h-0.5 animate-pulse bg-accent" role="progressbar" aria-label="Updating report" />
+      <span className="fixed inset-x-0 top-0 z-50 block h-0.5 animate-pulse bg-accent" role="progressbar" aria-label={t("Updating report")} />
     </span>
   );
 }

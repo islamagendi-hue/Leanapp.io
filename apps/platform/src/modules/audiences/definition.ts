@@ -18,7 +18,9 @@
  * Pure module (no database access) so it can be unit tested.
  */
 import { z } from "zod";
+import { makeT, msg, type T } from "@/i18n/translate";
 import { COUNTED_EVENTS } from "@/modules/analytics/sql";
+import { fill } from "@/modules/automation/messages";
 
 // ── Schema ──────────────────────────────────────────────────────────────────
 export const PROPERTY_OPS = ["eq", "neq", "gt", "gte", "lt", "lte", "contains", "not_contains", "in", "exists", "not_exists"] as const;
@@ -28,8 +30,8 @@ export const COUNT_OPS = ["gte", "eq", "lte"] as const;
 export const AMOUNT_OPS = ["gte", "gt", "lte", "lt", "eq"] as const;
 export const PLATFORMS = ["android", "ios", "web", "react_native", "flutter", "backend"] as const;
 
-const propertyName = z.string().trim().regex(/^[A-Za-z0-9_$][A-Za-z0-9_.$-]{0,63}$/, "Property names may use letters, digits, _ . $ - (max 64).");
-const eventName = z.string().trim().min(1, "Choose an event.").max(200);
+const propertyName = z.string().trim().regex(/^[A-Za-z0-9_$][A-Za-z0-9_.$-]{0,63}$/, msg("Property names may use letters, digits, _ . $ - (max 64)."));
+const eventName = z.string().trim().min(1, msg("Choose an event.")).max(200);
 const scalar = z.union([z.string().max(500), z.number().finite(), z.boolean()]);
 
 export const propertyFilterSchema = z
@@ -41,17 +43,17 @@ export const propertyFilterSchema = z
   .superRefine((f, ctx) => {
     const v = f.value;
     if (f.op === "exists" || f.op === "not_exists") return;
-    if (v === undefined || v === "") ctx.addIssue({ code: "custom", message: `Give a value for ${f.property}.` });
-    else if (NUMERIC_OPS.includes(f.op) && typeof v !== "number") ctx.addIssue({ code: "custom", message: `${f.property}: "${f.op}" needs a number.` });
-    else if (f.op === "in" && !Array.isArray(v)) ctx.addIssue({ code: "custom", message: `${f.property}: "in" needs a list of values.` });
-    else if (f.op !== "in" && Array.isArray(v)) ctx.addIssue({ code: "custom", message: `${f.property}: only "in" takes a list.` });
+    if (v === undefined || v === "") ctx.addIssue({ code: "custom", message: fill(msg("Give a value for {property}."), { property: f.property }) });
+    else if (NUMERIC_OPS.includes(f.op) && typeof v !== "number") ctx.addIssue({ code: "custom", message: fill(msg('{property}: "{op}" needs a number.'), { property: f.property, op: f.op }) });
+    else if (f.op === "in" && !Array.isArray(v)) ctx.addIssue({ code: "custom", message: fill(msg('{property}: "in" needs a list of values.'), { property: f.property }) });
+    else if (f.op !== "in" && Array.isArray(v)) ctx.addIssue({ code: "custom", message: fill(msg('{property}: only "in" takes a list.'), { property: f.property }) });
   });
 export type PropertyFilter = z.infer<typeof propertyFilterSchema>;
 
 const days = z.coerce.number().int().min(1).max(365);
-const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a YYYY-MM-DD date.").refine((s) => !Number.isNaN(Date.parse(s)), "Not a valid date.");
+const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, msg("Use a YYYY-MM-DD date.")).refine((s) => !Number.isNaN(Date.parse(s)), msg("Not a valid date."));
 /** Calendar days, both included, in the project's timezone. */
-export const dateRangeSchema = z.object({ from: isoDate, to: isoDate }).refine((r) => r.from <= r.to, "The start date must be on or before the end date.");
+export const dateRangeSchema = z.object({ from: isoDate, to: isoDate }).refine((r) => r.from <= r.to, msg("The start date must be on or before the end date."));
 
 export const eventLeafSchema = z.object({
   type: z.literal("event"),
@@ -99,7 +101,7 @@ export const MAX_LEAVES = 20;
 
 const nodeSchema: z.ZodType<AudienceNode> = z.lazy(() =>
   z.union([
-    z.object({ type: z.enum(["and", "or"]), children: z.array(nodeSchema).min(1, "A group needs at least one condition.").max(MAX_LEAVES) }),
+    z.object({ type: z.enum(["and", "or"]), children: z.array(nodeSchema).min(1, msg("A group needs at least one condition.")).max(MAX_LEAVES) }),
     z.object({ type: z.literal("not"), child: nodeSchema }),
     eventLeafSchema,
     userPropertyLeafSchema,
@@ -125,18 +127,18 @@ export function leaves(n: AudienceNode): Leaf[] {
 export function parseDefinition(input: unknown, opts: { allowSinceTrigger?: boolean } = {}): AudienceNode {
   const r = nodeSchema.safeParse(input);
   if (!r.success) {
-    throw new DefinitionError(firstMessage(r.error.issues) ?? "The condition is not valid.");
+    throw new DefinitionError(firstMessage(r.error.issues) ?? msg("The condition is not valid."));
   }
   let maxDepth = 0;
   let count = 0;
   walk(r.data, 0, (leaf, d) => {
     maxDepth = Math.max(maxDepth, d);
     count++;
-    if (leaf.type === "event" && leaf.sinceTrigger && !opts.allowSinceTrigger) throw new DefinitionError('"Since the trigger" is only available in automation conditions.');
-    if (leaf.type === "event" && leaf.sinceTrigger && leaf.between) throw new DefinitionError('Choose either "since the trigger" or a date range.');
+    if (leaf.type === "event" && leaf.sinceTrigger && !opts.allowSinceTrigger) throw new DefinitionError(msg('"Since the trigger" is only available in automation conditions.'));
+    if (leaf.type === "event" && leaf.sinceTrigger && leaf.between) throw new DefinitionError(msg('Choose either "since the trigger" or a date range.'));
   });
-  if (maxDepth > MAX_DEPTH) throw new DefinitionError(`Conditions can be nested at most ${MAX_DEPTH} levels deep.`);
-  if (count > MAX_LEAVES) throw new DefinitionError(`Use at most ${MAX_LEAVES} conditions.`);
+  if (maxDepth > MAX_DEPTH) throw new DefinitionError(fill(msg("Conditions can be nested at most {n} levels deep."), { n: MAX_DEPTH }));
+  if (count > MAX_LEAVES) throw new DefinitionError(fill(msg("Use at most {n} conditions."), { n: MAX_LEAVES }));
   return r.data;
 }
 
@@ -281,7 +283,7 @@ export function compileAudience(def: AudienceNode, environmentId: string, opts: 
 
   const window = (leaf: { withinDays: number; sinceTrigger?: boolean; between?: { from: string; to: string } }) => {
     if (leaf.sinceTrigger) {
-      if (!opts.triggerAt) throw new DefinitionError('"Since the trigger" needs a trigger time.');
+      if (!opts.triggerAt) throw new DefinitionError(msg('"Since the trigger" needs a trigger time.'));
       return `e."timestamp" >= ${p.add(opts.triggerAt.toISOString())}::timestamptz`;
     }
     if (leaf.between) {
@@ -356,38 +358,50 @@ export function compileAudience(def: AudienceNode, environmentId: string, opts: 
 }
 
 // ── Description (for lists and logs) ───────────────────────────────────────
+const english = makeT(null);
+
 const OP_TEXT: Record<string, string> = {
-  eq: "is", neq: "is not", gt: ">", gte: "≥", lt: "<", lte: "≤", contains: "contains", not_contains: "does not contain",
-  in: "is one of", exists: "is set", not_exists: "is not set",
+  eq: msg("is"), neq: msg("is not"), gt: ">", gte: "≥", lt: "<", lte: "≤", contains: msg("contains"), not_contains: msg("does not contain"),
+  in: msg("is one of"), exists: msg("is set"), not_exists: msg("is not set"),
 };
 
-function describeFilter(f: PropertyFilter): string {
+function describeFilter(f: PropertyFilter, t: T): string {
   const v = Array.isArray(f.value) ? f.value.join(", ") : f.value === undefined ? "" : ` ${JSON.stringify(f.value)}`;
-  return `${f.property} ${OP_TEXT[f.op]}${Array.isArray(f.value) ? ` ${v}` : v}`;
+  return `${f.property} ${t(OP_TEXT[f.op])}${Array.isArray(f.value) ? ` ${v}` : v}`;
 }
 
-export function describeNode(n: AudienceNode): string {
+/** A readable sentence for a condition, in English unless a translate function is given. */
+export function describeNode(n: AudienceNode, t: T = english): string {
   switch (n.type) {
     case "and":
     case "or":
-      return n.children.length === 1 ? describeNode(n.children[0]) : `(${n.children.map(describeNode).join(n.type === "and" ? " AND " : " OR ")})`;
+      return n.children.length === 1 ? describeNode(n.children[0], t) : `(${n.children.map((c) => describeNode(c, t)).join(n.type === "and" ? ` ${t("AND")} ` : ` ${t("OR")} `)})`;
     case "not":
-      return `NOT ${describeNode(n.child)}`;
+      return t("NOT {condition}", { condition: describeNode(n.child, t) });
     case "event": {
-      const when = n.sinceTrigger ? "since the trigger" : n.between ? (n.between.from === n.between.to ? `on ${n.between.from}` : `between ${n.between.from} and ${n.between.to}`) : `in the last ${n.withinDays} days`;
-      const where = n.where.length ? ` where ${n.where.map(describeFilter).join(" and ")}` : "";
-      if (!n.did) return `did not do ${n.event}${where} ${when}`;
-      const times = n.countOp === "gte" ? (n.count === 1 ? "" : ` at least ${n.count} times`) : n.countOp === "eq" ? ` exactly ${n.count} times` : ` at most ${n.count} times`;
-      return `did ${n.event}${where}${times} ${when}`;
+      const when = n.sinceTrigger
+        ? t("since the trigger")
+        : n.between
+          ? (n.between.from === n.between.to ? t("on {date}", { date: n.between.from }) : t("between {from} and {to}", { from: n.between.from, to: n.between.to }))
+          : t("in the last {n} days", { n: n.withinDays });
+      const where = n.where.length ? ` ${t("where {filters}", { filters: n.where.map((f) => describeFilter(f, t)).join(` ${t("and")} `) })}` : "";
+      if (!n.did) return t("did not do {event}{where} {when}", { event: n.event, where, when });
+      const times = n.countOp === "gte"
+        ? (n.count === 1 ? "" : ` ${t("at least {n} times", { n: n.count })}`)
+        : n.countOp === "eq" ? ` ${t("exactly {n} times", { n: n.count })}` : ` ${t("at most {n} times", { n: n.count })}`;
+      return t("did {event}{where}{times} {when}", { event: n.event, where, times, when });
     }
     case "user_property":
-      return `user ${describeFilter(n)}`;
+      return t("user {filter}", { filter: describeFilter(n, t) });
     case "first_seen":
+      return n.op === "within_days" ? t("first seen in the last {n} days", { n: n.days }) : t("first seen more than {n} days ago", { n: n.days });
     case "last_seen":
-      return `${n.type === "first_seen" ? "first" : "last"} seen ${n.op === "within_days" ? "in the last" : "more than"} ${n.days} days${n.op === "before_days" ? " ago" : ""}`;
+      return n.op === "within_days" ? t("last seen in the last {n} days", { n: n.days }) : t("last seen more than {n} days ago", { n: n.days });
     case "platform":
-      return `uses ${n.platforms.join(" or ")}`;
+      return t("uses {platforms}", { platforms: n.platforms.join(` ${t("or")} `) });
     case "revenue":
-      return `revenue ${OP_TEXT[n.op]} ${n.amount} in the last ${n.withinDays} days${n.events.length ? ` (${n.events.join(", ")})` : ""}`;
+      return t("revenue {op} {amount} in the last {n} days{events}", {
+        op: t(OP_TEXT[n.op]), amount: n.amount, n: n.withinDays, events: n.events.length ? ` (${n.events.join(", ")})` : "",
+      });
   }
 }

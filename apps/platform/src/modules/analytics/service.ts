@@ -2,6 +2,7 @@ import "server-only";
 import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
+import { msg } from "@/i18n/translate";
 import type { Permission } from "@/modules/rbac/permissions";
 import { compileAudience, DefinitionError, parseDefinition, peopleCtes, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
@@ -87,12 +88,12 @@ const query = analyticsTx;
 
 /** An audience's definition; it must be in the report's environment and not archived (RLS keeps it in the organization). */
 export async function loadAudienceDefinition(db: Db, environmentId: string, id: string): Promise<AudienceNode> {
-  if (!z.uuid().safeParse(id).success) throw new ValidationError("That audience doesn't exist in this environment.");
+  if (!z.uuid().safeParse(id).success) throw new ValidationError(msg("That audience doesn't exist in this environment."));
   const row = await db.one<{ definition: unknown }>(
     "select definition from platform.audiences where id = $1 and environment_id = $2 and status <> 'archived'",
     [id, environmentId],
   );
-  if (!row) throw new ValidationError("That audience doesn't exist in this environment.");
+  if (!row) throw new ValidationError(msg("That audience doesn't exist in this environment."));
   try {
     return parseDefinition(row.definition);
   } catch (e) {
@@ -214,7 +215,7 @@ function groupExpr(breakdown: string | undefined, p: Params): string {
  */
 export async function eventTrend(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Trend> {
   const r = trendSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose an event.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Choose an event."));
   const { event, breakdown, cohortId: cohort } = r.data;
   const where = r.data.where ?? [];
   const range = resolveRange(r.data, scope.timezone);
@@ -284,7 +285,7 @@ export const kpiSchema = z
     where: eventFilters,
     cohortId,
   })
-  .refine((k) => !(k.metric === "events" || k.metric === "people") || k.event, "Choose an event.");
+  .refine((k) => !(k.metric === "events" || k.metric === "people") || k.event, msg("Choose an event."));
 
 export interface Kpi {
   metric: KpiMetric;
@@ -303,7 +304,7 @@ export interface Kpi {
  */
 export async function kpi(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Kpi> {
   const r = kpiSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid metric.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid metric."));
   const { metric, cohortId: cohort } = r.data;
   const event = metric === "events" || metric === "people" ? (r.data.event === ANY_EVENT ? null : r.data.event!) : null;
   const where = r.data.where ?? [];
@@ -340,7 +341,7 @@ async function newPeopleIn(db: Db, scope: { environmentId: string; timezone?: st
 
 // ── Funnel ──────────────────────────────────────────────────────────────────
 export const funnelSchema = z.object({
-  steps: z.array(eventName).min(2, "A funnel needs at least two steps.").max(6, "Use at most six steps."),
+  steps: z.array(eventName).min(2, msg("A funnel needs at least two steps.")).max(6, msg("Use at most six steps.")),
   windowDays: z.coerce.number().int().min(1).max(30).catch(7),
   ...rangeFields,
   breakdown: z.enum(["platform"]).optional().catch(undefined),
@@ -413,10 +414,10 @@ export async function funnelPeople(
   pick: { step: number; dropped?: boolean },
 ): Promise<{ people: FunnelPerson[]; total: number }> {
   const r = funnelSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid funnel."));
   const { steps, windowDays, cohortId: cohort } = r.data;
   const k = Math.trunc(pick.step);
-  if (!(k >= 0 && k < steps.length) || (pick.dropped && k === 0)) throw new ValidationError("Choose a step of this funnel.");
+  if (!(k >= 0 && k < steps.length) || (pick.dropped && k === 0)) throw new ValidationError(msg("Choose a step of this funnel."));
   const range = resolveRange(r.data, scope.timezone ?? "UTC");
   const set = pick.dropped
     ? `select p.person, p.t from s${k - 1} p where not exists (select 1 from s${k} q where q.person = p.person)`
@@ -442,7 +443,7 @@ export async function funnelPeople(
 
 export async function funnel(ctx: TenantContext, scope: { environmentId: string; timezone?: string }, input: unknown): Promise<Funnel> {
   const r = funnelSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid funnel."));
   const { steps, windowDays, breakdown, cohortId: cohort } = r.data;
   const timezone = scope.timezone ?? "UTC";
   const range = resolveRange(r.data, timezone);
@@ -527,7 +528,7 @@ export interface Retention {
  */
 export async function retention(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Retention> {
   const r = retentionSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose a start and a return event.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Choose a start and a return event."));
   const { cohortId: cohort } = r.data;
   const range = resolveRange(r.data, scope.timezone);
   const prevRange = comparisonRange(range, scope.timezone, r.data);

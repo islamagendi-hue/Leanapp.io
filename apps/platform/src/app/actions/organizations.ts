@@ -1,11 +1,22 @@
 "use server";
 
+import { getT } from "@/i18n/server";
+import { msg } from "@/i18n/translate";
 import { DEMO_LOCKED, isDemoUser } from "@/modules/marketing/demo";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { acceptInvitation, changeMemberRole, createOrganization, inviteMember, removeMember, revokeInvitation, updateOrganization } from "@/modules/organizations/service";
 import { toActionError, type ActionState } from "@/server/action-result";
+import { messageParams } from "@/modules/organizations/messages";
 import { requireTenant, requireUser } from "@/server/session";
+
+/** toActionError, with sentences that carry values (an email, a plan limit) translated whole. */
+async function failed(err: unknown): Promise<ActionState> {
+  const r = toActionError(err);
+  const p = messageParams(err);
+  if (p) r.error = (await getT())(p.template, p.params);
+  return r;
+}
 
 export async function createOrganizationAction(_: ActionState, form: FormData): Promise<ActionState> {
   let slug: string;
@@ -21,7 +32,7 @@ export async function createOrganizationAction(_: ActionState, form: FormData): 
     });
     slug = org.slug;
   } catch (err) {
-    return toActionError(err);
+    return failed(err);
   }
   redirect(`/o/${slug}/apps/new`);
 }
@@ -36,9 +47,9 @@ export async function updateOrganizationAction(orgSlug: string, _: ActionState, 
       industry: form.get("industry") ?? "",
     });
     revalidatePath(`/o/${orgSlug}`, "layout");
-    return { ok: true, message: "Saved." };
+    return { ok: true, message: msg("Saved.") };
   } catch (err) {
-    return toActionError(err);
+    return failed(err);
   }
 }
 
@@ -49,11 +60,12 @@ export async function inviteMemberAction(orgSlug: string, _: ActionState, form: 
     const { link, delivery } = await inviteMember(ctx, { email, role: form.get("role") });
     revalidatePath(`/o/${orgSlug}/settings/members`);
     // The link is shown either way so the inviter can resend it through another channel.
+    const t = await getT();
     return delivery.delivered
-      ? { ok: true, message: `Invitation emailed to ${email.trim().toLowerCase()}. You can also share this link:`, secret: link }
-      : { ok: true, message: "Invitation created, but the email couldn't be sent. Send this link yourself:", secret: link };
+      ? { ok: true, message: t("Invitation emailed to {email}. You can also share this link:", { email: email.trim().toLowerCase() }), secret: link }
+      : { ok: true, message: t("Invitation created, but the email couldn't be sent. Send this link yourself:"), secret: link };
   } catch (err) {
-    return toActionError(err);
+    return failed(err);
   }
 }
 
@@ -61,9 +73,9 @@ export async function changeRoleAction(orgSlug: string, userId: string, _: Actio
   try {
     await changeMemberRole(await requireTenant(orgSlug), userId, form.get("role"));
     revalidatePath(`/o/${orgSlug}/settings/members`);
-    return { ok: true, message: "Role updated." };
+    return { ok: true, message: msg("Role updated.") };
   } catch (err) {
-    return toActionError(err);
+    return failed(err);
   }
 }
 
@@ -73,7 +85,7 @@ export async function removeMemberAction(orgSlug: string, userId: string, _: Act
     revalidatePath(`/o/${orgSlug}/settings/members`);
     return { ok: true };
   } catch (err) {
-    return toActionError(err);
+    return failed(err);
   }
 }
 
@@ -83,7 +95,7 @@ export async function revokeInvitationAction(orgSlug: string, invitationId: stri
     revalidatePath(`/o/${orgSlug}/settings/members`);
     return { ok: true };
   } catch (err) {
-    return toActionError(err);
+    return failed(err);
   }
 }
 
@@ -93,7 +105,7 @@ export async function acceptInvitationAction(token: string, _: ActionState): Pro
     const user = await requireUser();
     slug = (await acceptInvitation(user, token)).slug;
   } catch (err) {
-    return toActionError(err);
+    return failed(err);
   }
   redirect(`/o/${slug}`);
 }

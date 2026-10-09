@@ -21,7 +21,8 @@
   --color-warn-soft: #f5ecd2;
 
   --font-sans: var(--font-dubai), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  /* Dubai after Plex Mono so Arabic text in mono labels gets Arabic glyphs. */
+  --font-mono: var(--font-plex-mono), var(--font-dubai), ui-monospace, monospace;
 }
 
 /* Dark theme (brand guidelines §4). Tokens swap, so bg-ink text-paper stays the primary button. */
@@ -87,4 +88,9 @@
   form:has(select[name="days"]):not(:has(select[name="days"] option[value="custom"]:checked)) .custom-date { display: none; }
   form:has(select[name="compare"]):not(:has(select[name="compare"] option[value="custom"]:checked)) .compare-date { display: none; }
   main:has(form[aria-busy="true"]) form ~ * { opacity: 0.55; transition: opacity 150ms; }
+}
+
+/* Letter-spacing breaks the joins between Arabic letters: none in right-to-left pages. */
+html[dir="rtl"] *:not(code):not(pre):not(.code) {
+  letter-spacing: 0 !important;
 }

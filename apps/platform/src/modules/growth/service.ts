@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 import { withTenant, type Db } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { appFeatures, setAppFeature } from "@/modules/apps/features";
@@ -123,12 +124,12 @@ export function previewDefinition(ctx: TenantContext, appId: string, environment
 
 /** Turns the growth model on (queues the first build of growth state) or off. */
 export function setGrowthModel(ctx: TenantContext, appId: string, on: boolean) {
-  return setAppFeature(ctx, appId, "growth_model", on, (db) => enqueueReprocess(db, appId, "growth_rebuild", "growth model turned on", ctx.userId));
+  return setAppFeature(ctx, appId, "growth_model", on, (db) => enqueueReprocess(db, appId, "growth_rebuild", msg("growth model turned on"), ctx.userId));
 }
 
 /** Turns mapping history on (queues a re-map of all past events) or off. */
 export function setMappingHistory(ctx: TenantContext, appId: string, on: boolean) {
-  return setAppFeature(ctx, appId, "mapping_history", on, (db) => enqueueReprocess(db, appId, "remap", "mapping history turned on", ctx.userId));
+  return setAppFeature(ctx, appId, "mapping_history", on, (db) => enqueueReprocess(db, appId, "remap", msg("mapping history turned on"), ctx.userId));
 }
 
 export function growthDefinitions(ctx: TenantContext, appId: string): Promise<GrowthDefinitions> {

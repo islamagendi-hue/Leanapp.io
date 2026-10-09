@@ -2,6 +2,8 @@ import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { connection } from "next/server";
+import { I18nProvider } from "@/i18n/client";
+import { clientDictionary } from "@/i18n/server";
 import { getLocale } from "@/lib/locale";
 import "./globals.css";
 
@@ -38,7 +40,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   const { lang, dir } = await getLocale();
   return (
     <html lang={lang} dir={dir} className={`${dubai.variable} ${plexMono.variable}`}>
-      <body className="min-h-dvh antialiased">{children}</body>
+      <body className="min-h-dvh antialiased">
+        <I18nProvider lang={lang} dict={await clientDictionary()}>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

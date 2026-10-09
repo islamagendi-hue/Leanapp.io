@@ -646,9 +646,8 @@ test("reports apply as you change them, funnel bars open their people, and Ctrl+
 test("landing page: Arabic and English, honest labels, comparison, pricing, and noindex", async ({ page }) => {
   await page.goto("/?lang=ar");
   await expect(page.locator("div[dir=rtl][lang=ar]").first()).toBeVisible();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("اعرف مستخدمينك، وكبّر تطبيقك.");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("اعرف مستخدميك، وطوّر تطبيقك.");
   await page.getByRole("link", { name: "English" }).click();
-  await expect(page).toHaveURL(/lang=en/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Know your users. Grow your app.");
   await expect(page.getByRole("list", { name: "Product flow" }).getByRole("link")).toHaveText(["Connect", "Collect", "Understand", "Funnels", "Retention", "Audiences", "Act"]);
   const connect = page.getByRole("article", { name: "Connect your app" });
@@ -662,6 +661,18 @@ test("landing page: Arabic and English, honest labels, comparison, pricing, and 
   await expect(page.getByRole("listitem", { name: "Growth" })).toContainText("$199");
   await expect(page.getByRole("heading", { name: "Who we are" })).toBeVisible();
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+});
+
+test("the app switches to Arabic, right to left, and back", async ({ page }) => {
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in");
+  await page.getByRole("link", { name: "العربية" }).click();
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("تسجيل الدخول");
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByRole("link", { name: "English" }).click();
+  await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in");
 });
 
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {

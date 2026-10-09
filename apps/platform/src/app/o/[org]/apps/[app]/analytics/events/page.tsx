@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { AutoApply } from "@/components/AutoApply";
-import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
+import { AnalyticsHeader, param, rich } from "@/components/AnalyticsHeader";
+import { getLang, getT } from "@/i18n/server";
+import { msg, type T } from "@/i18n/translate";
 import { EventName } from "@/components/EventName";
 import { CohortSelect } from "@/components/CohortSelect";
 import { PropertyFilters } from "@/components/PropertyFilters";
@@ -8,6 +10,7 @@ import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { TrendChart } from "@/components/TrendChart";
 import { eventLabels } from "@/modules/analytics/labels";
+import { rangeLabel, rangePhrase } from "@/modules/analytics/range";
 import { eventFiltersFromParams, rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { ANY_EVENT, BREAKDOWNS, eventTrend, kpi, MAX_EVENT_FILTERS, topEvents } from "@/modules/analytics/service";
 import { catalogForPickers, options } from "@/modules/properties/catalog";
@@ -16,9 +19,15 @@ import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "Events" };
+export async function generateMetadata() {
+  const t = await getT();
+  return { title: t("Events") };
+}
 
-const BREAKDOWN_LABELS: Record<string, string> = { platform: "Platform", app_version: "App version", country: "Country" };
+const BREAKDOWN_LABELS: Record<string, string> = { platform: msg("Platform"), app_version: msg("App version"), country: msg("Country") };
+const INTERVAL_NAMES: Record<string, string> = { day: msg("day"), week: msg("week"), month: msg("month") };
+/** Series names the report makes up ("Other", "(none)"); values people sent stay as they are. */
+const seriesName = (t: T, key: string) => (key === "Other" ? t("Other") : key === "(none)" ? t("(none)") : key);
 const num = (n: number) => n.toLocaleString("en-US");
 
 export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/analytics/events">) {
@@ -26,6 +35,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
+  const [t, lang] = await Promise.all([getT(), getLang()]);
   const env = await pickEnvironment(environments, sp.env);
   const range = rangeFromParams(toSearch(sp));
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
@@ -34,7 +44,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   const listInput = { ...range, cohortId: cf.cohortId };
   const events = await reports.run("top_events", listInput, () => topEvents(ctx, { ...scope, ...listInput }));
   const selected = param(sp.event) ?? events[0]?.name;
-  const label = await eventLabels(ctx, a.id);
+  const label = await eventLabels(ctx, a.id, t);
   const property = param(sp.property)?.trim();
   const by = param(sp.by);
   const breakdown = by === "property" && property ? `property:${property}` : by;
@@ -56,17 +66,19 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
 
   return (
     <div className="space-y-6">
-      <AnalyticsHeader title="Events" description="How often each event happens and how many people do it, per day in the app's timezone." env={env.type} />
+      <AnalyticsHeader title={t("Events")} description={t("How often each event happens and how many people do it, per day in the app's timezone.")} env={env.type} />
       <ReportFreshness info={reports.info} path={path} sp={sp} />
 
-      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the report shows everyone.")}</p>}
       {events.length === 0 ? (
         <div className="card">
-          <p>No events {cf.cohortName ? `for the audience ${cf.cohortName}` : "in this environment"} in {active.range.label.toLowerCase().startsWith("last") ? `the ${active.range.label.toLowerCase()}` : active.range.label}.</p>
-          {cf.cohortName && <p className="mt-1 text-sm"><Link className="underline" href={`${path}?${new URLSearchParams([...keep].filter(([k]) => k !== "cohort"))}`}>Show everyone instead</Link></p>}
+          <p>{cf.cohortName
+            ? t("No events for the audience {audience} in {range}.", { audience: cf.cohortName, range: rangePhrase(active.range, t, lang) })
+            : t("No events in this environment in {range}.", { range: rangePhrase(active.range, t, lang) })}</p>
+          {cf.cohortName && <p className="mt-1 text-sm"><Link className="underline" href={`${path}?${new URLSearchParams([...keep].filter(([k]) => k !== "cohort"))}`}>{t("Show everyone instead")}</Link></p>}
           <p className="mt-1 text-sm text-ink-3">
-            Events appear here as soon as your app sends them.
-            {can(ctx.role, "events.read") && <> Check the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>event debugger</Link>.</>}
+            {t("Events appear here as soon as your app sends them.")}
+            {can(ctx.role, "events.read") && <> {rich(t("Check the {debugger}."), { debugger: <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>{t("event debugger")}</Link> })}</>}
           </p>
         </div>
       ) : (
@@ -74,52 +86,54 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
           <form method="get" className="card flex flex-wrap items-end gap-3">
             <input type="hidden" name="env" value={env.type} />
             <AutoApply />
-            <label className="min-w-48 flex-1"><span className="label">Event</span>
+            <label className="min-w-48 flex-1"><span className="label">{t("Event")}</span>
               <select name="event" className="input" defaultValue={selected}>
-                <option value={ANY_EVENT}>Any event (all activity)</option>
+                <option value={ANY_EVENT}>{t("Any event (all activity)")}</option>
                 {events.map((e) => <option key={e.name} value={e.name}>{label(e.name)}</option>)}
               </select>
             </label>
-            <label><span className="label">Split by</span>
+            <label><span className="label">{t("Split by")}</span>
               <select name="by" className="input" defaultValue={by ?? ""}>
-                <option value="">Nothing</option>
-                {BREAKDOWNS.map((b) => <option key={b} value={b}>{BREAKDOWN_LABELS[b]}</option>)}
-                <option value="property">Event property…</option>
+                <option value="">{t("Nothing")}</option>
+                {BREAKDOWNS.map((b) => <option key={b} value={b}>{t(BREAKDOWN_LABELS[b])}</option>)}
+                <option value="property">{t("Event property…")}</option>
               </select>
             </label>
-            <label><span className="label">Property</span>
+            <label><span className="label">{t("Property")}</span>
               <select name="property" className="input w-44" defaultValue={property ?? ""}>
-                <option value="">Choose…</option>
+                <option value="">{t("Choose…")}</option>
                 {property && !propOptions.some((o) => o.name === property) && <option value={property}>{property}</option>}
                 {propOptions.map((o) => <option key={o.name} value={o.name} title={o.description || undefined}>{o.name}</option>)}
               </select>
             </label>
             <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
             <ReportRangeFields range={active.range} interval={trend?.interval} />
-            <PropertyFilters key={selected} options={propOptions} initial={parts} max={MAX_EVENT_FILTERS} label="Only events where" />
-            <button className="btn" type="submit" data-apply>Show</button>
+            <PropertyFilters key={selected} options={propOptions} initial={parts} max={MAX_EVENT_FILTERS} label={t("Only events where")} />
+            <button className="btn" type="submit" data-apply>{t("Show")}</button>
           </form>
 
           {trend && (
             <section className="card space-y-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
                 <h2 className="h2"><EventName name={trend.event} labels={label} /></h2>
-                <span className="text-xs text-ink-3">{trend.range.label}{trend.where.length ? ` · ${trend.where.length} filter${trend.where.length > 1 ? "s" : ""}` : ""}</span>
+                <span className="text-xs text-ink-3">{rangeLabel(trend.range, t, lang)}{trend.where.length ? ` · ${trend.where.length > 1 ? t("{n} filters", { n: trend.where.length }) : t("1 filter")}` : ""}</span>
               </div>
               <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
-                <Kpi label="Events" value={trend.total.count} previous={trend.previous?.count} range={trend.range} />
-                <Kpi label="People who did it" value={trend.total.people} previous={trend.previous?.people} range={trend.range} />
-                <Kpi label="Active people" value={active.value} previous={active.previous} range={active.range} hint="Did any event" />
+                <Kpi label={t("Events")} value={trend.total.count} previous={trend.previous?.count} range={trend.range} />
+                <Kpi label={t("People who did it")} value={trend.total.people} previous={trend.previous?.people} range={trend.range} />
+                <Kpi label={t("Active people")} value={active.value} previous={active.previous} range={active.range} hint={t("Did any event")} />
               </dl>
-              <TrendChart days={trend.days} series={trend.series} label={`${label(trend.event)} per ${trend.interval}`} />
-              {trend.interval !== "day" && <p className="text-xs text-ink-3">Each point is a {trend.interval} starting on the date shown{trend.interval === "week" ? " (Monday)" : ""}; the first and last can be partial.</p>}
-              {trend.series.some((s) => s.key === "Other") && <p className="text-xs text-ink-3">The 5 most frequent values are shown; the rest are grouped as Other.</p>}
+              <TrendChart days={trend.days} series={trend.series.map((s) => ({ ...s, key: seriesName(t, s.key) }))} label={t("{event} per {interval}", { event: label(trend.event), interval: t(INTERVAL_NAMES[trend.interval] ?? trend.interval) })} />
+              {trend.interval !== "day" && <p className="text-xs text-ink-3">{trend.interval === "week"
+                ? t("Each point is a week starting on the date shown (Monday); the first and last can be partial.")
+                : t("Each point is a month starting on the date shown; the first and last can be partial.")}</p>}
+              {trend.series.some((s) => s.key === "Other") && <p className="text-xs text-ink-3">{t("The 5 most frequent values are shown; the rest are grouped as Other.")}</p>}
             </section>
           )}
 
           <section className="card overflow-x-auto p-0">
             <table className="table">
-              <thead><tr><th>Event</th><th className="text-end">Events</th><th className="text-end">People</th></tr></thead>
+              <thead><tr><th>{t("Event")}</th><th className="text-end">{t("Events")}</th><th className="text-end">{t("People")}</th></tr></thead>
               <tbody>
                 {events.map((e) => (
                   <tr key={e.name}>
@@ -132,7 +146,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
             </table>
           </section>
           {trend && cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="trend" query={{ ...sp, event: trend.event }} />}
-          <p className="text-xs text-ink-3">Mapped events count under their canonical name. Anonymous activity counts toward the user once the install is linked to exactly one user.</p>
+          <p className="text-xs text-ink-3">{t("Mapped events count under their canonical name. Anonymous activity counts toward the user once the install is linked to exactly one user.")}</p>
         </>
       )}
     </div>

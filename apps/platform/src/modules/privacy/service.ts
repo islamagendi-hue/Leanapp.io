@@ -6,6 +6,7 @@ import { audit } from "@/modules/audit/service";
 import { assertCan } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { log } from "@/lib/log";
+import { msg } from "@/i18n/translate";
 
 /**
  * End-user privacy requests (GDPR / PDPL style access and erasure) for one
@@ -38,7 +39,7 @@ export const subjectSchema = z
     userId: z.string().trim().max(256).optional().transform((v) => v || undefined),
     anonymousId: z.string().trim().max(256).optional().transform((v) => v || undefined),
   })
-  .refine((s) => s.userId || s.anonymousId, "Provide a user_id, an anonymous_id, or both.");
+  .refine((s) => s.userId || s.anonymousId, msg("Provide a user_id, an anonymous_id, or both."));
 export type Subject = z.infer<typeof subjectSchema>;
 
 /** Who is asking: a dashboard member, or a secret API key of the environment. */
@@ -48,7 +49,7 @@ export type Requester =
 
 function parseSubject(input: unknown): Subject {
   const r = subjectSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid subject.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid subject."));
   return r.data;
 }
 

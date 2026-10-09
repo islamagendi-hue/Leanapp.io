@@ -1,10 +1,10 @@
 import Image from "next/image";
 import Link from "next/link";
-import { headers } from "next/headers";
 import { startDemoAction } from "@/app/actions/demo";
 import { Logo } from "@/components/Logo";
 import { demoEnabled } from "@/modules/marketing/demo";
-import { COMPETITORS, CONTACT_EMAIL, landingCopy, landingLang, type Availability, type Coverage } from "@/modules/marketing/landing";
+import { COMPETITORS, CONTACT_EMAIL, landingCopy, type Availability, type Coverage } from "@/modules/marketing/landing";
+import { getLang } from "@/i18n/server";
 import { currentUser } from "@/server/session";
 
 export const metadata = {
@@ -38,7 +38,7 @@ function DemoButton({ label, className = "btn" }: { label: string; className?: s
 
 export default async function Home(props: PageProps<"/">) {
   const sp = await props.searchParams;
-  const lang = landingLang(sp.lang, (await headers()).get("accept-language"));
+  const lang = sp.lang === "ar" || sp.lang === "en" ? sp.lang : await getLang();
   const t = landingCopy(lang);
   const other = lang === "ar" ? "en" : "ar";
   const user = await currentUser();
@@ -49,7 +49,7 @@ export default async function Home(props: PageProps<"/">) {
     <div className="min-h-dvh" lang={lang} dir={t.dir}>
       <header className="sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
-          <Link href={`/?lang=${lang}`} aria-label="LeanApp home"><Logo /></Link>
+          <Link href="/" aria-label="LeanApp home"><Logo /></Link>
           <nav className="hidden items-center gap-6 text-sm text-ink-2 md:flex" aria-label={lang === "ar" ? "الأقسام" : "Sections"}>
             <a href="#demo" className="hover:text-ink">{t.nav.demo}</a>
             <a href="#how" className="hover:text-ink">{t.nav.how}</a>
@@ -58,7 +58,7 @@ export default async function Home(props: PageProps<"/">) {
             <a href="#about" className="hover:text-ink">{t.nav.about}</a>
           </nav>
           <div className="flex items-center gap-3 text-sm">
-            <Link href={`/?lang=${other}`} hrefLang={other} lang={other} className="text-ink-2 hover:text-ink">{t.nav.other}</Link>
+            <a href={`/lang?to=${other}&next=/`} hrefLang={other} lang={other} className="text-ink-2 hover:text-ink">{t.nav.other}</a>
             {user ? (
               <Link href="/onboarding" className="btn">{t.nav.dashboard}</Link>
             ) : (

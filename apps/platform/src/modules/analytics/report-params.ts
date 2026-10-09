@@ -6,16 +6,17 @@
 
 import { filtersFromSearch, partsFromFilter } from "@/modules/properties/filters";
 import type { PropertyFilter } from "@/modules/audiences/definition";
+import { msg } from "@/i18n/translate";
 import { compareKind, type Compare } from "./range";
 
 export const REPORT_KINDS = ["trend", "funnel", "retention", "revenue"] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
 export const REPORT_PAGES: Record<ReportKind, { path: string; label: string }> = {
-  trend: { path: "events", label: "Events" },
-  funnel: { path: "funnels", label: "Funnel" },
-  retention: { path: "retention", label: "Retention" },
-  revenue: { path: "revenue", label: "Revenue" },
+  trend: { path: "events", label: msg("Events") },
+  funnel: { path: "funnels", label: msg("Funnel") },
+  retention: { path: "retention", label: msg("Retention") },
+  revenue: { path: "revenue", label: msg("Revenue") },
 };
 
 type Search = URLSearchParams;

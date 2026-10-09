@@ -3,6 +3,7 @@
  * Also the user-property and attribution libraries, and the per-model
  * activation / north-star candidates.
  */
+import { msg } from "@/i18n/translate";
 import type { PropertySetKey } from "./properties";
 
 export const BUSINESS_MODELS = [
@@ -12,9 +13,9 @@ export const BUSINESS_MODELS = [
 export type BusinessModel = (typeof BUSINESS_MODELS)[number];
 
 export const MODEL_LABELS: Record<BusinessModel, string> = {
-  ecommerce: "E-commerce", marketplace: "Marketplace", delivery: "Delivery", subscription: "Subscription",
-  fintech: "Fintech", edtech: "EdTech", healthcare: "Healthcare", gaming: "Gaming", social: "Social",
-  saas: "SaaS", booking: "Booking", lead_generation: "Lead generation", advertising: "Advertising", other: "Other",
+  ecommerce: msg("E-commerce"), marketplace: msg("Marketplace"), delivery: msg("Delivery"), subscription: msg("Subscription"),
+  fintech: msg("Fintech"), edtech: msg("EdTech"), healthcare: msg("Healthcare"), gaming: msg("Gaming"), social: msg("Social"),
+  saas: msg("SaaS"), booking: msg("Booking"), lead_generation: msg("Lead generation"), advertising: msg("Advertising"), other: msg("Other"),
 };
 
 export const FEATURES = [
@@ -24,10 +25,10 @@ export const FEATURES = [
 export type Feature = (typeof FEATURES)[number];
 
 export const FEATURE_LABELS: Record<Feature, string> = {
-  search: "Search", cart_checkout: "Cart & checkout", subscriptions: "Subscriptions", bookings: "Bookings / appointments",
-  payments_wallet: "Payments / wallet", messaging: "Messaging / chat", user_content: "User-generated content",
-  reviews: "Reviews / ratings", referrals: "Referrals", rewards: "Rewards / loyalty", push: "Push notifications",
-  deep_links: "Deep links", wishlist: "Wishlist / favourites", onboarding: "Onboarding flow",
+  search: msg("Search"), cart_checkout: msg("Cart & checkout"), subscriptions: msg("Subscriptions"), bookings: msg("Bookings / appointments"),
+  payments_wallet: msg("Payments / wallet"), messaging: msg("Messaging / chat"), user_content: msg("User-generated content"),
+  reviews: msg("Reviews / ratings"), referrals: msg("Referrals"), rewards: msg("Rewards / loyalty"), push: msg("Push notifications"),
+  deep_links: msg("Deep links"), wishlist: msg("Wishlist / favourites"), onboarding: msg("Onboarding flow"),
 };
 
 export interface ModelDefinition {
@@ -91,7 +92,7 @@ export const MODELS: Record<BusinessModel, ModelDefinition> = {
     northStarCandidates: ["transfer_completed", "deposit_completed"],
     userProperties: ["account_type", "verification_status", "first_deposit_date", "funded"],
     keywords: ["fintech", "wallet", "bank", "banking", "payments", "transfer", "remittance", "loan", "bnpl", "card", "kyc", "محفظة", "بنك"],
-    warnings: ["Fintech: never send account numbers, balances, card data or identity documents as properties. Use ids and coarse codes."],
+    warnings: [msg("Fintech: never send account numbers, balances, card data or identity documents as properties. Use ids and coarse codes.")],
   },
   edtech: {
     events: ["course_viewed", "course_started", "lesson_started", "lesson_completed", "course_completed"],
@@ -111,7 +112,7 @@ export const MODELS: Record<BusinessModel, ModelDefinition> = {
     userProperties: ["patient_type", "city", "appointment_count"],
     keywords: ["health", "healthcare", "doctor", "clinic", "patients", "telemedicine", "pharmacy", "medical", "صحة", "طبيب"],
     warnings: [
-      "Healthcare: do not send diagnoses, conditions, symptoms, prescriptions or other health data as event or user properties. Track specialties only at a broad level and check local health-data rules.",
+      msg("Healthcare: do not send diagnoses, conditions, symptoms, prescriptions or other health data as event or user properties. Track specialties only at a broad level and check local health-data rules."),
     ],
   },
   gaming: {
@@ -261,56 +262,56 @@ const up = (name: string, type: UserPropertyDefinition["type"], source: UserProp
 
 export const USER_PROPERTY_LIBRARY: Record<string, UserPropertyDefinition> = Object.fromEntries(
   [
-    up("country", "string", "automatic", "ISO country (from device locale / IP at ingestion).", "Market-level analysis across your countries."),
-    up("city", "string", "backend", "City the user is served in.", "City-level operations and targeting."),
-    up("language", "string", "automatic", "Preferred language (e.g. ar, en).", "Arabic vs English messaging and UX analysis."),
-    up("platform", "string", "automatic", "ios / android.", "Platform breakdowns."),
-    up("app_version", "string", "automatic", "Latest app version seen.", "Version adoption and regressions."),
-    up("signup_date", "datetime", "backend", "When the account was created.", "Cohorts by signup date."),
-    up("account_type", "string", "backend", "Account type.", "Segment behaviour by account type."),
-    up("customer_type", "string", "backend", "Customer segment (e.g. regular, vip).", "Targeting and reporting by segment."),
-    up("plan", "string", "backend", "Current plan.", "Plan-level conversion and churn."),
-    up("subscription_status", "string", "backend", "trialing / active / cancelled / expired.", "Lifecycle automation for subscribers."),
-    up("subscription_start_date", "datetime", "backend", "First paid subscription date.", "Subscriber tenure cohorts."),
-    up("trial_status", "string", "backend", "none / active / converted / expired.", "Trial conversion automation."),
-    up("lifecycle_stage", "string", "computed", "new / activated / engaged / at_risk / churned.", "Computed from events; drives lifecycle automation."),
-    up("first_purchase_date", "datetime", "computed", "Date of first purchase.", "Time-to-first-purchase and repeat analysis."),
-    up("last_purchase_date", "datetime", "computed", "Date of latest purchase.", "Win-back audiences."),
-    up("total_revenue", "number", "computed", "Lifetime revenue in the app's default currency.", "LTV segments."),
-    up("order_count", "integer", "computed", "Number of completed orders.", "Repeat-buyer segments."),
-    up("first_order_date", "datetime", "computed", "Date of first order.", "Cohorts by first order."),
-    up("last_order_date", "datetime", "computed", "Date of latest order.", "Reorder nudges."),
-    up("preferred_category", "string", "computed", "Most purchased / viewed category.", "Personalised campaigns."),
-    up("preferred_cuisine", "string", "computed", "Most ordered cuisine.", "Personalised campaigns."),
-    up("buyer_or_seller", "string", "backend", "buyer / seller / both.", "Two-sided marketplace analysis."),
-    up("seller_category", "string", "backend", "What the seller lists.", "Supply analysis by category."),
-    up("listing_count", "integer", "computed", "Active listings.", "Seller health."),
-    up("verification_status", "string", "backend", "unverified / pending / verified / rejected.", "KYC funnel and automation."),
-    up("first_deposit_date", "datetime", "computed", "First funded date.", "Activation cohorts."),
-    up("funded", "boolean", "computed", "Has ever deposited.", "Activation audiences."),
-    up("student_level", "string", "backend", "Learner level.", "Content recommendations."),
-    up("learning_stage", "string", "computed", "e.g. exploring / enrolled / progressing / completed.", "Lifecycle messaging."),
-    up("courses_count", "integer", "computed", "Courses enrolled.", "Engagement depth."),
-    up("preferred_subject", "string", "computed", "Most studied subject.", "Recommendations."),
-    up("patient_type", "string", "backend", "e.g. new / returning.", "Follow-up automation (no health data)."),
-    up("appointment_count", "integer", "computed", "Completed appointments.", "Retention."),
-    up("player_level", "integer", "mobile_sdk", "Current level.", "Progression segments."),
-    up("payer_status", "string", "computed", "non_payer / payer / whale.", "Monetisation segments."),
-    up("followers_count", "integer", "backend", "Followers.", "Creator segments."),
-    up("following_count", "integer", "backend", "Following.", "Graph density."),
-    up("creator_status", "boolean", "computed", "Has created content.", "Creator activation."),
-    up("workspace_role", "string", "backend", "Role in the workspace.", "Admin vs member behaviour."),
-    up("company_size", "string", "backend", "Company size band.", "Account segmentation."),
-    up("booking_count", "integer", "computed", "Completed bookings.", "Repeat behaviour."),
-    up("last_booking_date", "datetime", "computed", "Latest booking.", "Rebooking nudges."),
-    up("lead_status", "string", "backend", "CRM status.", "Lead-quality reporting."),
-    up("interest", "string", "backend", "What the lead asked about.", "Targeting."),
-    up("content_preferences", "array", "computed", "Topics consumed most.", "Personalisation."),
-    up("user_type", "string", "backend", "Which kind of user this is.", "Separate funnels per user type."),
-    up("referral_code", "string", "backend", "The user's own referral code.", "Referral attribution."),
-    up("reward_points_balance", "integer", "backend", "Current points balance.", "Loyalty automation."),
-    up("push_opt_in", "boolean", "automatic", "Push permission granted.", "Reachability for automation."),
-    up("marketing_opt_in", "boolean", "backend", "Marketing consent.", "Required before marketing automation."),
+    up("country", "string", "automatic", msg("ISO country (from device locale / IP at ingestion)."), msg("Market-level analysis across your countries.")),
+    up("city", "string", "backend", msg("City the user is served in."), msg("City-level operations and targeting.")),
+    up("language", "string", "automatic", msg("Preferred language (e.g. ar, en)."), msg("Arabic vs English messaging and UX analysis.")),
+    up("platform", "string", "automatic", msg("ios / android."), msg("Platform breakdowns.")),
+    up("app_version", "string", "automatic", msg("Latest app version seen."), msg("Version adoption and regressions.")),
+    up("signup_date", "datetime", "backend", msg("When the account was created."), msg("Cohorts by signup date.")),
+    up("account_type", "string", "backend", msg("Account type."), msg("Segment behaviour by account type.")),
+    up("customer_type", "string", "backend", msg("Customer segment (e.g. regular, vip)."), msg("Targeting and reporting by segment.")),
+    up("plan", "string", "backend", msg("Current plan."), msg("Plan-level conversion and churn.")),
+    up("subscription_status", "string", "backend", msg("trialing / active / cancelled / expired."), msg("Lifecycle automation for subscribers.")),
+    up("subscription_start_date", "datetime", "backend", msg("First paid subscription date."), msg("Subscriber tenure cohorts.")),
+    up("trial_status", "string", "backend", msg("none / active / converted / expired."), msg("Trial conversion automation.")),
+    up("lifecycle_stage", "string", "computed", msg("new / activated / engaged / at_risk / churned."), msg("Computed from events; drives lifecycle automation.")),
+    up("first_purchase_date", "datetime", "computed", msg("Date of first purchase."), msg("Time-to-first-purchase and repeat analysis.")),
+    up("last_purchase_date", "datetime", "computed", msg("Date of latest purchase."), msg("Win-back audiences.")),
+    up("total_revenue", "number", "computed", msg("Lifetime revenue in the app's default currency."), msg("LTV segments.")),
+    up("order_count", "integer", "computed", msg("Number of completed orders."), msg("Repeat-buyer segments.")),
+    up("first_order_date", "datetime", "computed", msg("Date of first order."), msg("Cohorts by first order.")),
+    up("last_order_date", "datetime", "computed", msg("Date of latest order."), msg("Reorder nudges.")),
+    up("preferred_category", "string", "computed", msg("Most purchased / viewed category."), msg("Personalised campaigns.")),
+    up("preferred_cuisine", "string", "computed", msg("Most ordered cuisine."), msg("Personalised campaigns.")),
+    up("buyer_or_seller", "string", "backend", msg("buyer / seller / both."), msg("Two-sided marketplace analysis.")),
+    up("seller_category", "string", "backend", msg("What the seller lists."), msg("Supply analysis by category.")),
+    up("listing_count", "integer", "computed", msg("Active listings."), msg("Seller health.")),
+    up("verification_status", "string", "backend", msg("unverified / pending / verified / rejected."), msg("KYC funnel and automation.")),
+    up("first_deposit_date", "datetime", "computed", msg("First funded date."), msg("Activation cohorts.")),
+    up("funded", "boolean", "computed", msg("Has ever deposited."), msg("Activation audiences.")),
+    up("student_level", "string", "backend", msg("Learner level."), msg("Content recommendations.")),
+    up("learning_stage", "string", "computed", msg("e.g. exploring / enrolled / progressing / completed."), msg("Lifecycle messaging.")),
+    up("courses_count", "integer", "computed", msg("Courses enrolled."), msg("Engagement depth.")),
+    up("preferred_subject", "string", "computed", msg("Most studied subject."), msg("Recommendations.")),
+    up("patient_type", "string", "backend", msg("e.g. new / returning."), msg("Follow-up automation (no health data).")),
+    up("appointment_count", "integer", "computed", msg("Completed appointments."), msg("Retention.")),
+    up("player_level", "integer", "mobile_sdk", msg("Current level."), msg("Progression segments.")),
+    up("payer_status", "string", "computed", msg("non_payer / payer / whale."), msg("Monetisation segments.")),
+    up("followers_count", "integer", "backend", msg("Followers."), msg("Creator segments.")),
+    up("following_count", "integer", "backend", msg("Following."), msg("Graph density.")),
+    up("creator_status", "boolean", "computed", msg("Has created content."), msg("Creator activation.")),
+    up("workspace_role", "string", "backend", msg("Role in the workspace."), msg("Admin vs member behaviour.")),
+    up("company_size", "string", "backend", msg("Company size band."), msg("Account segmentation.")),
+    up("booking_count", "integer", "computed", msg("Completed bookings."), msg("Repeat behaviour.")),
+    up("last_booking_date", "datetime", "computed", msg("Latest booking."), msg("Rebooking nudges.")),
+    up("lead_status", "string", "backend", msg("CRM status."), msg("Lead-quality reporting.")),
+    up("interest", "string", "backend", msg("What the lead asked about."), msg("Targeting.")),
+    up("content_preferences", "array", "computed", msg("Topics consumed most."), msg("Personalisation.")),
+    up("user_type", "string", "backend", msg("Which kind of user this is."), msg("Separate funnels per user type.")),
+    up("referral_code", "string", "backend", msg("The user's own referral code."), msg("Referral attribution.")),
+    up("reward_points_balance", "integer", "backend", msg("Current points balance."), msg("Loyalty automation.")),
+    up("push_opt_in", "boolean", "automatic", msg("Push permission granted."), msg("Reachability for automation.")),
+    up("marketing_opt_in", "boolean", "backend", msg("Marketing consent."), msg("Required before marketing automation.")),
   ].map((u) => [u.name, u]),
 );
 
@@ -321,9 +322,9 @@ export const ATTRIBUTION_CHANNELS = ["meta", "google", "tiktok", "snapchat", "x"
 export type AttributionChannel = (typeof ATTRIBUTION_CHANNELS)[number];
 
 export const CHANNEL_LABELS: Record<AttributionChannel, string> = {
-  meta: "Meta (Facebook / Instagram)", google: "Google Ads", tiktok: "TikTok", snapchat: "Snapchat", x: "X (Twitter)",
-  influencers: "Influencers", organic: "Organic / App Store search", referral: "Referral programme", qr: "QR codes / offline",
-  deep_links: "Deep links (web → app)", email_sms: "Email / SMS / WhatsApp", other: "Other",
+  meta: msg("Meta (Facebook / Instagram)"), google: msg("Google Ads"), tiktok: "TikTok", snapchat: "Snapchat", x: msg("X (Twitter)"),
+  influencers: msg("Influencers"), organic: msg("Organic / App Store search"), referral: msg("Referral programme"), qr: msg("QR codes / offline"),
+  deep_links: msg("Deep links (web → app)"), email_sms: msg("Email / SMS / WhatsApp"), other: msg("Other"),
 };
 
 export const STANDARD_ATTRIBUTION_PARAMETERS = [
@@ -332,16 +333,16 @@ export const STANDARD_ATTRIBUTION_PARAMETERS = [
 ];
 
 export const CHANNEL_RULES: Record<AttributionChannel, { clickIdParam: string | null; parameters: string[]; notes: string }> = {
-  meta: { clickIdParam: "fbclid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: "Use utm_source=meta and pass campaign / ad set / ad ids via URL macros ({{campaign.id}}, {{adset.id}}, {{ad.id}}). Install attribution for paid social also needs SKAdNetwork / AEM on iOS and an MMP or the native SDK on Android." },
-  google: { clickIdParam: "gclid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: "Enable auto-tagging (gclid; gbraid/wbraid on iOS). App campaigns report installs through Google's own SDK integrations or an MMP." },
-  tiktok: { clickIdParam: "ttclid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: "Use TikTok URL macros (__CAMPAIGN_ID__, __AID__, __CID__) in tracking links." },
-  snapchat: { clickIdParam: "ScCid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: "Use Snapchat macros ({{campaign.id}}, {{adSet.id}}, {{ad.id}}). Snapchat is strong in KSA: keep its campaign naming consistent." },
-  x: { clickIdParam: "twclid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: "Use UTMs plus twclid." },
-  influencers: { clickIdParam: null, parameters: ["source", "medium", "campaign", "creative", "referrer", "landing_page", "touchpoint_timestamp"], notes: "Give each influencer a unique link (utm_source=influencer, utm_campaign=<handle>) and, where possible, a unique promo code captured as coupon_code on the conversion event." },
-  organic: { clickIdParam: null, parameters: ["source", "referrer", "touchpoint_timestamp"], notes: "Installs without a touchpoint are organic. Store-search attribution needs Apple Search Ads / Play install referrer." },
-  referral: { clickIdParam: null, parameters: ["source", "medium", "campaign", "referrer", "touchpoint_timestamp"], notes: "Referral links carry referral_code; referral_completed credits the referrer." },
-  qr: { clickIdParam: null, parameters: ["source", "medium", "campaign", "creative", "landing_page", "touchpoint_timestamp"], notes: "One QR per placement: utm_medium=qr, utm_campaign=<placement>." },
-  deep_links: { clickIdParam: null, parameters: ["source", "medium", "campaign", "landing_page", "referrer", "touchpoint_timestamp"], notes: "Deep links must forward UTM parameters into the app so deep_link_opened carries them." },
-  email_sms: { clickIdParam: null, parameters: ["source", "medium", "campaign", "creative", "touchpoint_timestamp"], notes: "Tag every link (utm_medium=email|sms|whatsapp)." },
-  other: { clickIdParam: null, parameters: ["source", "medium", "campaign", "touchpoint_timestamp"], notes: "Tag links with at least utm_source, utm_medium and utm_campaign." },
+  meta: { clickIdParam: "fbclid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: msg("Use utm_source=meta and pass campaign / ad set / ad ids via URL macros ({{campaign.id}}, {{adset.id}}, {{ad.id}}). Install attribution for paid social also needs SKAdNetwork / AEM on iOS and an MMP or the native SDK on Android.") },
+  google: { clickIdParam: "gclid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: msg("Enable auto-tagging (gclid; gbraid/wbraid on iOS). App campaigns report installs through Google's own SDK integrations or an MMP.") },
+  tiktok: { clickIdParam: "ttclid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: msg("Use TikTok URL macros (__CAMPAIGN_ID__, __AID__, __CID__) in tracking links.") },
+  snapchat: { clickIdParam: "ScCid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: msg("Use Snapchat macros ({{campaign.id}}, {{adSet.id}}, {{ad.id}}). Snapchat is strong in KSA: keep its campaign naming consistent.") },
+  x: { clickIdParam: "twclid", parameters: STANDARD_ATTRIBUTION_PARAMETERS, notes: msg("Use UTMs plus twclid.") },
+  influencers: { clickIdParam: null, parameters: ["source", "medium", "campaign", "creative", "referrer", "landing_page", "touchpoint_timestamp"], notes: msg("Give each influencer a unique link (utm_source=influencer, utm_campaign=<handle>) and, where possible, a unique promo code captured as coupon_code on the conversion event.") },
+  organic: { clickIdParam: null, parameters: ["source", "referrer", "touchpoint_timestamp"], notes: msg("Installs without a touchpoint are organic. Store-search attribution needs Apple Search Ads / Play install referrer.") },
+  referral: { clickIdParam: null, parameters: ["source", "medium", "campaign", "referrer", "touchpoint_timestamp"], notes: msg("Referral links carry referral_code; referral_completed credits the referrer.") },
+  qr: { clickIdParam: null, parameters: ["source", "medium", "campaign", "creative", "landing_page", "touchpoint_timestamp"], notes: msg("One QR per placement: utm_medium=qr, utm_campaign=<placement>.") },
+  deep_links: { clickIdParam: null, parameters: ["source", "medium", "campaign", "landing_page", "referrer", "touchpoint_timestamp"], notes: msg("Deep links must forward UTM parameters into the app so deep_link_opened carries them.") },
+  email_sms: { clickIdParam: null, parameters: ["source", "medium", "campaign", "creative", "touchpoint_timestamp"], notes: msg("Tag every link (utm_medium=email|sms|whatsapp).") },
+  other: { clickIdParam: null, parameters: ["source", "medium", "campaign", "touchpoint_timestamp"], notes: msg("Tag links with at least utm_source, utm_medium and utm_campaign.") },
 };

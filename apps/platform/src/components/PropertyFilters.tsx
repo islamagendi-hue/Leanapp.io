@@ -1,6 +1,7 @@
 "use client";
 
 import { useId, useState } from "react";
+import { useT } from "@/i18n/client";
 import { FILTER_OPS } from "@/modules/properties/filters";
 
 export interface FilterOption {
@@ -23,7 +24,7 @@ export interface FilterParts {
  * a row with no property is ignored. Shows the filters in use plus one empty
  * row while under `max`.
  */
-export function PropertyFilters({ options, initial, max, prefix = "f", label = "Filter by property" }: {
+export function PropertyFilters({ options, initial, max, prefix = "f", label }: {
   options: FilterOption[];
   initial: FilterParts[];
   max: number;
@@ -31,6 +32,7 @@ export function PropertyFilters({ options, initial, max, prefix = "f", label = "
   label?: string;
 }) {
   const id = useId();
+  const t = useT();
   const [rows, setRows] = useState<FilterParts[]>(() => {
     const start = initial.slice(0, max);
     return start.length < max ? [...start, { property: "", op: "eq", value: "" }] : start;
@@ -45,27 +47,27 @@ export function PropertyFilters({ options, initial, max, prefix = "f", label = "
 
   return (
     <fieldset className="w-full space-y-2">
-      <legend className="label">{label}</legend>
+      <legend className="label">{label ?? t("Filter by property")}</legend>
       {rows.map((r, i) => {
         const opt = options.find((o) => o.name === r.property);
         const noValue = r.op === "exists" || r.op === "not_exists";
         const listId = `${id}-v${i}`;
         return (
           <div key={i} className="flex flex-wrap items-center gap-2">
-            <select name={`${prefix}p`} className="input w-48" value={r.property} onChange={(e) => set(i, { property: e.target.value, value: "" })} aria-label={`Property ${i + 1}`}>
-              <option value="">{i === 0 ? "Any property…" : "Add a filter…"}</option>
+            <select name={`${prefix}p`} className="input w-48" value={r.property} onChange={(e) => set(i, { property: e.target.value, value: "" })} aria-label={t("Property {n}", { n: i + 1 })}>
+              <option value="">{i === 0 ? t("Any property…") : t("Add a filter…")}</option>
               {r.property && !known.has(r.property) && <option value={r.property}>{r.property}</option>}
               {options.map((o) => <option key={o.name} value={o.name} title={o.description || undefined}>{o.name}</option>)}
             </select>
             {r.property && (
               <>
-                <select name={`${prefix}o`} className="input w-auto" value={r.op} onChange={(e) => set(i, { op: e.target.value })} aria-label={`Operator ${i + 1}`}>
-                  {FILTER_OPS.map(([k, text]) => <option key={k} value={k}>{text}</option>)}
+                <select name={`${prefix}o`} className="input w-auto" value={r.op} onChange={(e) => set(i, { op: e.target.value })} aria-label={t("Operator {n}", { n: i + 1 })}>
+                  {FILTER_OPS.map(([k, text]) => <option key={k} value={k}>{t(text)}</option>)}
                 </select>
                 {noValue ? <input type="hidden" name={`${prefix}v`} value="" /> : (
                   <>
                     <input name={`${prefix}v`} className="input w-48" list={listId} value={r.value} onChange={(e) => set(i, { value: e.target.value })}
-                      placeholder={r.op === "in" ? "a, b, c" : opt?.type === "number" ? "number" : "value"} maxLength={500} aria-label={`Value ${i + 1}`} />
+                      placeholder={r.op === "in" ? "a, b, c" : opt?.type === "number" ? t("number") : t("value")} maxLength={500} aria-label={t("Value {n}", { n: i + 1 })} />
                     <datalist id={listId}>{(opt?.values ?? []).map((v) => <option key={v} value={v} />)}</datalist>
                   </>
                 )}
@@ -75,7 +77,7 @@ export function PropertyFilters({ options, initial, max, prefix = "f", label = "
           </div>
         );
       })}
-      {options.length === 0 && <p className="text-xs text-ink-3">No properties seen in this environment yet.</p>}
+      {options.length === 0 && <p className="text-xs text-ink-3">{t("No properties seen in this environment yet.")}</p>}
     </fieldset>
   );
 }

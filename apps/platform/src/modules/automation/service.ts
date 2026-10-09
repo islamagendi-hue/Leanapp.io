@@ -1,11 +1,13 @@
 import "server-only";
 import { z } from "zod";
+import { msg } from "@/i18n/translate";
 import type { Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { COUNTED_EVENTS, PERSON } from "@/modules/analytics/sql";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, referencedWhatsAppTemplates, type AutomationDefinition } from "./definition";
+import { fill } from "./messages";
 import { nextScheduled } from "./time";
 
 /**
@@ -53,13 +55,13 @@ export interface RunLogEntry {
   detail?: string;
 }
 
-const nameSchema = z.string().trim().min(2, "Name the automation.").max(80);
+const nameSchema = z.string().trim().min(2, msg("Name the automation.")).max(80);
 
 function parseDef(input: unknown): AutomationDefinition {
   try {
     return parseAutomation(typeof input === "string" ? JSON.parse(input) : input);
   } catch (err) {
-    throw new ValidationError(err instanceof AutomationDefinitionError ? err.message : "The automation is not valid.");
+    throw new ValidationError(err instanceof AutomationDefinitionError ? err.message : msg("The automation is not valid."));
   }
 }
 
@@ -115,27 +117,27 @@ export async function getAutomation(ctx: TenantContext, id: string, opts: { runS
 async function checkReferences(db: Db, environmentId: string, d: AutomationDefinition, opts: { requireActive: boolean }) {
   for (const id of referencedAudiences(d)) {
     const a = await db.one<{ status: string; name: string }>("select status, name from platform.audiences where id = $1 and environment_id = $2", [id, environmentId]);
-    if (!a || a.status === "archived") throw new ValidationError("The trigger's audience doesn't exist in this environment.");
-    if (opts.requireActive && a.status !== "active") throw new ValidationError(`Activate the audience "${a.name}" first.`);
+    if (!a || a.status === "archived") throw new ValidationError(msg("The trigger's audience doesn't exist in this environment."));
+    if (opts.requireActive && a.status !== "active") throw new ValidationError(fill(msg('Activate the audience "{name}" first.'), { name: a.name }));
   }
   for (const id of referencedWebhooks(d)) {
     const w = await db.one("select id from platform.webhooks where id = $1 and environment_id = $2", [id, environmentId]);
-    if (!w) throw new ValidationError("A webhook step points to a webhook that doesn't exist in this environment.");
+    if (!w) throw new ValidationError(msg("A webhook step points to a webhook that doesn't exist in this environment."));
   }
   for (const id of referencedEmailTemplates(d)) {
     const t = await db.one("select id from platform.email_templates where id = $1 and environment_id = $2", [id, environmentId]);
-    if (!t) throw new ValidationError("An email step points to a template that doesn't exist in this environment.");
+    if (!t) throw new ValidationError(msg("An email step points to a template that doesn't exist in this environment."));
   }
   for (const s of referencedWhatsAppTemplates(d)) {
     const t = await db.one<{ status: string; body_params: number; header_params: number }>(
       "select status, body_params, header_params from platform.whatsapp_templates where environment_id = $1 and name = $2 and language = $3",
       [environmentId, s.template, s.language],
     );
-    if (!t) throw new ValidationError(`The WhatsApp template "${s.template}" (${s.language}) isn't synced in this environment. Sync templates on Engage → Integrations.`);
+    if (!t) throw new ValidationError(fill(msg('The WhatsApp template "{template}" ({language}) isn\'t synced in this environment. Sync templates on Engage → Integrations.'), { template: s.template, language: s.language }));
     if (t.body_params !== s.bodyParams.length || t.header_params !== s.headerParams.length) {
-      throw new ValidationError(`The WhatsApp template "${s.template}" needs ${t.body_params} body and ${t.header_params} header variables.`);
+      throw new ValidationError(fill(msg('The WhatsApp template "{template}" needs {body} body and {header} header variables.'), { template: s.template, body: t.body_params, header: t.header_params }));
     }
-    if (opts.requireActive && t.status !== "APPROVED") throw new ValidationError(`The WhatsApp template "${s.template}" is ${t.status.toLowerCase()}, not approved by WhatsApp yet.`);
+    if (opts.requireActive && t.status !== "APPROVED") throw new ValidationError(fill(msg('The WhatsApp template "{template}" is {status}, not approved by WhatsApp yet.'), { template: s.template, status: t.status.toLowerCase() }));
   }
 }
 
@@ -220,7 +222,7 @@ export async function activateAutomation(ctx: TenantContext, id: string): Promis
       [id],
     );
     if (!a) throw new NotFoundError("Automation");
-    if (a.status !== "draft" && a.status !== "paused") throw new ConflictError("Only a draft or paused automation can be activated.");
+    if (a.status !== "draft" && a.status !== "paused") throw new ConflictError(msg("Only a draft or paused automation can be activated."));
     const definition = parseDef(a.definition);
     await checkReferences(db, a.environment_id, definition, { requireActive: true });
     await resetTrigger(db, ctx, id, a.environment_id, definition);
@@ -233,7 +235,7 @@ export async function activateAutomation(ctx: TenantContext, id: string): Promis
 export async function pauseAutomation(ctx: TenantContext, id: string): Promise<void> {
   await tenantTx(ctx, "automations.manage", async (db) => {
     const row = await db.one("update platform.automations set status = 'paused', updated_by = $2 where id = $1 and status = 'active' returning id", [id, ctx.userId]);
-    if (!row) throw new ConflictError("Only an active automation can be paused.");
+    if (!row) throw new ConflictError(msg("Only an active automation can be paused."));
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.paused", targetType: "automation", targetId: id });
   });
 }

@@ -11,6 +11,7 @@
  *   google    Google Ads API          POST googleads.googleapis.com/{version}/customers/{id}:uploadClickConversions
  */
 import { expandMacros, type PostbackPayload } from "./pure";
+import { msg } from "@/i18n/translate";
 
 export const NETWORKS = ["custom", "tiktok", "snapchat", "meta", "google"] as const;
 export type Network = (typeof NETWORKS)[number];
@@ -28,49 +29,49 @@ export interface NetworkSpec {
 
 export const NETWORK_SPECS: Record<Network, NetworkSpec> = {
   custom: {
-    label: "Custom URL",
+    label: msg("Custom URL"),
     verified: true,
     config: [],
-    credentials: [{ key: "authorization", label: "Authorization header (optional)", required: false }],
+    credentials: [{ key: "authorization", label: msg("Authorization header (optional)"), required: false }],
   },
   tiktok: {
     label: "TikTok Events API",
     verified: false,
     config: [{ key: "tiktok_app_id", label: "TikTok App ID", required: true }],
-    credentials: [{ key: "access_token", label: "Events API access token", required: true }],
+    credentials: [{ key: "access_token", label: msg("Events API access token"), required: true }],
     clickIdParam: "ttclid",
   },
   snapchat: {
     label: "Snap Conversions API",
     verified: false,
     config: [{ key: "snap_app_id", label: "Snap App ID", required: true }],
-    credentials: [{ key: "access_token", label: "Conversions API token", required: true }],
+    credentials: [{ key: "access_token", label: msg("Conversions API token"), required: true }],
     clickIdParam: "ScCid",
   },
   meta: {
     label: "Meta Conversions API",
     verified: false,
     config: [
-      { key: "dataset_id", label: "Dataset (app) ID", required: true },
-      { key: "api_version", label: "Graph API version (default v21.0)", required: false },
+      { key: "dataset_id", label: msg("Dataset (app) ID"), required: true },
+      { key: "api_version", label: msg("Graph API version (default v21.0)"), required: false },
     ],
-    credentials: [{ key: "access_token", label: "System user access token", required: true }],
+    credentials: [{ key: "access_token", label: msg("System user access token"), required: true }],
     clickIdParam: "fbclid",
   },
   google: {
-    label: "Google Ads click conversions",
+    label: msg("Google Ads click conversions"),
     verified: false,
     config: [
-      { key: "customer_id", label: "Customer ID (digits only)", required: true },
-      { key: "conversion_action_id", label: "Conversion action ID", required: true },
-      { key: "login_customer_id", label: "Manager (login) customer ID", required: false },
-      { key: "api_version", label: "API version (default v18)", required: false },
+      { key: "customer_id", label: msg("Customer ID (digits only)"), required: true },
+      { key: "conversion_action_id", label: msg("Conversion action ID"), required: true },
+      { key: "login_customer_id", label: msg("Manager (login) customer ID"), required: false },
+      { key: "api_version", label: msg("API version (default v18)"), required: false },
     ],
     credentials: [
-      { key: "developer_token", label: "Developer token", required: true },
-      { key: "client_id", label: "OAuth client ID", required: true },
-      { key: "client_secret", label: "OAuth client secret", required: true },
-      { key: "refresh_token", label: "OAuth refresh token", required: true },
+      { key: "developer_token", label: msg("Developer token"), required: true },
+      { key: "client_id", label: msg("OAuth client ID"), required: true },
+      { key: "client_secret", label: msg("OAuth client secret"), required: true },
+      { key: "refresh_token", label: msg("OAuth refresh token"), required: true },
     ],
     clickIdParam: "gclid",
   },
@@ -125,14 +126,14 @@ export function buildRequest(
   const json = { "Content-Type": "application/json" };
   switch (network) {
     case "custom": {
-      if (!opts.urlTemplate) return { ok: false, error: "No URL template." };
+      if (!opts.urlTemplate) return { ok: false, error: msg("No URL template.") };
       const url = expandMacros(opts.urlTemplate, p);
       const headers: Record<string, string> = s.authorization ? { Authorization: s.authorization } : {};
       if (opts.method === "POST") return { ok: true, request: { url, method: "POST", headers: { ...headers, ...json }, body: JSON.stringify(p) } };
       return { ok: true, request: { url, method: "GET", headers } };
     }
     case "tiktok": {
-      if (!s.access_token || !c.tiktok_app_id) return { ok: false, error: "TikTok App ID and access token are required." };
+      if (!s.access_token || !c.tiktok_app_id) return { ok: false, error: msg("TikTok App ID and access token are required.") };
       const m = money(p);
       const body = {
         event_source: "app",
@@ -148,7 +149,7 @@ export function buildRequest(
       return { ok: true, request: { url: "https://business-api.tiktok.com/open_api/v1.3/event/track/", method: "POST", headers: { ...json, "Access-Token": s.access_token }, body: JSON.stringify(body) } };
     }
     case "snapchat": {
-      if (!s.access_token || !c.snap_app_id) return { ok: false, error: "Snap App ID and token are required." };
+      if (!s.access_token || !c.snap_app_id) return { ok: false, error: msg("Snap App ID and token are required.") };
       const m = money(p);
       const body = {
         data: [{
@@ -164,7 +165,7 @@ export function buildRequest(
       return { ok: true, request: { url, method: "POST", headers: json, body: JSON.stringify(body) } };
     }
     case "meta": {
-      if (!s.access_token || !c.dataset_id) return { ok: false, error: "Dataset ID and access token are required." };
+      if (!s.access_token || !c.dataset_id) return { ok: false, error: msg("Dataset ID and access token are required.") };
       const m = money(p);
       const fbc = p.network_click_id && p.network_click_param === "fbclid" ? `fb.1.${seconds(p) * 1000}.${p.network_click_id}` : undefined;
       const body = {
@@ -183,9 +184,9 @@ export function buildRequest(
       return { ok: true, request: { url, method: "POST", headers: json, body: JSON.stringify(body) } };
     }
     case "google": {
-      if (!c.customer_id || !c.conversion_action_id || !s.developer_token) return { ok: false, error: "Customer ID, conversion action and developer token are required." };
-      if (!(p.network_click_id && ["gclid", "gbraid", "wbraid"].includes(String(p.network_click_param)))) return { ok: false, error: "No Google click id (gclid / gbraid / wbraid) on this attribution." };
-      if (!opts.accessToken) return { ok: false, error: "No OAuth access token." };
+      if (!c.customer_id || !c.conversion_action_id || !s.developer_token) return { ok: false, error: msg("Customer ID, conversion action and developer token are required.") };
+      if (!(p.network_click_id && ["gclid", "gbraid", "wbraid"].includes(String(p.network_click_param)))) return { ok: false, error: msg("No Google click id (gclid / gbraid / wbraid) on this attribution.") };
+      if (!opts.accessToken) return { ok: false, error: msg("No OAuth access token.") };
       const customer = c.customer_id.replace(/\D/g, "");
       const m = money(p);
       const when = new Date(seconds(p) * 1000).toISOString().replace("T", " ").replace(/\.\d+Z$/, "+00:00");
