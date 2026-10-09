@@ -84,6 +84,18 @@ describe("cachedReport", () => {
     expect((await run(true)).value.total).toEqual({ count: 3, people: 3 });
   });
 
+  it("drops results older than a minute once new events are processed", async () => {
+    const input = { event: "order_completed", days: 7 };
+    const run = () => cachedReport(A.ctx, scope, "trend", input, () => eventTrend(A.ctx, scope, input));
+    expect((await run()).value.total.count).toBe(3);
+    await withSystem((db) => db.query("update platform.report_cache set created_at = now() - interval '2 minutes' where environment_id = $1", [A.dev.id]));
+    expect((await run()).fromCache).toBe(true);
+    await send(A, ["u4"]);
+    const after = await run();
+    expect(after.fromCache).toBe(false);
+    expect(after.value.total).toEqual({ count: 4, people: 4 });
+  });
+
   it("recomputes when the audience filter changes", async () => {
     const id = (await createAudience(A.ctx, A.dev.id, { name: "Buyers", definition: { type: "event", event: "order_completed" } })).id;
     const c = counter(1);

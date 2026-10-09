@@ -1,10 +1,12 @@
 import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
+import { AutoApply } from "@/components/AutoApply";
 import { CohortSelect } from "@/components/CohortSelect";
 import { RateDelta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
+import { eventLabels } from "@/modules/analytics/labels";
 import { resolveRange } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
-import { RETENTION_DAYS, retention, topEvents } from "@/modules/analytics/service";
+import { ANY_EVENT, RETENTION_DAYS, retention, topEvents } from "@/modules/analytics/service";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -31,10 +33,13 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
   const reports = reportRunner(ctx, scope, sp);
   const events = await reports.run("top_events", { ...range }, () => topEvents(ctx, { ...scope, ...range }));
   const startEvent = param(sp.start) || events.find((e) => /install|first_open|sign_?up/.test(e.name))?.name || events[0]?.name;
-  const returnEvent = param(sp.return) || events.find((e) => /app_opened|session_start/.test(e.name))?.name || startEvent;
+  // Coming back means doing anything again unless the user picks a return event:
+  // a start event that happens once per person (an install) would retain no one.
+  const returnEvent = param(sp.return) || events.find((e) => /app_opened|session_start/.test(e.name))?.name || ANY_EVENT;
   const retentionInput = { startEvent, returnEvent, ...range, cohortId: cf.cohortId };
   const r = startEvent && returnEvent ? await reports.run("retention", retentionInput, () => retention(ctx, scope, retentionInput)) : null;
   const names = events.map((e) => e.name);
+  const label = await eventLabels(ctx, a.id);
 
   return (
     <div className="space-y-6">
@@ -48,15 +53,16 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
         <>
           <form method="get" className="card flex flex-wrap items-end gap-3">
             <input type="hidden" name="env" value={env.type} />
+            <AutoApply />
             <label className="min-w-48 flex-1"><span className="label">Start event</span>
-              <select name="start" className="input" defaultValue={startEvent}>{names.map((n) => <option key={n}>{n}</option>)}</select>
+              <select name="start" className="input" defaultValue={startEvent}>{names.map((n) => <option key={n} value={n}>{label(n)}</option>)}</select>
             </label>
             <label className="min-w-48 flex-1"><span className="label">Return event</span>
-              <select name="return" className="input" defaultValue={returnEvent}>{names.map((n) => <option key={n}>{n}</option>)}</select>
+              <select name="return" className="input" defaultValue={returnEvent}><option value={ANY_EVENT}>Any event</option>{names.map((n) => <option key={n} value={n}>{label(n)}</option>)}</select>
             </label>
             <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
             <ReportRangeFields label="Cohorts from" range={r.range} />
-            <button className="btn" type="submit">Show</button>
+            <button className="btn" type="submit" data-apply>Show</button>
           </form>
 
           <section className="card overflow-x-auto p-0">

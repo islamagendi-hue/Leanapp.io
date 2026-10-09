@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
+import { EventName } from "@/components/EventName";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import { eventLabels } from "@/modules/analytics/labels";
 import { getProfile, profileTimeline, type PersonRef, type Profile } from "@/modules/analytics/profiles";
 import { NO_CURRENCY } from "@/modules/analytics/revenue";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
@@ -37,6 +39,8 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
   const when = (d: Date | null) => (d ? new Date(d).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "medium", timeZone: a.timezone }) : "–");
   const self: Record<string, string> = userId ? { user: userId } : { anon: anonymousId! };
   const props_ = Object.entries(p.properties);
+  const label = await eventLabels(ctx, a.id);
+  const value = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
 
   return (
     <div className="space-y-6">
@@ -136,13 +140,22 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
                 <tr key={e.id} className="align-top">
                   <td className="whitespace-nowrap tabular-nums">{when(e.timestamp)}</td>
                   <td>
-                    <span className="font-mono text-sm">{e.name}</span>
+                    <span className="text-sm"><EventName name={e.name} labels={label} /></span>
                     {e.type !== "track" && <span className="pill ms-2 border-line text-ink-3">{e.type}</span>}
                     {e.sentAs && <div className="text-xs text-ink-3">sent as {e.sentAs}</div>}
                     {p.userId && !e.userId && <div className="text-xs text-ink-3">before sign-in · {e.anonymousId}</div>}
                   </td>
                   <td className="max-w-md">
-                    {Object.keys(e.properties).length > 0 && <code className="block truncate font-mono text-xs text-ink-2" title={JSON.stringify(e.properties)}>{JSON.stringify(e.properties)}</code>}
+                    {Object.keys(e.properties).length > 0 && (
+                      <dl className="flex flex-wrap gap-1.5 text-xs">
+                        {Object.entries(e.properties).slice(0, 8).map(([k, v]) => (
+                          <div key={k} className="inline-flex max-w-full gap-1 rounded bg-paper-2 px-1.5 py-0.5" title={`${k}: ${value(v)}`}>
+                            <dt className="text-ink-3">{k}</dt><dd className="truncate font-medium text-ink">{value(v)}</dd>
+                          </div>
+                        ))}
+                        {Object.keys(e.properties).length > 8 && <div className="px-1 text-ink-3" title={JSON.stringify(e.properties)}>+{Object.keys(e.properties).length - 8} more</div>}
+                      </dl>
+                    )}
                   </td>
                   <td className="whitespace-nowrap text-sm text-ink-2">{[e.platform, e.appVersion].filter(Boolean).join(" ")}</td>
                 </tr>

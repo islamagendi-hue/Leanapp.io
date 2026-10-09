@@ -78,3 +78,12 @@
   .h2 { @apply text-lg font-bold; }
   .muted { @apply text-ink-3; }
 }
+
+/* Reports that apply on change (components/AutoApply): no Show button, custom
+   dates only when "Custom dates" is chosen, and the old result fades while the
+   new one loads. Without JavaScript the button and the dates stay visible. */
+@layer components {
+  form[data-auto] [data-apply] { display: none; }
+  form[data-auto]:has(select[name="days"]):not(:has(select[name="days"] option[value="custom"]:checked)) .custom-date { display: none; }
+  main:has(form[aria-busy="true"]) form ~ * { opacity: 0.55; transition: opacity 150ms; }
+}

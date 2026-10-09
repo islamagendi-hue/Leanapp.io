@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { param } from "@/components/AnalyticsHeader";
 import { WidgetView } from "@/components/dashboards/WidgetView";
+import { EventName } from "@/components/EventName";
 import { Delta } from "@/components/ReportRange";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { TrendChart } from "@/components/TrendChart";
+import { eventLabels } from "@/modules/analytics/labels";
 import { keyFunnelSteps, OVERVIEW_RANGES } from "@/modules/analytics/overview";
 import { revenueReport } from "@/modules/analytics/revenue";
 import { ANY_EVENT, eventTrend, funnel, kpi, retention, topEvents, type Kpi } from "@/modules/analytics/service";
@@ -24,7 +26,8 @@ const pct = (x: number | null | undefined) => (x === null || x === undefined ? "
  * A project's home: the numbers people check first, for the selected
  * environment and the last 7 or 30 days, each compared with the period before.
  * Until production receives its first event it says so and points to
- * Settings → Dev Ops → Get started. Every number comes from the same reports
+ * Settings → Dev Ops → Get started: as a full card when there is nothing to
+ * show, and as one line above the numbers of another environment that has data. Every number comes from the same reports
  * as Analytics (and their result cache), never a separate calculation.
  */
 export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]">) {
@@ -47,6 +50,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
   ];
   const visible = sections.filter((s) => can(ctx.role, s.perm));
   const metrics = can(ctx.role, "analytics.read") ? await overview(ctx, { appId: a.id, environmentId: env.id, timezone: a.timezone }, days, sp) : null;
+  const label = metrics ? await eventLabels(ctx, a.id) : (n: string) => n;
   const rangeLink = (d: number) => `${base}?${new URLSearchParams({ env: env.type, days: String(d) })}`;
 
   return (
@@ -68,7 +72,12 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
         )}
       </div>
 
-      {!live && (
+      {!live && metrics && !metrics.empty && env.type !== "production" ? (
+        <p className="flex flex-wrap items-center gap-x-2 rounded-lg bg-accent-soft px-3 py-2 text-sm text-ink-2">
+          <span>Production isn&apos;t receiving events yet; these numbers are from <strong>{env.type}</strong>.</span>
+          {can(ctx.role, "implementation.read") && <Link href={`${base}/settings/dev-ops/get-started`} className="underline">Finish setup</Link>}
+        </p>
+      ) : !live && (
         <section className="card flex flex-wrap items-center justify-between gap-4 border-accent/40 bg-accent-soft">
           <div>
             <h2 className="h2">Connect your app</h2>
@@ -146,7 +155,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
                 <thead><tr><th className="text-start">Event</th><th className="text-end">Count</th><th className="text-end">People</th></tr></thead>
                 <tbody>
                   {metrics.top.slice(0, 6).map((e) => (
-                    <tr key={e.name}><td className="truncate font-mono text-sm">{e.name}</td><td className="text-end tabular-nums">{num(e.count)}</td><td className="text-end tabular-nums">{num(e.people)}</td></tr>
+                    <tr key={e.name}><td className="text-sm"><Link className="hover:underline" href={`${base}/analytics/events?${new URLSearchParams({ env: env.type, days: String(days), event: e.name })}`}><EventName name={e.name} labels={label} /></Link></td><td className="text-end tabular-nums">{num(e.count)}</td><td className="text-end tabular-nums">{num(e.people)}</td></tr>
                   ))}
                 </tbody>
               </table>

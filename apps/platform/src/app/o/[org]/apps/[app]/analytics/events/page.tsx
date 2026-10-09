@@ -1,12 +1,15 @@
 import Link from "next/link";
+import { AutoApply } from "@/components/AutoApply";
 import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
+import { EventName } from "@/components/EventName";
 import { CohortSelect } from "@/components/CohortSelect";
 import { PropertyFilters } from "@/components/PropertyFilters";
 import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { TrendChart } from "@/components/TrendChart";
+import { eventLabels } from "@/modules/analytics/labels";
 import { eventFiltersFromParams, rangeFromParams, toSearch } from "@/modules/analytics/report-params";
-import { BREAKDOWNS, eventTrend, kpi, MAX_EVENT_FILTERS, topEvents } from "@/modules/analytics/service";
+import { ANY_EVENT, BREAKDOWNS, eventTrend, kpi, MAX_EVENT_FILTERS, topEvents } from "@/modules/analytics/service";
 import { catalogForPickers, options } from "@/modules/properties/catalog";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
@@ -31,6 +34,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
   const listInput = { ...range, cohortId: cf.cohortId };
   const events = await reports.run("top_events", listInput, () => topEvents(ctx, { ...scope, ...listInput }));
   const selected = param(sp.event) ?? events[0]?.name;
+  const label = await eventLabels(ctx, a.id);
   const property = param(sp.property)?.trim();
   const by = param(sp.by);
   const breakdown = by === "property" && property ? `property:${property}` : by;
@@ -69,8 +73,12 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
         <>
           <form method="get" className="card flex flex-wrap items-end gap-3">
             <input type="hidden" name="env" value={env.type} />
+            <AutoApply />
             <label className="min-w-48 flex-1"><span className="label">Event</span>
-              <select name="event" className="input" defaultValue={selected}>{events.map((e) => <option key={e.name}>{e.name}</option>)}</select>
+              <select name="event" className="input" defaultValue={selected}>
+                <option value={ANY_EVENT}>Any event (all activity)</option>
+                {events.map((e) => <option key={e.name} value={e.name}>{label(e.name)}</option>)}
+              </select>
             </label>
             <label><span className="label">Split by</span>
               <select name="by" className="input" defaultValue={by ?? ""}>
@@ -89,13 +97,13 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
             <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
             <ReportRangeFields range={active.range} interval={trend?.interval} />
             <PropertyFilters key={selected} options={propOptions} initial={parts} max={MAX_EVENT_FILTERS} label="Only events where" />
-            <button className="btn" type="submit">Show</button>
+            <button className="btn" type="submit" data-apply>Show</button>
           </form>
 
           {trend && (
             <section className="card space-y-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="h2 font-mono">{trend.event}</h2>
+                <h2 className="h2"><EventName name={trend.event} labels={label} /></h2>
                 <span className="text-xs text-ink-3">{trend.range.label}{trend.where.length ? ` · ${trend.where.length} filter${trend.where.length > 1 ? "s" : ""}` : ""}</span>
               </div>
               <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
@@ -103,7 +111,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
                 <Kpi label="People who did it" value={trend.total.people} previous={trend.previous?.people} range={trend.range} />
                 <Kpi label="Active people" value={active.value} previous={active.previous} range={active.range} hint="Did any event" />
               </dl>
-              <TrendChart days={trend.days} series={trend.series} label={`${trend.event} per ${trend.interval}`} />
+              <TrendChart days={trend.days} series={trend.series} label={`${label(trend.event)} per ${trend.interval}`} />
               {trend.interval !== "day" && <p className="text-xs text-ink-3">Each point is a {trend.interval} starting on the date shown{trend.interval === "week" ? " (Monday)" : ""}; the first and last can be partial.</p>}
               {trend.series.some((s) => s.key === "Other") && <p className="text-xs text-ink-3">The 5 most frequent values are shown; the rest are grouped as Other.</p>}
             </section>
@@ -115,7 +123,7 @@ export default async function EventsPage(props: PageProps<"/o/[org]/apps/[app]/a
               <tbody>
                 {events.map((e) => (
                   <tr key={e.name}>
-                    <td className="font-mono text-sm"><Link className={e.name === selected ? "font-bold" : "underline"} href={link(e.name)}>{e.name}</Link></td>
+                    <td className="text-sm"><Link className={e.name === selected ? "font-bold" : "hover:underline"} href={link(e.name)} scroll={false}><EventName name={e.name} labels={label} /></Link></td>
                     <td className="text-end tabular-nums">{num(e.count)}</td>
                     <td className="text-end tabular-nums">{num(e.people)}</td>
                   </tr>

@@ -91,6 +91,9 @@ export async function processPendingEvents(
   return { processed, failed };
 }
 
+/** Cached report results younger than this survive new data (see processBatch). */
+export const REPORT_CACHE_MIN_AGE_SECONDS = 60;
+
 async function processBatch(environmentId: string, size: number): Promise<{ claimed: number; processed: number; failed: number } | null> {
   return withSystem(async (db) => {
     // Same key as recomputeImplementation, which waits for it instead of skipping.
@@ -153,6 +156,14 @@ async function processBatch(environmentId: string, size: number): Promise<{ clai
         log.error("growth.flush_failed", { app: appId, error: String((err as Error).message).slice(0, 500) });
         await enqueueReprocess(db, appId, "growth_rebuild", "recovering from a failed update");
       }
+    }
+    // New data makes cached report results out of date. Results less than a
+    // minute old are kept, so a busy environment still gets a short cache.
+    if (processed > 0) {
+      await db.query(
+        "delete from platform.report_cache where environment_id = $1 and created_at < now() - make_interval(secs => $2)",
+        [environmentId, REPORT_CACHE_MIN_AGE_SECONDS],
+      );
     }
     return { claimed: rows.length, processed, failed };
   });

@@ -1,5 +1,6 @@
 import { AcquisitionHeader, AcquisitionRange, money, num } from "@/components/acquisition/AcquisitionHeader";
 import { param } from "@/components/AnalyticsHeader";
+import { mergeCampaignRows } from "@/modules/attribution/pure";
 import { ATTRIBUTION_RANGES, attributionOverview } from "@/modules/attribution/reports";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
@@ -13,6 +14,7 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
   const env = await pickEnvironment(environments, sp.env);
   const r = await attributionOverview(ctx, { environmentId: env.id, timezone: a.timezone }, param(sp.days));
   const base = `/o/${org}/apps/${app}/acquisition`;
+  const campaigns = mergeCampaignRows(r.byCampaign);
 
   return (
     <div className="space-y-6">
@@ -48,15 +50,14 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
           <p className="px-5 pb-5 pt-3 text-sm text-ink-3">No conversion events yet. Conversions are the events your tracking plan marks as conversion or revenue (for example purchase_completed).</p>
         ) : (
           <table className="table mt-3">
-            <thead><tr><th>Source</th><th>Campaign</th><th className="text-end">Conversions</th><th className="text-end">Revenue</th><th>Currency</th></tr></thead>
+            <thead><tr><th>Source</th><th>Campaign</th><th className="text-end">Conversions</th><th className="text-end">Revenue</th></tr></thead>
             <tbody>
-              {r.byCampaign.map((c) => (
-                <tr key={`${c.source}:${c.campaign}:${c.currency}`}>
-                  <td>{c.source}</td>
+              {campaigns.map((c) => (
+                <tr key={`${c.source}:${c.campaign}`}>
+                  <td>{c.source === "organic" ? <span className="pill border-line">organic</span> : c.source}</td>
                   <td className="text-ink-2">{c.campaign ?? "–"}</td>
                   <td className="text-end tabular-nums">{num(c.conversions)}</td>
-                  <td className="text-end tabular-nums">{money(c.revenue)}</td>
-                  <td className="font-mono text-xs">{c.currency ?? "–"}</td>
+                  <td className="text-end tabular-nums">{c.revenue.length ? c.revenue.map((x) => `${money(x.amount)} ${x.currency}`).join(" · ") : "–"}</td>
                 </tr>
               ))}
             </tbody>

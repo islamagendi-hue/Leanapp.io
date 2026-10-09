@@ -9,7 +9,10 @@ import { analyticsTx } from "./service";
  * Short-lived cache of finished report results (platform.report_cache).
  *
  * Postgres stays the source of truth: a cached result is reused for at most
- * REPORT_CACHE_TTL_SECONDS and then computed again from the events. The key
+ * REPORT_CACHE_TTL_SECONDS and then computed again from the events. Event
+ * processing drops an environment's cached results older than a minute as
+ * soon as new events land (modules/processing), so numbers never lag new
+ * data by more than that. The key
  * hashes everything the result depends on: environment, report kind, the
  * report's input (configuration, range, filters, comparison, interval),
  * timezone, and the audience filter's last change, so editing the audience

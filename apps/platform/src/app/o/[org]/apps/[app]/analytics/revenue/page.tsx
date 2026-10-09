@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AutoApply } from "@/components/AutoApply";
 import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
 import { CohortSelect } from "@/components/CohortSelect";
 import { Delta, ReportRangeFields } from "@/components/ReportRange";
@@ -44,6 +45,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
 
       <form method="get" className="card flex flex-wrap items-end gap-3">
         <input type="hidden" name="env" value={env.type} />
+        <AutoApply />
         <label><span className="label">Break down by</span>
           <select name="by" className="input" defaultValue={by ?? ""}>
             <option value="">Nothing</option>
@@ -54,7 +56,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
         <label><span className="label">Property</span><input name="property" className="input w-40" defaultValue={property ?? ""} placeholder="e.g. product_id" maxLength={64} /></label>
         <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
         <ReportRangeFields range={r.range} interval={r.interval} />
-        <button className="btn" type="submit">Show</button>
+        <button className="btn" type="submit" data-apply>Show</button>
       </form>
 
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}

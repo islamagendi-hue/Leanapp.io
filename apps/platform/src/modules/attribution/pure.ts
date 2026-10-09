@@ -196,6 +196,18 @@ export function clickSignals(context: Record<string, unknown>): ClickSignals {
   return { clickId, networkClickId, utm, deepLinkUrl, installReferrer };
 }
 
+/**
+ * Campaign parameters that say the install was not driven by a campaign: the
+ * Play Store's own organic referrer ("utm_source=google-play&utm_medium=organic")
+ * and the "direct / none" values web tools write. Such installs are organic.
+ */
+export function isOrganicUtm(utm: { source?: string; medium?: string }): boolean {
+  const norm = (v: string | undefined) => v?.trim().toLowerCase().replace(/^\((.*)\)$/, "$1");
+  const source = norm(utm.source);
+  const medium = norm(utm.medium);
+  return medium === "organic" || medium === "none" || source === "organic" || source === "direct" || source === "not set";
+}
+
 /** Revenue and currency of a conversion event, from the catalog's property names. Refunds count negative. */
 export function extractRevenue(eventName: string, props: Record<string, unknown>): { revenue: number | null; currency: string | null } {
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
@@ -240,4 +252,24 @@ export function backoffSeconds(attempt: number): number | null {
 /** HTTP outcomes worth retrying: network errors (null), 408, 425, 429, 5xx. */
 export function retryable(status: number | null): boolean {
   return status === null || status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+/**
+ * One row per source and campaign from per-currency conversion rows: the
+ * conversions add up (a conversion with no amount has no currency), the
+ * revenue stays per currency because amounts are never converted.
+ */
+export function mergeCampaignRows<R extends { source: string; campaign: string | null; currency: string | null; conversions: number; revenue: number }>(
+  rows: R[],
+): { source: string; campaign: string | null; conversions: number; revenue: { currency: string; amount: number }[] }[] {
+  const out = new Map<string, { source: string; campaign: string | null; conversions: number; revenue: { currency: string; amount: number }[] }>();
+  for (const r of rows) {
+    const key = `${r.source}\u0000${r.campaign ?? ""}`;
+    const row = out.get(key) ?? { source: r.source, campaign: r.campaign, conversions: 0, revenue: [] };
+    row.conversions += r.conversions;
+    if (r.currency && r.revenue) row.revenue.push({ currency: r.currency, amount: r.revenue });
+    out.set(key, row);
+  }
+  const total = (r: { revenue: { amount: number }[] }) => r.revenue.reduce((n, x) => n + x.amount, 0);
+  return [...out.values()].sort((a, b) => total(b) - total(a) || b.conversions - a.conversions);
 }

@@ -103,7 +103,7 @@ test("events sent with the SDK key show up in the debugger and the score", async
   await expect(page.getByText(/^\d+%$/).first()).toBeVisible();
 
   await page.goto(`${appBase}/analytics/events?env=development&event=order_completed`);
-  await expect(page.getByRole("img", { name: "order_completed per day" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Order Completed per day" })).toBeVisible();
   await page.goto(`${appBase}/analytics/funnels?env=development&step=app_installed&step=order_completed`);
   await expect(page.getByText(/of 1 people who started in the last 30 days completed all 2 steps/)).toBeVisible();
 });
@@ -339,10 +339,10 @@ test("property catalog: Attributes lists what the app sends, and Users filter by
   await page.goto(`${appBase}/analytics/users?env=development`);
   await page.getByRole("combobox", { name: "Property 1" }).selectOption("city");
   await page.getByLabel("Value 1").fill("Riyadh");
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("link", { name: "u-77" })).toBeVisible();
   await page.getByLabel("Value 1").fill("Jeddah");
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByText("No user matches these filters.")).toBeVisible();
 });
 
@@ -557,14 +557,50 @@ test("SDK & API keys: real quickstarts for every SDK, and an honest release stat
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}?env=development`);
-  await expect(page.getByRole("heading", { name: "Connect your app" })).toBeVisible();
+  // Development has data, so the setup reminder is one line above the numbers.
+  await expect(page.getByText("Production isn't receiving events yet", { exact: false })).toBeVisible();
   const numbers = page.getByRole("region", { name: "Key numbers" });
   for (const label of ["Active users", "New users", "Events"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
   for (const heading of ["Active users per day", "Activation", "Retention", "Key funnel", "Top events"]) await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "order_completed" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: /Order Completed/ })).toBeVisible();
   await page.getByRole("link", { name: "Last 30 days" }).click();
   await expect(page).toHaveURL(/days=30/);
   await expect(page.getByText(/compared with the 30 days before/)).toBeVisible();
+});
+
+test("reports apply as you change them, funnel bars open their people, and Ctrl+K jumps anywhere", async ({ page, request }) => {
+  const ctx = { platform: "android", app_version: "2.3.0" };
+  const sent = await request.post("/v1/events/batch", {
+    headers: { Authorization: `Bearer ${sdkKey}` },
+    data: { batch: [
+      { type: "track", event_name: "app_installed", event_id: crypto.randomUUID(), anonymous_id: "dev-funnel", user_id: "u-funnel", context: ctx },
+      { type: "track", event_name: "order_completed", event_id: crypto.randomUUID(), anonymous_id: "dev-funnel", user_id: "u-funnel", properties: { order_id: "of1", value: 50, currency: "SAR" }, context: ctx },
+    ] },
+  });
+  expect(sent.status()).toBe(200);
+  await request.get("/api/internal/process-events", { headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? "e2e-cron-secret-0123456789"}` } });
+  await signIn(page);
+  await page.goto(`${appBase}/analytics/funnels?env=development&step=app_installed&step=order_completed&fresh=1`);
+  await expect(page.getByRole("button", { name: "Show funnel" })).toBeHidden();
+  await page.getByRole("link", { name: "See who reached it" }).last().click();
+  const panel = page.getByRole("region", { name: "People behind this step" });
+  await expect(panel.getByRole("heading", { name: /Reached step 2 \(Order Completed\)/ })).toBeVisible();
+  await expect(panel.getByRole("link", { name: "u-funnel" })).toBeVisible();
+  // Changing a setting re-runs the report: no button to press.
+  await page.getByLabel("Converted within").selectOption("1");
+  await expect(page).toHaveURL(/window=1/);
+
+  await page.goto(`${appBase}/analytics/retention?env=development`);
+  await expect(page.getByLabel("Return event")).toHaveValue("$any");
+
+  await page.keyboard.press("Control+k");
+  const search = page.getByRole("dialog", { name: "Quick search" });
+  await search.getByRole("textbox").fill("funnels");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/analytics\/funnels/);
+  await page.keyboard.press("Control+k");
+  await search.getByRole("textbox").fill("order completed");
+  await expect(search.getByRole("option", { name: /Order Completed/ })).toBeVisible();
 });
 
 test("landing page: positioning, the product flow with honest labels, and noindex", async ({ page }) => {

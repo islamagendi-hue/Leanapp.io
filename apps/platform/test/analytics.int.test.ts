@@ -4,7 +4,7 @@
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { withSystem } from "@/lib/db";
-import { dayList, eventTrend, funnel, retention, topEvents } from "@/modules/analytics/service";
+import { dayList, eventTrend, funnel, funnelPeople, retention, topEvents } from "@/modules/analytics/service";
 import { authenticateIngestionKey, listKeys } from "@/modules/credentials/service";
 import { ingest } from "@/modules/ingestion/service";
 import { processPendingEvents } from "@/modules/processing/processor";
@@ -110,6 +110,20 @@ describe("funnels", () => {
 
     const reversed = await funnel(t.ctx, scope, { steps: ["purchase", "app_installed"], windowDays: 30, days: 30 });
     expect(reversed.steps.map((s) => s.people)).toEqual([1, 0]);
+  });
+
+  it("lists the people behind a step and those who dropped off, by the funnel's own rules", async () => {
+    const input = { steps: ["app_installed", "sign_up_completed", "purchase"], windowDays: 7, days: 30 };
+    const reached = await funnelPeople(t.ctx, scope, input, { step: 1 });
+    expect(reached.total).toBe(2);
+    expect(reached.people.map((p) => p.userId).sort()).toEqual(["u1", "u2"]);
+    const dropped = await funnelPeople(t.ctx, scope, input, { step: 2, dropped: true });
+    expect(dropped.people).toEqual([expect.objectContaining({ userId: "u2", anonymousId: null })]);
+    // a3 never signed in: listed by the install's anonymous ID.
+    const neverSigned = await funnelPeople(t.ctx, scope, input, { step: 1, dropped: true });
+    expect(neverSigned.people.map((p) => p.anonymousId)).toEqual(["a3"]);
+    await expect(funnelPeople(t.ctx, scope, input, { step: 0, dropped: true })).rejects.toThrow(/step/);
+    await expect(funnelPeople(t.ctx, scope, input, { step: 5 })).rejects.toThrow(/step/);
   });
 
   it("breaks down by platform", async () => {

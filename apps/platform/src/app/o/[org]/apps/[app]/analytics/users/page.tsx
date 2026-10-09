@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { AutoApply } from "@/components/AutoApply";
 import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
 import { CohortSelect } from "@/components/CohortSelect";
 import { PropertyFilters } from "@/components/PropertyFilters";
@@ -35,6 +36,7 @@ export default async function UsersPage(props: PageProps<"/o/[org]/apps/[app]/an
 
       <form method="get" className="card space-y-4">
         <input type="hidden" name="env" value={env.type} />
+        <AutoApply />
         <label className="block max-w-xl"><span className="label">User ID or anonymous ID</span>
           <input name="q" className="input font-mono" defaultValue={q} maxLength={256} placeholder="Starts with…" autoComplete="off" />
         </label>

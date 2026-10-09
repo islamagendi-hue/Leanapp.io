@@ -367,15 +367,14 @@ export interface Funnel {
  * converts on each later step done after the previous one, within the window
  * from entering (later steps may fall after the range ends).
  */
-export async function funnel(ctx: TenantContext, scope: { environmentId: string; timezone?: string }, input: unknown): Promise<Funnel> {
-  const r = funnelSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
-  const { steps, windowDays, breakdown, cohortId: cohort, compare } = r.data;
-  const timezone = scope.timezone ?? "UTC";
-  const range = resolveRange(r.data, timezone);
-  // $1 env, $2 range start, $3 window (days), $4 range end, $5.. step names.
+/**
+ * The step CTEs s0…sN of a funnel over `ev`: one row per person who reached
+ * that step, with the time they did it. Parameters: $1 env, $2 range start,
+ * $3 window (days), $4 range end, $5.. step names.
+ */
+function funnelCtes(steps: string[], breakdown: boolean): string[] {
   const stepParam = (i: number) => `$${5 + i}`;
-  const ctes = [
+  return [
     `s0 as (select distinct on (person) person, ts as t, id, ts as t0, ${breakdown ? "coalesce(platform, '(none)')" : "'all'"} as g
             from ev where name = ${stepParam(0)} and ts < $4 order by person, ts, id)`,
     // Each step is the earliest matching event strictly after the previous step's
@@ -388,6 +387,61 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
          order by p.person, ev.ts, ev.id)`,
     ),
   ];
+}
+
+export const FUNNEL_PEOPLE_LIMIT = 100;
+
+/** A person behind a funnel number: their user ID, or the install's anonymous ID when they never signed in. */
+export interface FunnelPerson { userId: string | null; anonymousId: string | null; at: Date }
+
+/**
+ * The people behind one bar of a funnel: those who reached step `step`, or
+ * (`dropped`) those who reached the step before it and never reached it,
+ * using exactly the funnel's own rules. The most recent first, at most
+ * FUNNEL_PEOPLE_LIMIT; `total` is the full count.
+ */
+export async function funnelPeople(
+  ctx: TenantContext,
+  scope: { environmentId: string; timezone?: string },
+  input: unknown,
+  pick: { step: number; dropped?: boolean },
+): Promise<{ people: FunnelPerson[]; total: number }> {
+  const r = funnelSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
+  const { steps, windowDays, cohortId: cohort } = r.data;
+  const k = Math.trunc(pick.step);
+  if (!(k >= 0 && k < steps.length) || (pick.dropped && k === 0)) throw new ValidationError("Choose a step of this funnel.");
+  const range = resolveRange(r.data, scope.timezone ?? "UTC");
+  const set = pick.dropped
+    ? `select p.person, p.t from s${k - 1} p where not exists (select 1 from s${k} q where q.person = p.person)`
+    : `select person, t from s${k}`;
+  return query(ctx, async (db) => {
+    const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start, windowDays, range.end, ...steps]);
+    const limit = src.p.add(FUNNEL_PEOPLE_LIMIT);
+    const rows = await db.query<{ person: string; t: Date; total: string }>(
+      `with ${src.sql}, ${funnelCtes(steps, false).join(", ")}, picked as (${set})
+       select person, t, count(*) over () as total from picked order by t desc, person limit ${limit}`,
+      src.p.values,
+    );
+    return {
+      total: Number(rows[0]?.total ?? 0),
+      people: rows.map((x) => ({
+        userId: x.person.startsWith("anon:") ? null : x.person,
+        anonymousId: x.person.startsWith("anon:") ? x.person.slice(5) : null,
+        at: x.t,
+      })),
+    };
+  });
+}
+
+export async function funnel(ctx: TenantContext, scope: { environmentId: string; timezone?: string }, input: unknown): Promise<Funnel> {
+  const r = funnelSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
+  const { steps, windowDays, breakdown, cohortId: cohort, compare } = r.data;
+  const timezone = scope.timezone ?? "UTC";
+  const range = resolveRange(r.data, timezone);
+  // $1 env, $2 range start, $3 window (days), $4 range end, $5.. step names.
+  const ctes = funnelCtes(steps, Boolean(breakdown));
   const select = steps
     .map((_, k) =>
       k === 0

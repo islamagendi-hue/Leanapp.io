@@ -2,7 +2,7 @@ import "server-only";
 import type { Db } from "@/lib/db";
 import { EVENT_LIBRARY } from "@/modules/implementation/catalog/events";
 import type { PublishedPlan } from "@/modules/implementation/plan-store";
-import { clickSignals, extractRevenue, INSTALL_EVENTS, networkOfSource, SERVER_CONTEXT_KEY, type ClickSignals, type PostbackPayload } from "./pure";
+import { clickSignals, extractRevenue, INSTALL_EVENTS, isOrganicUtm, networkOfSource, SERVER_CONTEXT_KEY, type ClickSignals, type PostbackPayload } from "./pure";
 
 /**
  * The attribution step of event processing (called once per event from
@@ -14,7 +14,7 @@ import { clickSignals, extractRevenue, INSTALL_EVENTS, networkOfSource, SERVER_C
  *   app_installed       → install / reinstall, matched in order of confidence:
  *                           1. LeanApp click id (install referrer, deep link, context)
  *                           2. ad-network click id (gclid, fbclid, ttclid, ScCid, …)
- *                           3. utm parameters the SDK captured from the link
+ *                           3. utm parameters the SDK captured from the link (not an organic referrer)
  *                           4. probabilistic (hashed IP + OS), only when enabled, never iOS
  *                           5. organic
  *   app_opened / deep_link_opened with a newer LeanApp click → re_engagement
@@ -174,7 +174,8 @@ async function findMatch(db: Db, e: AttributableEvent, settings: AttributionSett
     if (inWindow) return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: "deterministic", matchKey: s.networkClickId.param };
   }
   // 3. Campaign parameters captured from the link that opened or installed the app.
-  if (s.utm.source && inWindow) {
+  // An organic referrer (Play's "utm_medium=organic") is not a campaign.
+  if (s.utm.source && inWindow && !isOrganicUtm(s.utm)) {
     return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: "deterministic", matchKey: s.installReferrer ? "install_referrer" : "utm_parameters" };
   }
   // 4. Probabilistic: opt-in, Android only (no fingerprinting on iOS), short window, unclaimed clicks only.

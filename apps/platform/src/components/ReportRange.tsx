@@ -6,7 +6,7 @@ const INTERVAL_LABELS: Record<Interval, string> = { day: "Day", week: "Week", mo
 
 /**
  * Range, custom dates, comparison and (for charts) interval inputs for a
- * report's GET form. The dates apply when the range is "Custom dates".
+ * report's GET form. The dates apply (and, with AutoApply, show) when the range is "Custom dates".
  */
 export function ReportRangeFields({ range, interval, label = "Range" }: { range: RangeInfo; interval?: Interval; label?: string }) {
   return (
@@ -17,8 +17,8 @@ export function ReportRangeFields({ range, interval, label = "Range" }: { range:
           <option value="custom">Custom dates</option>
         </select>
       </label>
-      <label><span className="label">From</span><input type="date" name="from" className="input" defaultValue={range.from} /></label>
-      <label><span className="label">To</span><input type="date" name="to" className="input" defaultValue={range.to} /></label>
+      <label className="custom-date"><span className="label">From</span><input type="date" name="from" className="input" defaultValue={range.from} /></label>
+      <label className="custom-date"><span className="label">To</span><input type="date" name="to" className="input" defaultValue={range.to} /></label>
       {interval && (
         <label><span className="label">By</span>
           <select name="interval" className="input" defaultValue={interval}>{INTERVALS.map((i) => <option key={i} value={i}>{INTERVAL_LABELS[i]}</option>)}</select>
