@@ -63,7 +63,7 @@ export default async function Developers(props: PageProps<"/developers">) {
       <header className="sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
           <Link href={`/?lang=${lang}`} aria-label="LeanApp home"><Logo /></Link>
-          <nav className="hidden items-center gap-6 text-sm text-ink-2 md:flex" aria-label={t.nav.sections}>
+          <nav className="hidden items-center gap-6 text-sm text-ink-2 lg:flex" aria-label={t.nav.sections}>
             <Link href={`/?lang=${lang}`} className="hover:text-ink">{t.nav.home}</Link>
             <a href="#sdks" className="hover:text-ink">{s.sdks}</a>
             <a href="#quickstart" className="hover:text-ink">{s.quickstart}</a>
@@ -106,7 +106,7 @@ export default async function Developers(props: PageProps<"/developers">) {
               const f = SDK_FACTS[id];
               return (
                 <li key={id} aria-labelledby={`sdk-${id}`} className="flex flex-col gap-3 rounded-xl border border-line bg-paper p-5">
-                  <div className="flex items-start justify-between gap-2">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
                     <h3 id={`sdk-${id}`} className="text-lg font-bold" dir="ltr">{f.name}</h3>
                     <span className={`pill shrink-0 text-xs ${sdkPublished(id) ? "border-accent bg-accent text-paper" : "border-warn/50 bg-warn-soft text-warn"}`}>{sdkPublished(id) ? f.registry : t.sdks.labels.notPublished}</span>
                   </div>
