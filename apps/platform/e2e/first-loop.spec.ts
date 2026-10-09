@@ -734,7 +734,7 @@ test("developer guide: public, Arabic and English, the four SDKs and an honest r
   await expect(page.locator("div[dir=ltr][lang=en]").first()).toBeVisible();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Add LeanApp to your app");
   await expect(page.locator("#sdks").getByRole("heading", { level: 3 })).toHaveText(sdks);
-  await expect(page.getByRole("listitem", { name: "Android (Kotlin)" })).toContainText("Not on Maven Central yet: available from us during onboarding.");
+  await expect(page.getByRole("listitem", { name: "Android (Kotlin)" })).toContainText("Not public yet: available from us during onboarding.");
   await expect(page.getByRole("heading", { name: "Notes and recommendations" })).toBeVisible();
   await expect(page.locator("#deep-links")).toContainText("not called by the SDKs yet");
   await page.getByRole("link", { name: "العربية" }).click();
