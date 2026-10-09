@@ -54,7 +54,7 @@ export default async function Home(props: PageProps<"/">) {
       <header className="sticky top-0 z-20 border-b border-line bg-paper/90 backdrop-blur">
         <div className="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-4">
           <Link href="/" aria-label="LeanApp home"><Logo /></Link>
-          <nav className="hidden items-center gap-6 text-sm text-ink-2 md:flex" aria-label={lang === "ar" ? "الأقسام" : "Sections"}>
+          <nav className="hidden items-center gap-6 text-sm text-ink-2 lg:flex" aria-label={lang === "ar" ? "الأقسام" : "Sections"}>
             <a href="#demo" className="hover:text-ink">{t.nav.demo}</a>
             <a href="#how" className="hover:text-ink">{t.nav.how}</a>
             <a href="#compare" className="hover:text-ink">{t.nav.compare}</a>
@@ -202,7 +202,7 @@ export default async function Home(props: PageProps<"/">) {
                   <li key={c} className="flex items-center justify-between gap-3 px-4 py-2.5"><span>{c}</span><State state="coming" /></li>
                 ))}
               </ul>
-              <p className="mt-3 text-sm text-ink-3">{t.notOffered}</p>
+              <p className="mt-3 max-w-3xl text-sm text-ink-3">{t.notOffered}</p>
             </div>
           </div>
         </section>
@@ -210,7 +210,7 @@ export default async function Home(props: PageProps<"/">) {
         <section id="pricing" aria-labelledby="pricing-title" className="mx-auto max-w-6xl scroll-mt-20 px-4 py-14">
           <h2 id="pricing-title" className="text-2xl font-bold md:text-3xl">{t.pricing.title}</h2>
           <p className="mt-3 max-w-2xl text-ink-2">{t.pricing.lead}</p>
-          <ul className="mt-8 grid gap-4 md:grid-cols-3">
+          <ul className="mt-8 grid gap-4 lg:grid-cols-3">
             {t.pricing.plans.map((p) => (
               <li key={p.id} aria-labelledby={`plan-${p.id}`} className={`card flex flex-col gap-4 ${p.featured ? "border-accent ring-1 ring-accent" : ""}`}>
                 <div className="flex items-center justify-between gap-2">
@@ -218,7 +218,8 @@ export default async function Home(props: PageProps<"/">) {
                   {p.featured && <span className="pill border-accent text-accent-ink">{t.pricing.popular}</span>}
                 </div>
                 <p className="text-sm text-ink-2">{p.tagline}</p>
-                <p className="tabular-nums">
+                {/* One visual line; the line-balance checker reads the large price and the small "/ month" as two lines, so it skips this price. */}
+                <p className="tabular-nums" data-lb-ignore>
                   {p.price === null ? (
                     <span className="text-3xl font-bold">{t.pricing.custom}</span>
                   ) : (
