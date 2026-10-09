@@ -48,13 +48,31 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
     [
       { label: msg("Overview"), href: base, items: [] },
       {
-        label: msg("Analytics"),
+        label: msg("Acquisition"),
+        beta: true,
+        items: pick(role, [
+          { label: msg("Overview"), href: `${base}/acquisition`, perm: "attribution.read" },
+          { label: msg("Sources & campaigns"), href: `${base}/acquisition/sources`, perm: "attribution.read" },
+          { label: msg("Ad spend"), href: `${base}/acquisition/spend`, perm: "attribution.read" },
+        ]),
+      },
+      { label: msg("Activation"), href: `${base}/growth`, perm: "growth.read", items: [] },
+      { label: msg("Retention"), href: `${base}/analytics/retention`, perm: "analytics.read", items: [] },
+      { label: msg("Revenue"), href: `${base}/analytics/revenue`, perm: "analytics.read", items: [] },
+      {
+        label: msg("Attribution"),
+        beta: true,
+        items: pick(role, [
+          { label: msg("Attribution report"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
+          { label: msg("Tracking links & QR"), href: `${base}/acquisition/links`, perm: "attribution.read" },
+          { label: msg("Deep links"), href: `${base}/acquisition/deep-links`, perm: "attribution.read" },
+        ]),
+      },
+      {
+        label: msg("Reports"),
         items: pick(role, [
           { label: msg("Events & trends"), href: `${base}/analytics/events`, perm: "analytics.read" },
           { label: msg("Funnels"), href: `${base}/analytics/funnels`, perm: "analytics.read" },
-          { label: msg("Retention"), href: `${base}/analytics/retention`, perm: "analytics.read" },
-          { label: msg("Revenue"), href: `${base}/analytics/revenue`, perm: "analytics.read" },
-          { label: msg("Activation"), href: `${base}/growth`, perm: "growth.read" },
           { label: msg("Dashboards"), href: `${base}/analytics/dashboards`, perm: "analytics.read" },
           { label: msg("Saved reports"), href: `${base}/analytics`, perm: "analytics.read" },
         ]),
@@ -62,27 +80,15 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       { label: msg("Users"), href: `${base}/analytics/users`, perm: "users.read", items: [] },
       { label: msg("Audiences"), href: `${base}/engage/audiences`, perm: "audiences.read", items: [] },
       {
-        label: msg("Engagement"),
+        label: msg("Flows Lab"),
         items: pick(role, [
           { label: msg("Campaigns"), href: `${base}/engage/campaigns`, perm: "automations.read" },
           { label: msg("Flows"), href: `${base}/engage/automations`, perm: "automations.read" },
-          { label: msg("Experiments"), href: `${base}/engage/experiments`, perm: "automations.read" },
           { label: msg("Templates"), href: `${base}/engage/email-templates`, perm: "automations.read" },
           { label: msg("Channels & delivery"), href: `${base}/engage/channels`, perm: "automations.read" },
         ]),
       },
-      {
-        label: msg("Acquisition"),
-        beta: true,
-        items: pick(role, [
-          { label: msg("Overview"), href: `${base}/acquisition`, perm: "attribution.read" },
-          { label: msg("Sources & campaigns"), href: `${base}/acquisition/sources`, perm: "attribution.read" },
-          { label: msg("Ad spend"), href: `${base}/acquisition/spend`, perm: "attribution.read" },
-          { label: msg("Attribution"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
-          { label: msg("Tracking links & QR"), href: `${base}/acquisition/links`, perm: "attribution.read" },
-          { label: msg("Deep links"), href: `${base}/acquisition/deep-links`, perm: "attribution.read" },
-        ]),
-      },
+      { label: msg("A/B experiments"), href: `${base}/engage/experiments`, perm: "automations.read", items: [] },
       { label: msg("Settings"), href: `${base}/settings`, items: [] },
     ],
     role,

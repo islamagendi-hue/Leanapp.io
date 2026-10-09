@@ -26,19 +26,20 @@ describe("navigation menu", () => {
   it("keeps developer pages out of the main menu", () => {
     const main = links(projectMenu("owner", base));
     expect(main.some((h) => h.includes("/settings/dev-ops/") || h.includes("/settings/privacy"))).toBe(false);
-    expect(labels(projectMenu("owner", base))).toEqual(expect.arrayContaining(["Overview", "Analytics", "Users", "Audiences", "Engagement", "Acquisition", "Settings"]));
+    expect(projectMenu("owner", base).map((g) => g.label)).toEqual(["Overview", "Acquisition", "Activation", "Retention", "Revenue", "Attribution", "Reports", "Users", "Audiences", "Flows Lab", "A/B experiments", "Settings"]);
     expect(projectMenu("owner", base).find((g) => g.label === "Acquisition")?.beta).toBe(true);
+    expect(labels(projectMenu("owner", base))).toContain("Attribution/Deep links");
     expect(labels(settingsMenu("owner", "acme", base)).filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Dev Ops", "Security"]);
   });
 
   it("shows each role only what its permissions open", () => {
     const marketer = labels(projectMenu("marketer", base));
-    expect(marketer).toContain("Engagement/Flows");
+    expect(marketer).toContain("Flows Lab/Flows");
     expect(marketer).toContain("Users");
     const analyst = labels(projectMenu("analyst", base));
     expect(analyst).toContain("Users");
-    expect(analyst).not.toContain("Engagement/Flows");
-    expect(projectMenu("analyst", base).some((g) => g.label === "Engagement")).toBe(false);
+    expect(analyst).not.toContain("Flows Lab/Flows");
+    expect(projectMenu("analyst", base).some((g) => g.label === "Flows Lab")).toBe(false);
 
     const devSettings = labels(settingsMenu("developer", "acme", base));
     expect(devSettings).toEqual(expect.arrayContaining(["Dev Ops/SDK & API keys", "Dev Ops/Webhooks", "Dev Ops/Debugger", "Workspace/API keys"]));
@@ -49,7 +50,7 @@ describe("navigation menu", () => {
     expect(labels(settingsMenu("owner", "acme", base))).toContain("Project/Privacy requests");
 
     // Viewer: reports, people and audiences (read only); no engagement, acquisition, Dev Ops or workspace admin.
-    expect(labels(projectMenu("viewer", base))).toEqual(["Overview", "Analytics", "Analytics/Events & trends", "Analytics/Funnels", "Analytics/Retention", "Analytics/Revenue", "Analytics/Activation", "Analytics/Dashboards", "Analytics/Saved reports", "Users", "Audiences", "Settings"]);
+    expect(labels(projectMenu("viewer", base))).toEqual(["Overview", "Activation", "Retention", "Revenue", "Reports", "Reports/Events & trends", "Reports/Funnels", "Reports/Dashboards", "Reports/Saved reports", "Users", "Audiences", "Settings"]);
     const viewerSettings = labels(settingsMenu("viewer", "acme", base));
     expect(viewerSettings.filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Security"]);
     expect(viewerSettings).toContain("You/Your profile");
