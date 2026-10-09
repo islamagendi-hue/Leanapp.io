@@ -15,7 +15,9 @@ import { parseSpendCsv, validateSpend, type CsvRowError, type SpendInput } from 
  * app's timezone, like the reports. Saving the same day, source, campaign and
  * currency again replaces the amount. Changing spend needs attribution.manage
  * and is audited; reading it needs analytics.read, like the Revenue report
- * that uses it. Automatic import from ad networks is not built.
+ * that uses it. Rows can also be imported from connected ad accounts
+ * (modules/integrations/sync.ts, origin 'import'); an import never replaces
+ * a hand-entered row, and entering a day by hand replaces an imported one.
  */
 
 export interface SpendRow {
@@ -26,6 +28,8 @@ export interface SpendRow {
   campaign: string | null;
   currency: string;
   amount: number;
+  /** 'import' when it came from a connected ad account (Integrations Center). */
+  origin: "manual" | "import";
   updated_at: Date;
 }
 
@@ -49,7 +53,7 @@ async function upsert(db: Db, ctx: TenantContext, environmentId: string, rows: S
      select $1, $2, r.day, r.source, r.campaign, r.currency, r.amount, $3, $3
        from unnest($4::date[], $5::text[], $6::text[], $7::text[], $8::numeric[]) as r(day, source, campaign, currency, amount)
      on conflict (environment_id, day, source, campaign, currency)
-     do update set amount = excluded.amount, updated_by = excluded.updated_by`,
+     do update set amount = excluded.amount, updated_by = excluded.updated_by, origin = 'manual', connection_id = null`,
     [ctx.organizationId, environmentId, ctx.userId, rows.map((r) => r.date), rows.map((r) => r.source), rows.map((r) => r.campaign), rows.map((r) => r.currency), rows.map((r) => r.amount)],
   );
   // The Revenue report shows spend: drop cached results so it shows the change at once.
@@ -60,8 +64,8 @@ async function upsert(db: Db, ctx: TenantContext, environmentId: string, rows: S
 export async function listSpend(ctx: TenantContext, environmentId: string, opts: { limit?: number } = {}): Promise<SpendRow[]> {
   const limit = Math.min(Math.max(opts.limit ?? 500, 1), 2000);
   return tenantTx(ctx, "analytics.read", async (db) => {
-    const rows = await db.query<{ id: string; date: string; source: string; campaign: string; currency: string; amount: string; updated_at: Date }>(
-      `select id, day::text as date, source, campaign, currency, amount::text as amount, updated_at
+    const rows = await db.query<{ id: string; date: string; source: string; campaign: string; currency: string; amount: string; origin: "manual" | "import"; updated_at: Date }>(
+      `select id, day::text as date, source, campaign, currency, amount::text as amount, origin, updated_at
          from platform.ad_spend_daily where environment_id = $1
         order by day desc, source, campaign, currency limit $2`,
       [environmentId, limit],

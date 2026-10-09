@@ -30,7 +30,7 @@ export default async function SpendPage(props: PageProps<"/o/[org]/apps/[app]/ac
   return (
     <div className="space-y-6">
       <AcquisitionHeader base={base} current="/spend" env={env.type} title={t("Ad spend")}
-        description={t("Your ad spend per day, source and campaign, entered by hand or by CSV. Revenue by channel shows it next to revenue, with return and ROAS. Automatic import from ad networks is coming.")} />
+        description={t("Your ad spend per day, source and campaign: entered by hand, by CSV, or imported from ad accounts connected in Integrations. Revenue by channel shows it next to revenue, with return and ROAS.")} />
 
       {manage && (
         <div className="grid gap-6 lg:grid-cols-2">
@@ -84,7 +84,7 @@ export default async function SpendPage(props: PageProps<"/o/[org]/apps/[app]/ac
               {rows.map((r) => (
                 <tr key={r.id}>
                   <td className="tabular-nums" dir="ltr">{r.date}</td>
-                  <td>{r.source}</td>
+                  <td>{r.source}{r.origin === "import" && <span className="pill ms-2 border-line text-ink-3">{t("Imported")}</span>}</td>
                   <td className="text-ink-2">{r.campaign ?? "–"}</td>
                   <td>{r.currency}</td>
                   <td className="text-end tabular-nums">{money(r.amount)}</td>

@@ -310,14 +310,14 @@ describe("postbacks", () => {
     replies.push(503);
     received.length = 0;
     let r = await deliverPostbacks();
-    expect(r).toEqual({ succeeded: 1, retrying: 1, failed: 0 });
+    expect(r).toEqual({ succeeded: 1, retrying: 1, failed: 0, skipped: 0 });
     const retry = await withSystem((db) => db.one<{ attempts: number; status: string; last_status_code: number; due: boolean }>(
       "select attempts, status, last_status_code, next_attempt_at > now() + interval '50 seconds' as due from platform.attribution_postback_deliveries where postback_id = $1 and status = 'pending'", [pb.id]));
     expect(retry).toMatchObject({ attempts: 1, status: "pending", last_status_code: 503, due: true });
-    expect(await deliverPostbacks()).toEqual({ succeeded: 0, retrying: 0, failed: 0 }); // not due yet
+    expect(await deliverPostbacks()).toEqual({ succeeded: 0, retrying: 0, failed: 0, skipped: 0 }); // not due yet
     await withSystem((db) => db.query("update platform.attribution_postback_deliveries set next_attempt_at = now() where postback_id = $1 and status = 'pending'", [pb.id]));
     r = await deliverPostbacks();
-    expect(r).toEqual({ succeeded: 1, retrying: 0, failed: 0 });
+    expect(r).toEqual({ succeeded: 1, retrying: 0, failed: 0, skipped: 0 });
 
     const urls = received.map((x) => new URL(x.url, base));
     const install = urls.find((u) => u.searchParams.get("event") === "install")!;
@@ -333,7 +333,7 @@ describe("postbacks", () => {
     const c2 = await recorded(link.code);
     await send([ev("app_installed", "pb-400", { context: { platform: "android", attribution: { click_id: c2.clickId } } })]);
     replies.push(400);
-    expect(await deliverPostbacks()).toEqual({ succeeded: 0, retrying: 0, failed: 1 });
+    expect(await deliverPostbacks()).toEqual({ succeeded: 0, retrying: 0, failed: 1, skipped: 0 });
     const { postbacks, deliveries } = await listPostbacks(t.ctx, t.app.id, t.dev.id);
     expect(postbacks.find((p) => p.id === pb.id)).toMatchObject({ succeeded: 2, failed: 1, pending: 0 });
     expect(deliveries[0]).toMatchObject({ status: "failed", last_status_code: 400 });
@@ -376,7 +376,7 @@ describe("postbacks", () => {
       calls.push({ url, init });
       return new Response('{"code":0}', { status: 200 });
     }) as unknown as typeof fetch;
-    expect(await deliverPostbacks({ fetchImpl: fake })).toEqual({ succeeded: 1, retrying: 0, failed: 0 });
+    expect(await deliverPostbacks({ fetchImpl: fake })).toEqual({ succeeded: 1, retrying: 0, failed: 0, skipped: 0 });
     expect(calls[0].url).toBe("https://business-api.tiktok.com/open_api/v1.3/event/track/");
     expect((calls[0].init.headers as Record<string, string>)["Access-Token"]).toBe("tt-secret-token");
     expect(JSON.parse(String(calls[0].init.body))).toMatchObject({ event_source: "app", event_source_id: "7000001", data: [{ event: "InstallApp", user: { ttclid: "E.C.P.pb" } }] });

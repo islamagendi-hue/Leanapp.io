@@ -52,7 +52,7 @@ migration.
 
 `/api/internal/process-events` retries privacy deletions, drains events the
 per-request `after()` hook missed, runs re-map and growth jobs, housekeeping,
-usage notices, attribution postbacks and engagement (audiences, automations,
+usage notices, attribution postbacks, ad cost import ([integrations](integrations.md)) and engagement (audiences, automations,
 webhooks). It needs a schedule:
 
 - **Supabase `pg_cron` + `pg_net`** call it (`db/ops/schedule.sql`): every 5
@@ -93,6 +93,7 @@ webhooks). It needs a schedule:
    - `ATTRIBUTION_IP_HASH_SECRET` (`openssl rand -base64 32`)
    - `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `LeanApp <no-reply@leanapp.io>`)
    - Optional: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` ([billing](billing.md)); `EVENT_RETENTION` stays unset (deletion is off until paid plans are final); `DEMO_ENABLED=1` turns on the public read-only demo (sample data with installs by source and daily ad spend for the paid ones, plus the journeys of people who installed up to 150 days ago, stored directly so Churn and RFM segments have history; refreshed by the scheduled worker; an existing demo gets its spend and history filled in on the next refresh). With `EVENT_RETENTION=enforce`, plan retention would delete the older demo history.
+   - Optional, ad reporting "Connect with …" buttons ([integrations](integrations.md#owner-actions)): `META_APP_ID`/`META_APP_SECRET`, `GOOGLE_ADS_CLIENT_ID`/`GOOGLE_ADS_CLIENT_SECRET`/`GOOGLE_ADS_DEVELOPER_TOKEN` (and optionally `GOOGLE_ADS_API_VERSION`), `TIKTOK_APP_ID`/`TIKTOK_APP_SECRET`, `SNAPCHAT_CLIENT_ID`/`SNAPCHAT_CLIENT_SECRET`. Without them customers paste their own credentials.
    - Monitoring ([ops/monitoring.md](ops/monitoring.md)): `ALERT_WEBHOOK_URL` (Slack/Discord webhook), optionally `SENTRY_DSN`, and `MONITORING_SECRET` for the uptime check of `/api/internal/worker-status`.
 6. **GitHub environments** (repository Settings → Environments): create
    `staging` and `production`; on `production` add yourself as a required

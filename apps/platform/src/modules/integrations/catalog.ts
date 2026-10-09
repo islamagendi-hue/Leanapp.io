@@ -2,7 +2,9 @@ import { msg } from "@/i18n/translate";
 import type { Permission } from "@/modules/rbac/permissions";
 
 /**
- * Every outside service LeanApp connects to, in one list, with where it is set up. `state` says
+ * Summary list of outside services, used by the marketing site's "Works with" row
+ * (landing.test.ts). The Integrations Center itself uses ./registry.ts, which
+ * has per-capability detail; keep the two in step. `state` says
  * honestly how far each one is: live (in use), beta (built, not yet verified against the live
  * service) or soon (not built). Setup pages check their own permissions; `perm` only hides the
  * link from roles that couldn't open it.
@@ -32,6 +34,7 @@ export const INTEGRATIONS: IntegrationGroup[] = [
       { id: "snap", name: "Snapchat Ads", what: msg("Send installs and in-app events back to Snapchat campaigns."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
       { id: "tiktok", name: "TikTok Ads", what: msg("Send installs and in-app events back to TikTok to optimise your ad campaigns."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
       { id: "google-ads", name: "Google Ads", what: msg("Send conversions back to Google Ads."), state: "beta", path: "settings/dev-ops/attribution/postbacks", perm: "attribution.read" },
+      { id: "ad-spend", name: msg("Ad spend import"), what: msg("Import daily cost, impressions and clicks per campaign from Meta, Google Ads, TikTok and Snapchat into Ad spend."), state: "beta", path: "settings/integrations", perm: "integrations.read" },
       { id: "skan", name: "Apple SKAdNetwork", what: msg("Privacy-safe install measurement from Apple for your iOS ad campaigns, in aggregate."), state: "beta", path: "settings/dev-ops/attribution/skan", perm: "attribution.read" },
     ],
   },
@@ -62,7 +65,6 @@ export const INTEGRATIONS: IntegrationGroup[] = [
     title: msg("Coming next"),
     items: [
       { id: "clarity", name: "Microsoft Clarity", what: msg("Open session recordings and heatmaps for the same users you find in your reports."), state: "soon" },
-      { id: "ad-spend", name: msg("Ad spend import"), what: msg("Automatic import from Meta, Google, TikTok and Snap is coming. Until then, enter spend by hand or by CSV on the Ad spend page in Acquisition."), state: "soon" },
       { id: "ga4", name: "Google Analytics 4", what: msg("Send your events to GA4 as well."), state: "soon" },
       { id: "warehouse", name: msg("Data warehouse export"), what: msg("Copy your raw events to BigQuery or Snowflake."), state: "soon" },
     ],

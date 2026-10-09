@@ -9,12 +9,19 @@ import { listPostbacks } from "@/modules/attribution/service";
 import { can } from "@/modules/rbac/authorize";
 import { rich, envName, statusName } from "@/components/acquisition/rich";
 import { getLang, getT } from "@/i18n/server";
-import { dateLocale, type Lang } from "@/i18n/translate";
+import { dateLocale, msg, type Lang } from "@/i18n/translate";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export async function generateMetadata() {
   return { title: (await getT())("Postbacks") };
 }
+
+/** Why a delivery was skipped (modules/attribution/conversions.ts). */
+const SKIP_REASONS: Record<string, string> = {
+  consent_denied: msg("Not sent: the user denied attribution consent."),
+  no_match_key: msg("Not sent: nothing the network can match on (no click id or install id)."),
+  invalid_payload: msg("Not sent: the event breaks the network's rules:"),
+};
 
 const fmt = (d: Date | null, lang: Lang) => (d ? new Date(d).toLocaleString(dateLocale(lang)) : "–");
 
@@ -167,7 +174,11 @@ export default async function PostbacksPage(props: PageProps<"/o/[org]/apps/[app
                   <td className="font-mono text-xs">{d.event_name}</td>
                   <td>{d.status === "succeeded" ? statusName(t, d.status) : <span className={d.status === "pending" ? "" : "text-alert"}>{statusName(t, d.status)}</span>}</td>
                   <td className="text-end tabular-nums">{d.attempts}</td>
-                  <td className="text-xs break-all text-ink-2">{d.last_status_code ?? ""} {d.last_error ? t(d.last_error) : ""}</td>
+                  <td className="text-xs break-all text-ink-2">
+                    {d.skip_reason ? <span className="text-warn">{t(SKIP_REASONS[d.skip_reason] ?? d.skip_reason)} </span> : null}
+                    {d.last_status_code ?? ""} {d.last_error && d.last_error !== d.skip_reason ? t(d.last_error) : ""}
+                    {d.provider_error_code && <span className="block text-ink-3">{t("Provider code")}: {d.provider_error_code}{d.provider_trace_id ? ` · ${t("trace")} ${d.provider_trace_id}` : ""}</span>}
+                  </td>
                   <td className="text-ink-3">{d.status === "pending" ? fmt(d.next_attempt_at, lang) : "–"}</td>
                 </tr>
               ))}

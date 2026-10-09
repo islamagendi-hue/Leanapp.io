@@ -117,7 +117,9 @@ const money = (p: PostbackPayload) => (isRevenue(p) ? { value: Number(p.revenue)
 
 export function buildRequest(
   network: Network,
-  opts: { urlTemplate?: string | null; method?: "GET" | "POST"; config: Cfg & { event_map?: unknown }; credentials: Cfg; payload: PostbackPayload; accessToken?: string },
+  opts: { urlTemplate?: string | null; method?: "GET" | "POST"; config: Cfg & { event_map?: unknown }; credentials: Cfg; payload: PostbackPayload; accessToken?: string;
+    /** The install id, sent to Meta as user_data.anon_id (app events) when consent allows. */
+    anonymousId?: string | null },
 ): BuildResult {
   const p = opts.payload;
   const c = opts.config;
@@ -174,7 +176,7 @@ export function buildRequest(
           event_time: seconds(p),
           event_id: p.event_id,
           action_source: "app",
-          user_data: fbc ? { fbc } : {},
+          user_data: { ...(fbc ? { fbc } : {}), ...(opts.anonymousId ? { anon_id: opts.anonymousId } : {}) },
           ...(m ? { custom_data: { value: m.value, currency: m.currency } } : {}),
           app_data: { advertiser_tracking_enabled: 0, application_tracking_enabled: 0, extinfo: [p.platform === "ios" ? "i2" : "a2", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""] },
         }],
