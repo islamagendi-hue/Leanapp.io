@@ -5,6 +5,9 @@ import { redirect } from "next/navigation";
 import { getT } from "@/i18n/server";
 import { AR } from "@/i18n/ar";
 import { makeT, msg } from "@/i18n/translate";
+import { ValidationError } from "@/lib/errors";
+import { atRiskDays, CHURN_BUCKETS, churnAudience, churnWindow, type ChurnBucket } from "@/modules/analytics/churn-pure";
+import { rfmAudience, rfmWindow, RFM_SEGMENTS, SEGMENT_LABELS, type RfmSegment } from "@/modules/analytics/rfm-pure";
 import { activateAudience, archiveAudience, createAudience, previewAudience, updateAudience } from "@/modules/audiences/service";
 import { translateMessage } from "@/modules/automation/messages";
 import { activateAutomation, archiveAutomation, createAutomation, createAutomationFromTemplate, pauseAutomation, updateAutomation } from "@/modules/automation/service";
@@ -54,6 +57,49 @@ export async function saveAudienceAction(orgSlug: string, appSlug: string, envir
   revalidatePath(`${appBase(orgSlug, appSlug)}/engage/audiences`);
   if (!audienceId) redirect(`${appBase(orgSlug, appSlug)}/engage/audiences/${id}`);
   return { ok: true, message: msg("Saved. An active audience is recomputed on the next scheduled run.") };
+}
+
+/** A Churn bucket or an RFM segment, as the Retention pages offer them. */
+export type SegmentSpec =
+  | { kind: "churn"; bucket: ChurnBucket; window: number }
+  | { kind: "rfm"; segment: RfmSegment; window: number; currency: string };
+
+/**
+ * Saves a Churn bucket or an RFM segment as a draft audience (named in the
+ * reader's language) and opens it. The audience keeps the page's rule, so its
+ * members change as people come and go.
+ */
+export async function saveSegmentAudienceAction(orgSlug: string, appSlug: string, environmentId: string, spec: SegmentSpec, _: ActionState): Promise<ActionState> {
+  let id: string;
+  try {
+    const ctx = await requireTenant(orgSlug);
+    const t = await getT();
+    let input: { name: string; description: string; definition: unknown };
+    if (spec.kind === "churn") {
+      if (!(CHURN_BUCKETS as readonly string[]).includes(spec.bucket)) throw new ValidationError(msg("The audience definition is not valid."));
+      const window = churnWindow(spec.window);
+      input = {
+        name: spec.bucket === "churned"
+          ? t("Churned: not seen in {n} days", { n: window })
+          : spec.bucket === "at_risk" ? t("At risk: not seen in {from} to {n} days", { from: atRiskDays(window), n: window }) : t("Active: seen in the last {n} days", { n: atRiskDays(window) }),
+        description: t("Saved from Retention → Churn."),
+        definition: churnAudience(spec.bucket, window),
+      };
+    } else {
+      if (!(RFM_SEGMENTS as readonly string[]).includes(spec.segment)) throw new ValidationError(msg("The audience definition is not valid."));
+      const window = rfmWindow(spec.window);
+      input = {
+        name: t("RFM: {segment} ({currency}, last {n} days)", { segment: t(SEGMENT_LABELS[spec.segment]), currency: spec.currency, n: window }),
+        description: t("Saved from Retention → RFM segments."),
+        definition: rfmAudience(spec.segment, window, spec.currency),
+      };
+    }
+    id = (await createAudience(ctx, environmentId, input)).id;
+  } catch (err) {
+    return failed(err);
+  }
+  revalidatePath(`${appBase(orgSlug, appSlug)}/engage/audiences`);
+  redirect(`${appBase(orgSlug, appSlug)}/engage/audiences/${id}`);
 }
 
 export async function audienceLifecycleAction(orgSlug: string, appSlug: string, audienceId: string, op: "activate" | "archive", _: ActionState): Promise<ActionState> {

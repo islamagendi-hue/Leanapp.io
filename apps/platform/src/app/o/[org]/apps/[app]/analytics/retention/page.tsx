@@ -9,6 +9,7 @@ import { rangePhrase, resolveRange, shortDay, spanLabel } from "@/modules/analyt
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { ANY_EVENT, RETENTION_DAYS, retention, topEvents } from "@/modules/analytics/service";
 import { ReportFreshness } from "@/components/ReportFreshness";
+import { RetentionTabs } from "@/components/RetentionTabs";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
@@ -50,6 +51,7 @@ export default async function RetentionPage(props: PageProps<"/o/[org]/apps/[app
   return (
     <div className="space-y-6">
       <AnalyticsHeader title={t("Retention")} description={t("Of the people who did a start event on a given day, how many came back and did the return event N days later.")} env={env.type} />
+      <RetentionTabs base={`/o/${org}/apps/${app}/analytics`} current="/retention" env={env.type} />
       {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the report shows everyone.")}</p>}
       {!r ? (
         <div className="card"><p>{t("No events in this environment in {range}.", { range: rangePhrase(resolveRange(range, a.timezone), t, lang) })}</p><ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/retention`} sp={sp} className="mt-3" /></div>

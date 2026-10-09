@@ -11,7 +11,7 @@ import {
   analyticsTx, eventTrend, funnel, kpi, kpiSchema, retention, topEvents, type Funnel, type Kpi, type Retention, type Trend,
 } from "@/modules/analytics/service";
 import { audit } from "@/modules/audit/service";
-import { compileAudience, parseDefinition } from "@/modules/audiences/definition";
+import { compileAudienceIn, parseDefinition } from "@/modules/audiences/definition";
 import { growthOverview, type GrowthSummary } from "@/modules/growth/service";
 import { can } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
@@ -479,7 +479,7 @@ async function audienceSize(ctx: TenantContext, environmentId: string, id: strin
       [id, environmentId],
     );
     if (!a) throw new ValidationError(msg("That audience doesn't exist in this environment."));
-    const { sql, params } = compileAudience(parseDefinition(a.definition), environmentId);
+    const { sql, params } = await compileAudienceIn(db, parseDefinition(a.definition), environmentId);
     const row = await db.one<{ n: string }>(`with target as (${sql}) select count(*) as n from target`, params);
     return { type: "audience_size" as const, name: a.name, size: Number(row!.n) };
   });

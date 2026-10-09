@@ -3,6 +3,7 @@
 import { createContext, useContext, useId, useState } from "react";
 import { useT } from "@/i18n/client";
 import { msg } from "@/i18n/translate";
+import { RFM_SEGMENTS, RFM_WINDOWS, SEGMENT_LABELS } from "@/modules/analytics/rfm-pure";
 
 /**
  * Editor for an audience condition tree. Works on the same JSON the server
@@ -39,6 +40,7 @@ const KINDS: [string, string][] = [
   ["last_seen", msg("Last seen")],
   ["platform", msg("Platform")],
   ["revenue", msg("Revenue total")],
+  ["rfm", msg("RFM segment")],
 ];
 
 export function defaultLeaf(type: string): Node {
@@ -48,6 +50,7 @@ export function defaultLeaf(type: string): Node {
     case "first_seen":
     case "last_seen": return { type, op: "within_days", days: 7 };
     case "platform": return { type, platforms: ["ios"] };
+    case "rfm": return { type, segments: ["champions"], withinDays: 365, currency: "" };
     default: return { type: "revenue", op: "gte", amount: 100, withinDays: 90, events: [], property: "revenue" };
   }
 }
@@ -273,6 +276,35 @@ function LeafEditor({ leaf, onChange, listId, allowSinceTrigger }: { leaf: Node;
               }} /> {p}
             </label>
           ))}
+        </div>
+      );
+    }
+    case "rfm": {
+      const chosen = new Set((leaf.segments as string[]) ?? []);
+      const windowDays = Number(leaf.withinDays ?? 365);
+      return (
+        <div className="space-y-2 text-sm">
+          <div className="flex flex-wrap gap-3">
+            {RFM_SEGMENTS.map((s) => (
+              <label key={s} className="inline-flex items-center gap-1">
+                <input type="checkbox" checked={chosen.has(s)} onChange={(e) => {
+                  const next = new Set(chosen);
+                  if (e.target.checked) next.add(s);
+                  else next.delete(s);
+                  onChange({ ...leaf, segments: RFM_SEGMENTS.filter((x) => next.has(x)) });
+                }} /> {t(SEGMENT_LABELS[s])}
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span>{t("purchases in")}</span>
+            <input className="input w-20" dir="ltr" placeholder="SAR" value={String(leaf.currency ?? "")} onChange={(e) => onChange({ ...leaf, currency: e.target.value.toUpperCase() })} aria-label={t("Currency")} />
+            <span>{t("in the last")}</span>
+            <select className="input w-auto" value={String(windowDays)} onChange={(e) => onChange({ ...leaf, withinDays: Number(e.target.value) })} aria-label={t("Days")}>
+              {[...new Set([...RFM_WINDOWS, windowDays])].sort((a, b) => a - b).map((d) => <option key={d} value={d}>{d}</option>)}
+            </select>
+            <span>{t("days")}</span>
+          </div>
         </div>
       );
     }

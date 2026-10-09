@@ -58,7 +58,14 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
         ]),
       },
       { label: msg("Activation"), href: `${base}/growth`, perm: "growth.read", items: [] },
-      { label: msg("Retention"), href: `${base}/analytics/retention`, perm: "analytics.read", items: [] },
+      {
+        label: msg("Retention"),
+        items: pick(role, [
+          { label: msg("Retention curves"), href: `${base}/analytics/retention`, perm: "analytics.read" },
+          { label: msg("Churn"), href: `${base}/analytics/churn`, perm: "analytics.read" },
+          { label: msg("RFM segments"), href: `${base}/analytics/rfm`, perm: "analytics.read" },
+        ]),
+      },
       { label: msg("Revenue"), href: `${base}/analytics/revenue`, perm: "analytics.read", items: [] },
       {
         label: msg("Attribution"),

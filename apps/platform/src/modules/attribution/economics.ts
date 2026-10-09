@@ -1,7 +1,7 @@
 import "server-only";
 import { loadRevenueRules, revenueCtes } from "@/modules/analytics/revenue";
 import { analyticsTx, eventsSource } from "@/modules/analytics/service";
-import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "@/modules/analytics/sql";
+import { CHANNEL_NO_INSTALL, FIRST_INSTALL_SQL } from "@/modules/analytics/sql";
 import { assertCan } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { channelEconomics, curveDays, ltvWindow, type ChannelEconomics, type LtvWindow } from "./economics-pure";
@@ -77,20 +77,7 @@ export async function channelEconomicsReport(
       kind: string; channel: string; currency: string | null; day: number | null; person: string | null; first_at: Date | null; n: string; n2: string; amount: number | null; complete: boolean | null;
     }>(
       `with ${src.sql}, ${ctes},
-       first_install as (
-         select distinct on (person) person, occurred_at,
-                coalesce(source, case when match_type = 'organic' then '${CHANNEL_ORGANIC}' else '${CHANNEL_UNKNOWN}' end) as channel
-           from (select ae.*, coalesce(ae.user_id, l.user_id, 'anon:' || ae.anonymous_id) as person
-                   from platform.attribution_events ae
-                   left join lateral (
-                     select min(il.user_id) as user_id from platform.identity_links il
-                      where il.environment_id = ae.environment_id and il.anonymous_id = ae.anonymous_id
-                     having count(*) = 1
-                   ) l on ae.user_id is null and ae.anonymous_id is not null
-                  where ae.environment_id = $1 and ae.kind in ('install', 'reinstall')
-                    and coalesce(ae.user_id, ae.anonymous_id) is not null) i
-          order by person, occurred_at, id
-       ),
+       first_install as (${FIRST_INSTALL_SQL}),
        first_buy as (select person, min(ts) as first_at from tx where kind <> 'refund' group by person),
        buyers as (
          select b.person, b.first_at, coalesce(fi.channel, '${CHANNEL_NO_INSTALL}') as channel,

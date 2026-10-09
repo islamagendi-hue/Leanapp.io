@@ -15,10 +15,15 @@
  * Event conditions count events by the analytics counting rule (COUNTED_EVENTS),
  * so an audience used as a report filter agrees with the report's numbers.
  *
- * Pure module (no database access) so it can be unit tested.
+ * Pure module (no database access) so it can be unit tested; only
+ * compileAudienceIn runs a query, on the connection it is given.
  */
 import { z } from "zod";
+import type { Db } from "@/lib/db";
 import { makeT, msg, type T } from "@/i18n/translate";
+import { RFM_SEGMENTS, rfmCustomersSql, rfmSegmentsSql, SEGMENT_LABELS } from "@/modules/analytics/rfm-pure";
+import type { RevenueRule } from "@/modules/analytics/revenue-rules";
+import { loadRevenueRules, NO_CURRENCY, revenueCtes } from "@/modules/analytics/revenue-sql";
 import { COUNTED_EVENTS } from "@/modules/analytics/sql";
 import { fill } from "@/modules/automation/messages";
 
@@ -85,13 +90,25 @@ export const revenueLeafSchema = z.object({
   events: z.array(eventName).max(10).default([]),
   property: propertyName.default("revenue"),
 });
+/**
+ * People in RFM segments (analytics/rfm-pure.ts) over the last `withinDays`
+ * days, in one currency: scored at each computation among that moment's
+ * customers, exactly as Retention → RFM segments scores them.
+ */
+export const rfmLeafSchema = z.object({
+  type: z.literal("rfm"),
+  segments: z.array(z.enum(RFM_SEGMENTS)).min(1, msg("Choose at least one segment.")).max(RFM_SEGMENTS.length),
+  withinDays: days.default(365),
+  currency: z.string().trim().regex(/^([A-Za-z]{3}|\(none\))$/, msg("Use a 3-letter currency code, such as SAR.")).transform((c) => (c === NO_CURRENCY ? c : c.toUpperCase())),
+});
 
 export type EventLeaf = z.infer<typeof eventLeafSchema>;
 export type UserPropertyLeaf = z.infer<typeof userPropertyLeafSchema>;
 export type SeenLeaf = z.infer<typeof seenLeafSchema>;
 export type PlatformLeaf = z.infer<typeof platformLeafSchema>;
 export type RevenueLeaf = z.infer<typeof revenueLeafSchema>;
-export type Leaf = EventLeaf | UserPropertyLeaf | SeenLeaf | PlatformLeaf | RevenueLeaf;
+export type RfmLeaf = z.infer<typeof rfmLeafSchema>;
+export type Leaf = EventLeaf | UserPropertyLeaf | SeenLeaf | PlatformLeaf | RevenueLeaf | RfmLeaf;
 export type GroupNode = { type: "and" | "or"; children: AudienceNode[] };
 export type NotNode = { type: "not"; child: AudienceNode };
 export type AudienceNode = Leaf | GroupNode | NotNode;
@@ -108,6 +125,7 @@ const nodeSchema: z.ZodType<AudienceNode> = z.lazy(() =>
     seenLeafSchema,
     platformLeafSchema,
     revenueLeafSchema,
+    rfmLeafSchema,
   ]),
 ) as z.ZodType<AudienceNode>;
 
@@ -122,6 +140,9 @@ export function leaves(n: AudienceNode): Leaf[] {
   walk(n, 0, (l) => out.push(l));
   return out;
 }
+
+/** Whether compiling needs the environment's revenue rules (CompileOptions.revenueRules): it has an RFM condition. */
+export const usesRevenueRules = (n: AudienceNode) => leaves(n).some((l) => l.type === "rfm");
 
 /** Parses and checks a definition; `allowSinceTrigger` only inside automations. Throws a readable message. */
 export function parseDefinition(input: unknown, opts: { allowSinceTrigger?: boolean } = {}): AudienceNode {
@@ -227,6 +248,8 @@ export interface CompileOptions {
    * (analytics reports). Its $1 must already be the environment id.
    */
   params?: ParamSink;
+  /** The environment's revenue rules (analytics/revenue-sql.ts loadRevenueRules); needed when usesRevenueRules. */
+  revenueRules?: RevenueRule[];
 }
 
 export interface Compiled {
@@ -263,6 +286,11 @@ export function peopleCtes(person?: string | null): string {
         from platform.anonymous_users a
        where a.environment_id = $1 and not exists (select 1 from solo s where s.anonymous_id = a.anonymous_id)${person ? ` and 'anon:' || a.anonymous_id = ${person}` : ""})`;
 }
+
+/** People (`<alias>.person`) with a privacy deletion request in progress; $1 is the environment id. */
+export const PENDING_DELETION = (alias: string) => `exists (select 1 from platform.privacy_requests r
+                        where r.environment_id = $1 and r.kind = 'deletion' and r.status in ('received', 'processing')
+                          and (r.subject_user_id = ${alias}.person or 'anon:' || r.subject_anonymous_id = ${alias}.person))`;
 
 /**
  * Compiles a definition into `select person from …` for one environment.
@@ -333,6 +361,21 @@ export function compileAudience(def: AudienceNode, environmentId: string, opts: 
         joins.push(`left join ${alias} on ${alias}.person = p.person`);
         return `(coalesce(${alias}.total, 0) ${CMP[n.op]} ${p.add(n.amount)}::numeric)`;
       }
+      case "rfm": {
+        // Scored among all of the window's customers, so a one-person filter only applies at the end.
+        if (!opts.revenueRules) throw new Error("compileAudience: an RFM condition needs the revenue rules.");
+        const alias = `c${ctes.length + 1}`;
+        ctes.push(`${alias}_ev as (
+          select coalesce(e.canonical_name, e.event_name) as name, ${PERSON_EXPR} as person, e."timestamp" as ts, e.id, e.platform, e.properties
+            from platform.events e ${PERSON_JOIN}
+           where e.environment_id = $1 and ${COUNTED_EVENTS} and coalesce(e.user_id, e.anonymous_id) is not null
+             and e."timestamp" >= now() - make_interval(days => ${p.add(n.withinDays)}::int)),
+    ${revenueCtes(p, opts.revenueRules, { ev: `${alias}_ev`, rules: `${alias}_rules`, tx: `${alias}_tx` })},
+    ${alias}_customers as (${rfmCustomersSql(`${alias}_tx`, p.add(n.currency))}),
+    ${alias} as (${rfmSegmentsSql(`${alias}_customers`)})`);
+        joins.push(`left join ${alias} on ${alias}.person = p.person`);
+        return `coalesce(${alias}.segment = any(${p.add(n.segments)}::text[]), false)`;
+      }
       case "user_property":
         return propertyPredicate("p.props", n, p);
       case "first_seen":
@@ -351,10 +394,14 @@ export function compileAudience(def: AudienceNode, environmentId: string, opts: 
     select p.person from people p
       ${joins.join("\n      ")}
      where ${where}
-       and not exists (select 1 from platform.privacy_requests r
-                        where r.environment_id = $1 and r.kind = 'deletion' and r.status in ('received', 'processing')
-                          and (r.subject_user_id = p.person or 'anon:' || r.subject_anonymous_id = p.person))`;
+       and not ${PENDING_DELETION("p")}`;
   return { sql, params: p.values };
+}
+
+/** compileAudience, with the environment's revenue rules loaded first when the definition needs them (`db` runs the one query). */
+export async function compileAudienceIn(db: Db, def: AudienceNode, environmentId: string, opts: CompileOptions = {}): Promise<Compiled> {
+  const revenueRules = usesRevenueRules(def) ? await loadRevenueRules(db, environmentId) : undefined;
+  return compileAudience(def, environmentId, { ...opts, revenueRules });
 }
 
 // ── Description (for lists and logs) ───────────────────────────────────────
@@ -402,6 +449,10 @@ export function describeNode(n: AudienceNode, t: T = english): string {
     case "revenue":
       return t("revenue {op} {amount} in the last {n} days{events}", {
         op: t(OP_TEXT[n.op]), amount: n.amount, n: n.withinDays, events: n.events.length ? ` (${n.events.join(", ")})` : "",
+      });
+    case "rfm":
+      return t("in RFM segment {segments} ({currency}, last {n} days)", {
+        segments: n.segments.map((s) => t(SEGMENT_LABELS[s])).join(` ${t("or")} `), currency: n.currency === NO_CURRENCY ? t("No currency") : n.currency, n: n.withinDays,
       });
   }
 }

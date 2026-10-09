@@ -8,7 +8,7 @@ import { audit } from "@/modules/audit/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { enqueueAudienceDeliveries } from "@/modules/webhooks/service";
 import { fill } from "@/modules/automation/messages";
-import { compileAudience, DefinitionError, describeNode, parseDefinition, type AudienceNode } from "./definition";
+import { compileAudienceIn, DefinitionError, describeNode, parseDefinition, type AudienceNode } from "./definition";
 
 /**
  * Audiences: saved condition trees over the people of one environment.
@@ -137,8 +137,8 @@ export async function updateAudience(ctx: TenantContext, id: string, input: { na
 /** Size and a sample of the people a definition matches right now (nothing is stored). */
 export async function previewAudience(ctx: TenantContext, environmentId: string, definitionInput: unknown): Promise<{ size: number; sample: string[]; description: string }> {
   const definition = parseDef(definitionInput);
-  const { sql, params } = compileAudience(definition, environmentId);
   return tenantTx(ctx, "audiences.read", async (db) => {
+    const { sql, params } = await compileAudienceIn(db, definition, environmentId);
     await db.query(`set local statement_timeout = '${PREVIEW_TIMEOUT}'`);
     const row = await db.one<{ size: string; sample: string[] | null }>(
       `with target as (${sql}) select (select count(*) from target) as size, (select array_agg(person) from (select person from target order by person limit 20) s) as sample`,
@@ -196,7 +196,7 @@ export async function computeAudience(db: Db, id: string, opts: { onlyIfDue?: bo
   if (!a) return null;
   const started = Date.now();
   const definition = parseDefinition(a.definition);
-  const { sql, params } = compileAudience(definition, a.environment_id);
+  const { sql, params } = await compileAudienceIn(db, definition, a.environment_id);
   const n = params.length;
   await db.query(`set local statement_timeout = '${STATEMENT_TIMEOUT}'`);
   const before = await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.audience_events where audience_id = $1", [id]);
@@ -266,7 +266,7 @@ export async function recomputeDueAudiences(opts: { limit?: number; deadline?: n
 
 /** Whether one person currently matches a condition (automation branches). Runs in the caller's transaction. */
 export async function personMatches(db: Db, environmentId: string, personKey: string, condition: AudienceNode, triggerAt: Date): Promise<boolean> {
-  const { sql, params } = compileAudience(condition, environmentId, { personKey, triggerAt });
+  const { sql, params } = await compileAudienceIn(db, condition, environmentId, { personKey, triggerAt });
   const row = await db.one<{ ok: boolean }>(`with target as (${sql}) select exists (select 1 from target) as ok`, params);
   return Boolean(row?.ok);
 }

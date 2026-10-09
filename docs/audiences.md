@@ -15,6 +15,9 @@ A tree of `and` / `or` / `not` nodes, with at most 5 levels and 20 leaves, built
 | `first_seen` / `last_seen` | Within or before the last *N* days |
 | `platform` | Has used the app on `ios`, `android`, `web`, `react_native`, `flutter` or `backend` |
 | `revenue` | Total `revenue` property, optionally within *N* days, compared with a number |
+| `rfm` | In one or more [RFM segments](analytics.md#rfm-segments) (`champions`, `loyal`, …, `lost`) over the last *N* days (default 365) in one `currency`. Customers are scored again at every computation, among that moment's customers, with the same SQL and rules as Retention → RFM segments, so the audience always has the page's people. Needs the environment's revenue rules: `compileAudienceIn()` loads them when the tree has an `rfm` leaf |
+
+Retention → Churn and Retention → RFM segments save their groups as draft audiences with a button ("Save as audience", needs `audiences.manage`). A churn group becomes `last_seen` conditions (churned: last seen more than *N* days ago; at risk: more than *N*/2 and within *N* days); an RFM segment becomes an `rfm` leaf. Both are named in the saver's language and keep updating as people come and go.
 
 Automation branch steps can also use a "since the trigger" window on event leaves, for example "did `order_completed` since the trigger".
 

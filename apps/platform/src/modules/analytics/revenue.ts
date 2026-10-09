@@ -7,10 +7,11 @@ import type { TenantContext } from "@/modules/tenancy/context";
 import { spendBySource } from "@/modules/attribution/spend";
 import { grossReturn, roas } from "@/modules/attribution/spend-pure";
 import { mrrByCurrency, type MrrCurrency } from "./mrr";
-import { revenueRules, type RevenueRule } from "./revenue-rules";
+import type { RevenueRule } from "./revenue-rules";
+import { loadRevenueRules, NO_CURRENCY, revenueCtes } from "./revenue-sql";
 import { bucketKeys, bucketSql, defaultInterval, intervalField, comparisonRange, rangeFields, resolveRange, type Interval, type ReportRange } from "./range";
 import { analyticsTx, eventsSource, rangeInfo, type RangeInfo } from "./service";
-import { channelSql, numeric, type Params } from "./sql";
+import { channelSql, type Params } from "./sql";
 
 /**
  * Revenue from events (see ./revenue-rules.ts for which events and
@@ -27,6 +28,7 @@ import { channelSql, numeric, type Params } from "./sql";
 export const REVENUE_BREAKDOWNS = ["platform", "event", "channel"] as const;
 
 export { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN } from "./sql";
+export { loadRevenueRules, NO_CURRENCY, revenueCtes } from "./revenue-sql";
 
 export const revenueSchema = z.object({
   ...rangeFields,
@@ -34,9 +36,6 @@ export const revenueSchema = z.object({
   breakdown: z.union([z.enum(REVENUE_BREAKDOWNS), z.string().regex(/^property:[A-Za-z0-9_.$-]{1,64}$/)]).optional().catch(undefined),
   cohortId: z.uuid().optional().catch(undefined),
 });
-
-/** Events with no currency (or not a 3-letter code) are grouped under this key. */
-export const NO_CURRENCY = "(none)";
 
 export interface CurrencyRevenue {
   currency: string;
@@ -89,44 +88,6 @@ export interface RevenueReport {
   rules: RevenueRule[];
   /** Monthly recurring revenue from subscription events, per currency (./mrr.ts). */
   mrr: MrrCurrency[];
-}
-
-/** Revenue rules for the environment's app: its published plan, then the catalog. */
-export async function loadRevenueRules(db: Db, environmentId: string): Promise<RevenueRule[]> {
-  const rows = await db.query<{ name: string; properties: string[] }>(
-    `select e.event_name as name, coalesce(array_agg(p.name) filter (where p.name is not null), '{}') as properties
-       from platform.environments env
-       join platform.tracking_plans tp on tp.app_id = env.app_id
-       join platform.tracking_events e on e.plan_version_id = tp.published_version_id
-       left join platform.tracking_event_properties p on p.tracking_event_id = e.id
-      where env.id = $1 and e.revenue_relevance
-      group by e.event_name`,
-    [environmentId],
-  );
-  return revenueRules(rows);
-}
-
-/**
- * `rules` and `tx` CTEs over an `ev` CTE (name, person, ts, id, platform,
- * properties): one row per counted transaction with `kind`, `amount`, `currency`.
- */
-export function revenueCtes(p: Params, rules: RevenueRule[]): string {
-  const amount = numeric("ev.properties->coalesce(r.property, 'revenue')");
-  const txKey = "coalesce(ev.properties->>'transaction_id', ev.id::text)";
-  return `rules as (
-      select * from unnest(${p.add(rules.map((r) => r.event))}::text[], ${p.add(rules.map((r) => r.property))}::text[], ${p.add(rules.map((r) => r.kind))}::text[])
-        as r(name, property, kind)
-    ),
-    tx as (
-      select distinct on (ev.name, ${txKey})
-             ev.name, ev.person, ev.ts, ev.id, ev.platform, ev.properties,
-             coalesce(r.kind, 'revenue') as kind,
-             ${amount} as amount,
-             case when ev.properties->>'currency' ~ '^[A-Za-z]{3}$' then upper(ev.properties->>'currency') else '${NO_CURRENCY}' end as currency
-        from ev left join rules r on r.name = ev.name
-       where ${amount} is not null
-       order by ev.name, ${txKey}, ev.ts, ev.id
-    )`;
 }
 
 function groupExpr(breakdown: string | undefined, p: Params): string {
