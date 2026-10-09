@@ -81,7 +81,6 @@ const ar: Record<string, string> = {
   "Event · {name}": "حدث · {name}",
   event: "حدث",
   "Find user “{q}”": "ابحث عن المستخدم “{q}”",
-  "Search…": "بحث…",
   "Quick search": "بحث سريع",
   "Search pages, events, or a user ID…": "ابحث في الصفحات أو الأحداث أو معرّف مستخدم…",
   "Nothing matches.": "لا توجد نتائج مطابقة.",

@@ -83,9 +83,18 @@ export function QuickSearch({ base, menu, settings, events, canUsers }: {
 
   return (
     <>
-      <button type="button" onClick={open} className="mb-3 hidden w-full items-center justify-between rounded-lg border border-line bg-card px-3 py-2 text-sm text-ink-3 hover:border-line-strong lg:flex">
-        <span>{t("Search…")}</span>
-        <kbd className="font-mono text-[11px]" dir="ltr">{mac ? "⌘K" : "Ctrl K"}</kbd>
+      {/* A magnifier in the side menu's top corner (NavShell positions it); phones open search from the top bar. */}
+      <button
+        type="button"
+        onClick={open}
+        aria-label={t("Search pages")}
+        title={`${t("Search pages")} (${mac ? "⌘K" : "Ctrl K"})`}
+        className="absolute end-0 top-0 z-10 hidden size-8 place-items-center rounded-md text-ink-2 hover:bg-paper-2 hover:text-ink lg:grid"
+      >
+        <svg aria-hidden viewBox="0 0 20 20" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+          <circle cx="8.5" cy="8.5" r="5.5" />
+          <path d="m13 13 4 4" />
+        </svg>
       </button>
       <dialog
         ref={dialog}

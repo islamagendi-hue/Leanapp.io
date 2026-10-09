@@ -36,6 +36,7 @@ const ar: Record<string, string> = {
   "Close menu": "أغلق القائمة",
   "Hide menu": "أخفِ القائمة",
   "Show menu": "أظهر القائمة",
+  "Search pages": "ابحث في الصفحات",
   Beta: "تجريبي",
   Soon: "قريبًا",
   "Not available yet": "غير متاح بعد",

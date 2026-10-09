@@ -86,17 +86,17 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
       className={`flex min-h-11 items-center gap-2 rounded-md px-3 lg:min-h-0 lg:px-2 lg:py-1.5 ${sub ? "ms-3 text-[13px]" : ""} ${href === active ? "bg-ink text-paper" : "text-ink-2 hover:bg-paper-2"}`}
     >
       {t(label)}
-      {beta && <span className="pill border-current text-[10px] opacity-70">{t("Beta")}</span>}
+      {beta && <span className="pill border-current text-[10px] normal-case opacity-70">{t("Beta")}</span>}
     </Link>
   );
   const nav = (
     <nav aria-label={title} className="text-sm">
       {back && (
-        <Link href={back.href} className="mb-2 flex min-h-10 items-center gap-1 truncate px-2 text-xs text-ink-3 hover:text-ink lg:min-h-0">
+        <Link href={back.href} className="mb-2 flex min-h-10 items-center gap-1 truncate px-2 text-xs text-ink-3 hover:text-ink lg:min-h-0 lg:pe-10">
           <span aria-hidden className="inline-block rtl:-scale-x-100">←</span> {back.label}
         </Link>
       )}
-      <p className="mb-4 truncate px-2 text-base font-bold">{title}</p>
+      <p className="mb-4 truncate px-2 text-base font-bold lg:pe-10">{title}</p>
       {menu.map((g) => (
         <Fragment key={g.label}>
           {g.heading !== undefined && (
