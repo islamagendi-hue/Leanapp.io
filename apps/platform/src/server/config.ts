@@ -13,6 +13,7 @@
  */
 import { encryptionKeyProblem } from "@/lib/secret-box";
 import { priceEnvProblems } from "@/modules/billing/plans";
+import { mediaStorageProblems } from "@/modules/media/storage/config";
 
 export type Deployment = "production" | "preview" | "local";
 
@@ -104,6 +105,9 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   if (encProblem) err("INTEGRATIONS_ENCRYPTION_KEY", encProblem);
   else if (deployed && !env.INTEGRATIONS_ENCRYPTION_KEY) warn("INTEGRATIONS_ENCRYPTION_KEY", "not set; ad-network, push, messaging and email credentials and webhooks can't be configured");
   if (deployed && !env.ATTRIBUTION_IP_HASH_SECRET) warn("ATTRIBUTION_IP_HASH_SECRET", "not set; clicks are recorded without an IP hash, so probabilistic matching is off");
+
+  // Media library storage (docs/media.md): Postgres by default, S3-compatible when configured.
+  for (const p of mediaStorageProblems(env)) err(p.variable, p.problem);
 
   return { deployment, errors, warnings };
 }

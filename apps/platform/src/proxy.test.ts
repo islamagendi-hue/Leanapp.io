@@ -19,6 +19,11 @@ describe("proxy", () => {
     expect(proxy(new NextRequest("https://api.leanapp.io/l/shop/AbCdEfGh")).headers.get("content-security-policy")).toBeNull();
     expect(proxy(new NextRequest("https://api.leanapp.io/.well-known/apple-app-site-association")).headers.get("content-security-policy")).toBeNull();
 
+    // Media files set their own sandboxing CSP.
+    expect(proxy(new NextRequest("https://app.leanapp.io/o/acme/apps/shop/engage/media/0b7f4c0e-1111-4222-8333-944445555666/file")).headers.get("content-security-policy")).toBeNull();
+    expect(proxy(new NextRequest("https://api.leanapp.io/m/AbCdEfGhIjKlMnOpQrStUvWxYz0123456789.png")).headers.get("content-security-policy")).toBeNull();
+    expect(proxy(new NextRequest("https://app.leanapp.io/o/acme/apps/shop/engage/media")).headers.get("content-security-policy")).not.toBeNull();
+
     const bad = proxy(new NextRequest("https://api.leanapp.io/v1/events", { headers: { "x-request-id": "<script>" } }));
     expect(bad.headers.get("x-request-id")).not.toBe("<script>");
   });

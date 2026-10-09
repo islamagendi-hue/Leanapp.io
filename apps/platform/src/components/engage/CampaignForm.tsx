@@ -4,6 +4,7 @@ import { useState } from "react";
 import { ActionForm, type FormState } from "@/components/ActionForm";
 import { useT } from "@/i18n/client";
 import { msg } from "@/i18n/translate";
+import { MediaPicker } from "@/components/engage/MediaPicker";
 import { CHANNEL_LABELS, CHANNELS, type CampaignForm as Values, type Channel, type ScheduleMode } from "@/modules/campaigns/options";
 
 const WEEKDAYS = [msg("Sunday"), msg("Monday"), msg("Tuesday"), msg("Wednesday"), msg("Thursday"), msg("Friday"), msg("Saturday")];
@@ -62,6 +63,7 @@ export function CampaignForm({ action, name, initial, audiences, emailTemplates,
             <label className="block"><span className="label">{t("Message")}</span><textarea name="body" className="input min-h-24" required maxLength={channel === "push" ? 500 : 1000} defaultValue={v("body")} /></label>
             {channel === "in_app" && <label className="block"><span className="label">{t("Button text (optional)")}</span><input name="buttonText" className="input" maxLength={40} defaultValue={v("buttonText")} /></label>}
             <label className="block"><span className="label">{t("Deep link (optional)")}</span><input name="deepLink" className="input" maxLength={500} placeholder="myapp://offers" dir="ltr" defaultValue={v("deepLink")} /></label>
+            <MediaPicker key={channel} name="imageAssetId" channel={channel} defaultValue={v("imageAssetId")} />
           </>
         )}
         {channel === "email" && (

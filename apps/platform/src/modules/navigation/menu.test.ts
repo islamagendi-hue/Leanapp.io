@@ -40,7 +40,7 @@ describe("navigation menu", () => {
       "Attribution", "Attribution/Attribution report", "Attribution/Tracking links & QR", "Attribution/Deep links",
       "Analyze", "Analyze/Events & trends", "Analyze/Funnels", "Analyze/Dashboards", "Analyze/Saved reports",
       "Segments", "Segments/Users", "Segments/Audiences",
-      "Engage Lab", "Engage Lab/Campaigns", "Engage Lab/Flows", "Engage Lab/Templates", "Engage Lab/Channels & delivery",
+      "Engage Lab", "Engage Lab/Campaigns", "Engage Lab/Flows", "Engage Lab/Templates", "Engage Lab/Media library", "Engage Lab/Channels & delivery",
       "A/B experiments", "Settings",
     ]);
     // Beta stays on what is in beta: attribution and the acquisition pages.
@@ -61,6 +61,8 @@ describe("navigation menu", () => {
   it("shows each role only what its permissions open", () => {
     const marketer = labels(projectMenu("marketer", base));
     expect(marketer).toContain("Engage Lab/Flows");
+    expect(marketer).toContain("Engage Lab/Media library");
+    expect(labels(projectMenu("developer", base))).toContain("Engage Lab/Media library");
     expect(marketer).toContain("Segments/Users");
     const analyst = labels(projectMenu("analyst", base));
     expect(analyst).toContain("Segments/Users");

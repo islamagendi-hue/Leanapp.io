@@ -16,6 +16,7 @@ const base = (org: string, app: string) => `/o/${org}/apps/${app}/engage/campaig
 const FIELDS = [
   "audienceId", "channel", "title", "body", "deepLink", "buttonText", "emailTemplateId", "subject", "whatsappTemplate", "whatsappParams", "phoneProperty",
   "schedule", "sendAt", "time", "weekday", "capMessages", "capHours", "quietHours",
+  "imageAssetId", // media library (push, in-app)
 ] as const;
 
 function campaignForm(form: FormData): CampaignForm {

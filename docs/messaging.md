@@ -119,4 +119,5 @@ On local deployments only, `WHATSAPP_API_BASE_URL` and `RESEND_API_BASE_URL` poi
 
 - **SMS:** left out until a provider is chosen. The Twilio Messages REST API would fit the same pattern (customer's Account SID and auth token, `StatusCallback` with `X-Twilio-Signature`), but nothing is built.
 - **WhatsApp:** free-form (session) messages, media headers, buttons with dynamic URLs, and template creation from LeanApp.
+- **Media in messages:** the [media library](media.md) stores and checks files and gives senders a durable public URL (`resolveMediaForSend`). Push and in-app campaign steps can carry an `imageAssetId` chosen in the composer; attaching it to the FCM/APNs/in-app payload at send time is part of the provider adapters and not wired yet.
 - **Email:** an HTML template editor, open and click tracking, and bounce/complaint webhooks from Resend into suppressions.

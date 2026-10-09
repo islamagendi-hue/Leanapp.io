@@ -64,6 +64,7 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 - ✓ Every request gets an `x-request-id` (kept from the caller when well-formed, echoed in the response) that appears in the server logs.
 - ✓ Server actions are POST-only and origin-checked by Next.js.
 - ✓ All SQL is parameterized; there is no string-built SQL with user input.
+- ✓ Uploaded media ([media](media.md)): the type comes from the file's signature bytes and must match the declared type; only JPEG, PNG, WebP, GIF, MP4/3GP and PDF are stored (never SVG or HTML). Files are served with their stored type, `nosniff` and a `sandbox` CSP, from the authorized route (members with `media.read`) or, when a member turns it on, from an unguessable public link that providers fetch. Storage credentials stay on the server.
 
 ## Secrets and operations
 
