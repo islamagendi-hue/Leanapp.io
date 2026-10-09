@@ -17,6 +17,7 @@ import { archiveAudience, createAudience, getAudience, listAudiences, previewAud
 import { ingest } from "@/modules/ingestion/service";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { ROLE_PERMISSIONS, ROLES } from "@/modules/rbac/permissions";
+import { saveSpend } from "@/modules/attribution/spend";
 import { makeTenant } from "./helpers";
 
 type T = Awaited<ReturnType<typeof makeTenant>>;
@@ -138,6 +139,32 @@ describe("revenue", () => {
     const r = await eventTrend(A.ctx, scope, { event: "purchase_completed", days: 30, breakdown: "channel" });
     expect(r.series.map((s) => s.key).sort()).toEqual(["(no install on record)", "organic", "tiktok"]);
     expect(r.series.find((s) => s.key === "(no install on record)")!.total).toBe(1); // the shared tablet's purchase
+  });
+
+  it("puts entered ad spend next to each channel's revenue, per currency, with return and ROAS", async () => {
+    const spendScope = { appId: A.app.id, environmentId: A.dev.id, timezone: "UTC" };
+    const day = (n: number) => daysAgo(n).slice(0, 10);
+    await saveSpend(A.ctx, spendScope, { date: day(6), source: "tiktok", currency: "SAR", amount: "30" });
+    await saveSpend(A.ctx, spendScope, { date: day(5), source: "tiktok", campaign: "eid", currency: "SAR", amount: "20" });
+    await saveSpend(A.ctx, spendScope, { date: day(5), source: "tiktok", currency: "USD", amount: "4" });
+    await saveSpend(A.ctx, spendScope, { date: day(40), source: "tiktok", currency: "SAR", amount: "1000" }); // outside the range
+    await saveSpend(A.ctx, spendScope, { date: day(3), source: "meta", currency: "SAR", amount: "25" }); // spend, no revenue
+    await saveSpend(A.ctx, spendScope, { date: day(3), source: "google", currency: "EUR", amount: "5" }); // a currency with no revenue
+    const r = await revenueReport(A.ctx, scope, { days: 30, breakdown: "channel" });
+    expect(r.spendIncluded).toBe(true);
+    const row = (currency: string, key: string) => r.breakdown!.find((g) => g.currency === currency && g.key === key);
+    // Gross, not net: 150 SAR of tiktok revenue against 50 SAR of spend; never mixed with the USD spend.
+    expect(row("SAR", "tiktok")).toMatchObject({ gross: 150, net: 100, spend: 50, return: 100, roas: 3 });
+    expect(row("USD", "tiktok")).toMatchObject({ gross: 10, spend: 4, return: 6, roas: 2.5 });
+    expect(row("SAR", "meta")).toMatchObject({ gross: 0, net: 0, payingUsers: 0, spend: 25, return: -25, roas: 0 });
+    expect(row("EUR", "google")).toMatchObject({ spend: 5, return: -5, roas: 0 });
+    expect(row("USD", "organic")).toMatchObject({ spend: null, return: null, roas: null });
+    expect(r.breakdown!.at(-1)).toMatchObject({ currency: "EUR" }); // currencies without revenue come last
+    expect(r.breakdown).toHaveLength(7);
+    // Only the channel breakdown carries spend.
+    const byPlatform = await revenueReport(A.ctx, scope, { days: 30, breakdown: "platform" });
+    expect(byPlatform.breakdown!.every((g) => g.spend === undefined && g.roas === undefined)).toBe(true);
+    expect(byPlatform.spendIncluded).toBeUndefined();
   });
 });
 

@@ -119,6 +119,12 @@ const ar: Record<string, string> = {
   "Unknown source": "مصدر غير معروف",
   "No install on record": "لا يوجد تثبيت مسجَّل",
   "Channel is where each paying person came from: the source of their latest install before the purchase, as in Acquisition.": "القناة هي المصدر الذي جاء منه كل شخص دفع: مصدر آخر تثبيت له قبل الشراء، كما في صفحة الاستحواذ.",
+  Spend: "الإنفاق",
+  Return: "العائد",
+  "Spend is entered on the {page} page. Return is gross minus spend; ROAS is gross ÷ spend.":
+    "يُدخَل الإنفاق في صفحة {page}. العائد هو الإجمالي ناقص الإنفاق، و ROAS هو الإجمالي ÷ الإنفاق.",
+  "Spend from the {page} page isn't shown with an audience filter, as it can't be split by audience.":
+    "لا يظهر الإنفاق من صفحة {page} عند تصفية جمهور، لأنه لا يمكن تقسيمه حسب الجمهور.",
   Count: "العدد",
   People: "الأشخاص",
   "{paying} paying · ARPU {arpu}": "{paying} دافع · ARPU {arpu}",

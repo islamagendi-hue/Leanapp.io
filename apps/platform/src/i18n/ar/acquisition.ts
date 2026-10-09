@@ -43,6 +43,10 @@ const ar: Record<string, string> = {
     "تُطابَق عمليات التثبيت وإعادة التفاعل من تدفق أحداث LeanApp نفسه: النقرات على روابط تتبّع LeanApp، ومُحيل التثبيت من المتجر، ومعرّفات النقر من شبكات الإعلانات التي يرسلها تطبيقك. يُنسب كل تحويل إلى آخر نقطة تواصل قبله ضمن نافذة التحويل. وتُعرض إشعارات Postback من SKAdNetwork الخاصة بـ Apple منفصلة وبأرقام إجمالية فقط، ولا تُربط بأي مستخدم من مستخدميك.",
   "It is not a full mobile measurement partner: there is no ad cost import or ROAS, no fraud prevention, no multi-touch or view-through attribution, and no installs reported by ad networks themselves. Numbers can differ from what ad networks report.":
     "هذا ليس شريك قياس كاملًا للتطبيقات: لا يوجد استيراد لتكلفة الإعلانات ولا ROAS، ولا حماية من الاحتيال، ولا إسناد متعدد النقاط أو بالمشاهدة، ولا عمليات تثبيت تُبلغ عنها شبكات الإعلانات. وقد تختلف الأرقام عمّا تُبلغ عنه الشبكات.",
+  "Installs and re-engagements are matched from LeanApp's own event stream: clicks on LeanApp tracking links, the store install referrer and ad-network click ids your app sends. Each conversion is credited to the last touch before it. Apple's SKAdNetwork postbacks are shown separately, in aggregate.":
+    "تُطابَق عمليات التثبيت وإعادة التفاعل من تدفق أحداث LeanApp نفسه: النقرات على روابط تتبّع LeanApp، ومُحيل التثبيت من المتجر، ومعرّفات النقر من شبكات الإعلانات التي يرسلها تطبيقك. يُنسب كل تحويل إلى آخر نقطة تواصل قبله. تُعرض إشعارات Postback من SKAdNetwork الخاصة بـ Apple بشكل منفصل وإجمالي.",
+  "It is not a full mobile measurement partner: ad spend is entered by hand or by CSV, as automatic import from ad networks is not built yet, and there is no fraud prevention, no multi-touch or view-through attribution, and no installs reported by ad networks themselves. Numbers can differ from what the ad networks report.":
+    "هذا ليس شريك قياس كاملًا للتطبيقات: يُدخَل إنفاق الإعلانات يدويًا أو بملف CSV، والاستيراد التلقائي لم يُبنَ بعد، ولا توجد حماية من الاحتيال، ولا إسناد متعدد النقاط أو بالمشاهدة، ولا عمليات تثبيت تُبلغ عنها شبكات الإعلانات نفسها. وقد تختلف الأرقام عمّا تُبلغ عنه شبكات الإعلانات.",
   "Showing {env} data. Use production links in live campaigns.": "تُعرض بيانات {env}. استخدم روابط الإنتاج في الحملات الفعلية.",
 
   // Overview
@@ -126,7 +130,7 @@ const ar: Record<string, string> = {
   "Avg fine value": "متوسط القيمة الدقيقة",
   "Coarse high": "تقريبية مرتفعة",
   "Not included in the Beta": "غير مشمول في النسخة التجريبية",
-  "Ad cost import, CPI and ROAS": "استيراد تكلفة الإعلانات و CPI و ROAS",
+  "Automatic import of ad cost, and CPI": "الاستيراد التلقائي لتكلفة الإعلانات، و CPI",
   "Fraud prevention": "الحماية من الاحتيال",
   "Multi-touch and view-through attribution": "الإسناد متعدد النقاط والإسناد بالمشاهدة",
   "Installs claimed by ad networks (self-attributing networks) and audience export to them": "عمليات التثبيت التي تنسبها شبكات الإعلانات لنفسها (الشبكات ذاتية الإسناد) وتصدير الجماهير إليها",
@@ -145,7 +149,45 @@ const ar: Record<string, string> = {
   "No conversion events yet. Conversions are the events your tracking plan marks as conversion or revenue (for example purchase_completed).":
     "لا توجد أحداث تحويل بعد. التحويلات هي الأحداث التي تحددها خطة التتبّع كتحويل أو إيراد (مثل purchase_completed).",
   Conversions: "التحويلات",
-  "Ad spend isn't imported, so there is no cost, CPI or ROAS here.": "لا يُستورد إنفاق الإعلانات، لذا لا توجد هنا تكلفة ولا CPI ولا ROAS.",
+  "No cost or CPI here: enter spend on the {spend} page to see return and ROAS in Revenue by channel.":
+    "لا تكلفة ولا CPI هنا: أدخِل الإنفاق في صفحة {spend} لترى العائد و ROAS في الإيرادات حسب القناة.",
+
+  // Ad spend
+  "Ad spend": "إنفاق الإعلانات",
+  "Your ad spend per day, source and campaign, entered by hand or by CSV. Revenue by channel shows it next to revenue, with return and ROAS. Automatic import from ad networks is coming.":
+    "إنفاقك على الإعلانات لكل يوم ومصدر وحملة، تُدخله يدويًا أو بملف CSV. ويعرضه تقرير الإيرادات حسب القناة بجانب الإيرادات، مع العائد و ROAS. أما الاستيراد التلقائي من شبكات الإعلانات فلم يُبنَ بعد.",
+  "Add a day's spend": "أضِف إنفاق يوم",
+  "Save spend": "حفظ الإنفاق",
+  Date: "التاريخ",
+  "Campaign (optional)": "الحملة (اختياري)",
+  "Write the source exactly as Acquisition shows it.": "اكتب المصدر تمامًا كما يظهر في الاستحواذ.",
+  "Saving the same entry again replaces its amount.": "حفظ الإدخال نفسه مرة أخرى يستبدل مبلغه.",
+  "Import a CSV": "استيراد ملف CSV",
+  "One row per day, with these columns:": "صف واحد لكل يوم، بهذه الأعمدة:",
+  "The header row and the campaign are optional.": "صف العناوين والحملة اختياريان.",
+  "One wrong row stops the import; wrong lines are listed.": "صف خاطئ واحد يوقف الاستيراد، وتظهر الأسطر الخاطئة.",
+  Import: "استيراد",
+  "Paste CSV": "الصق محتوى CSV",
+  "Or upload a file": "أو ارفع ملفًا",
+  Entries: "الإدخالات",
+  "No spend entered in this environment yet.": "لم يُدخَل أي إنفاق في هذه البيئة بعد.",
+  "Delete this spend entry?": "هل تريد حذف إدخال الإنفاق هذا؟",
+  "Return and ROAS for each channel are shown in {revenue}, broken down by channel.": "العائد و ROAS لكل قناة في تقرير {revenue} حسب القناة.",
+  "Spend saved.": "حُفظ الإنفاق.",
+  "The CSV is too large: import at most 1 MB at a time.": "ملف CSV كبير جدًا: استورد 1 ميغابايت على الأكثر في كل مرة.",
+  "Nothing was imported. Fix these lines and try again.": "لم يُستورد شيء. صحّح هذه الأسطر وحاول مرة أخرى.",
+  "Line {line}: {error}": "السطر {line}: {error}",
+  "…and {n} more lines with errors.": "…و{n} أسطر أخرى بها أخطاء.",
+  "Imported {n} spend entries.": "استُورد {n} من إدخالات الإنفاق.",
+  "Enter the date as YYYY-MM-DD.": "أدخِل التاريخ بالصيغة YYYY-MM-DD.",
+  "The date can't be in the future.": "لا يمكن أن يكون التاريخ في المستقبل.",
+  "Enter the source (1–100 characters), as Acquisition shows it.": "أدخِل المصدر (من 1 إلى 100 حرف) كما يظهر في الاستحواذ.",
+  "Spend can't be put on organic or unknown installs.": "لا يمكن تسجيل إنفاق على عمليات التثبيت العضوية أو مجهولة المصدر.",
+  "The campaign is at most 100 characters.": "الحد الأقصى لاسم الحملة 100 حرف.",
+  "Enter the amount as a number of 0 or more, with at most 2 decimals.": "أدخِل المبلغ رقمًا يساوي 0 أو أكثر، بمنزلتين عشريتين على الأكثر.",
+  "Import at most 5,000 rows at a time.": "استورد 5,000 صف على الأكثر في كل مرة.",
+  "Each row needs 5 columns: date, source, campaign, currency, amount.": "يحتاج كل صف إلى 5 أعمدة: التاريخ، المصدر، الحملة، العملة، المبلغ.",
+  "Paste or upload at least one row.": "الصق صفًا واحدًا على الأقل أو ارفع ملفًا.",
 
   // Tracking links & QR
   "One link per campaign, ad or placement. It sends iPhone users to the App Store, Android users to Google Play with the click id in the install referrer, and everyone else to your web page. Crawler clicks, link previews and prefetches are not counted. Installs only match clicks of the same environment.":

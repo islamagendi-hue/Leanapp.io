@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { AcquisitionHeader, AcquisitionRange, money, num } from "@/components/acquisition/AcquisitionHeader";
+import { rich } from "@/components/acquisition/rich";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { mergeCampaignRows } from "@/modules/attribution/pure";
 import { attributionOverview } from "@/modules/attribution/reports";
@@ -70,7 +72,11 @@ export default async function SourcesPage(props: PageProps<"/o/[org]/apps/[app]/
           </table>
         )}
       </section>
-      <p className="text-sm text-ink-3">{t("Ad spend isn't imported, so there is no cost, CPI or ROAS here.")}</p>
+      <p className="text-sm text-ink-3">
+        {rich(t("No cost or CPI here: enter spend on the {spend} page to see return and ROAS in Revenue by channel."), {
+          spend: <Link className="underline" href={`${base}/spend?env=${env.type}`}>{t("Ad spend")}</Link>,
+        })}
+      </p>
     </div>
   );
 }

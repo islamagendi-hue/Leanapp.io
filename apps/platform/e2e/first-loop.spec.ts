@@ -560,7 +560,20 @@ test("acquisition (beta): overview, sources, attribution, and a tracking link wi
   const tabs = page.getByRole("navigation", { name: "Acquisition" });
   await tabs.getByRole("link", { name: "Sources & campaigns" }).click();
   await expect(page.getByRole("heading", { name: "Sources & campaigns Beta", level: 1 })).toBeVisible();
-  await expect(page.getByText(/no cost, CPI or ROAS/)).toBeVisible();
+  await expect(page.getByText(/No cost or CPI here: enter spend on the Ad spend page/)).toBeVisible();
+  // Ad spend: entered by hand or by CSV; a CSV with a wrong row saves nothing and names the line.
+  await tabs.getByRole("link", { name: "Ad spend" }).click();
+  await expect(page.getByRole("heading", { name: "Ad spend Beta", level: 1 })).toBeVisible();
+  await page.getByRole("combobox", { name: "Source" }).fill("tiktok");
+  await page.getByRole("textbox", { name: "Amount" }).fill("1250.50");
+  await page.getByRole("button", { name: "Save spend" }).click();
+  await expect(page.getByText("Spend saved.")).toBeVisible();
+  await expect(page.getByTestId("spend-entries").getByRole("row", { name: /tiktok/ })).toContainText("1,250.5");
+  await page.getByRole("textbox", { name: "Paste CSV" }).fill("2026-01-02,snap,,SAR,10\n2026-01-03,snap,,SAR,ten");
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page.getByText(/^Line 2: /)).toBeVisible();
+  await expect(page.getByTestId("spend-entries").getByRole("row", { name: /snap/ })).toHaveCount(0);
+  await expect(page.locator('a[href*="/analytics/revenue?env=development&by=channel"]')).toHaveText("Revenue");
   await tabs.getByRole("link", { name: "Attribution" }).click();
   await expect(page.getByRole("heading", { name: "How installs were matched" })).toBeVisible();
   // Honest labels: self-reported sources are not "deterministic", and paid iOS installs are unattributed.
