@@ -293,6 +293,7 @@ export async function createPostback(ctx: TenantContext, appId: string, input: u
   const config: Record<string, string> = {};
   for (const f of spec.config) {
     const v = p.config[f.key]?.trim();
+    if (v && f.options && !f.options.some((o) => o.value === v)) throw new ValidationError(`${f.label}: ${msg("choose one of the listed values.")}`);
     if (v) config[f.key] = v;
     else if (f.required) throw new ValidationError(`${f.label} is required for ${spec.label}.`);
   }

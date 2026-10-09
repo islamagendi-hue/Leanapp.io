@@ -1,11 +1,15 @@
 import "server-only";
-import { withSystem } from "@/lib/db";
+import { withSystem, type Db } from "@/lib/db";
 import { AppError } from "@/lib/errors";
 import { log } from "@/lib/log";
 import { decryptSecret } from "@/lib/secret-box";
 import { effectiveConsent, loadStateRows, userKeysOf, type StateRow } from "@/modules/privacy/consent";
-import { eligibility, parseProviderError, requestSummary, validateConversionBody, type SkipReason } from "./conversions";
-import { buildRequest, googleAccessToken, type Network } from "./networks";
+import { runAdServicesJobs } from "./adservices";
+import {
+  eligibility, eventSourceUrl, metaActionSource, metaBrowserId, parseProviderError, requestSummary, userDataAllowed, userDataMode, validateConversionBody,
+  type ActionSource, type RawUserData, type SkipReason,
+} from "./conversions";
+import { buildRequest, googleAccessToken, type Network, type WebContext } from "./networks";
 import { backoffSeconds, retryable, type PostbackPayload } from "./pure";
 import { assertSafeDestination } from "./url-safety";
 
@@ -22,9 +26,17 @@ import { assertSafeDestination } from "./url-safety";
  * the network can match on, or whose body breaks the network's rules are
  * marked `skipped` with the reason, and never sent. Each attempt records the
  * provider's error code and trace id and a token-free summary of the request.
+ *
+ * Meta website events and hashed user data (Meta advanced matching, Google
+ * Enhanced Conversions) are read at send time from the stored event behind
+ * the delivery and the user's profile (loadSendContext): the page URL, user
+ * agent, Meta's _fbp / _fbc browser ids, and the `email` / `phone` user
+ * properties. None of it is copied onto the delivery row.
  */
 const LEASE_SECONDS = 120;
 const TIMEOUT_MS = 10_000;
+/** How far back an earlier event of the same visitor may supply _fbp / _fbc. Meta's _fbp cookie lives 90 days. */
+const BROWSER_ID_LOOKBACK_DAYS = 90;
 
 interface Claimed {
   id: string;
@@ -38,8 +50,80 @@ interface Claimed {
   http_method: "GET" | "POST";
   config: Record<string, string>;
   credentials_enc: string | null;
+  attribution_event_id: string | null;
+  conversion_id: string | null;
   anonymous_id: string | null;
   user_id: string | null;
+}
+
+interface SendContext {
+  actionSource: ActionSource;
+  web: WebContext | null;
+  userData: RawUserData | null;
+}
+
+const str = (v: unknown, max = 1000) => (typeof v === "string" && v.trim() && v.length <= max ? v.trim() : null);
+
+/**
+ * What a Meta / Google request needs beyond the queued payload, read from the
+ * event behind the delivery (the conversion's event, else the attribution
+ * event's) and the user's profile. User data is only read when the postback
+ * may send it (send_user_data and the user's consent).
+ */
+async function loadSendContext(db: Db, d: Claimed, attributionConsent: boolean | null): Promise<SendContext> {
+  const ev = await db.one<{ event_id: string; platform: string | null; context: Record<string, unknown>; properties: Record<string, unknown>; anonymous_id: string | null; user_id: string | null; timestamp: Date }>(
+    `select e.event_id, e.platform, e.context, e.properties, e.anonymous_id, e.user_id, e."timestamp"
+       from platform.events e
+      where e.environment_id = $1
+        and e.id = coalesce((select c.event_row_id from platform.attribution_conversions c where c.id = $2),
+                            (select a.event_row_id from platform.attribution_events a where a.id = $3))`,
+    [d.environment_id, d.conversion_id, d.attribution_event_id],
+  );
+  const platform = ev?.platform ?? d.payload.platform ?? null;
+  const actionSource: ActionSource = d.network === "meta" ? metaActionSource(d.config.action_source, platform) : "app";
+  let web: WebContext | null = null;
+  if (d.network === "meta" && actionSource === "website" && ev) {
+    const ctx = ev.context ?? {};
+    const attr = (ctx.attribution ?? {}) as Record<string, unknown>;
+    const page = (ctx.page ?? {}) as Record<string, unknown>;
+    const props = ev.properties ?? {};
+    let fbp = metaBrowserId(attr.fbp);
+    let fbc = metaBrowserId(attr.fbc);
+    const anon = ev.anonymous_id ?? d.anonymous_id;
+    if ((!fbp || !fbc) && anon) {
+      // The web SDK sends attribution context on a session's first event, not on every event.
+      const earlier = await db.one<{ fbp: string | null; fbc: string | null }>(
+        `select (select context->'attribution'->>'fbp' from platform.events
+                  where environment_id = $1 and anonymous_id = $2 and context->'attribution' ? 'fbp'
+                    and "timestamp" between $3::timestamptz - make_interval(days => $4) and $3::timestamptz + interval '5 minutes'
+                  order by "timestamp" desc limit 1) as fbp,
+                (select context->'attribution'->>'fbc' from platform.events
+                  where environment_id = $1 and anonymous_id = $2 and context->'attribution' ? 'fbc'
+                    and "timestamp" between $3::timestamptz - make_interval(days => $4) and $3::timestamptz + interval '5 minutes'
+                  order by "timestamp" desc limit 1) as fbc`,
+        [d.environment_id, anon, ev.timestamp, BROWSER_ID_LOOKBACK_DAYS],
+      );
+      fbp = fbp ?? metaBrowserId(earlier?.fbp);
+      fbc = fbc ?? metaBrowserId(earlier?.fbc);
+    }
+    web = {
+      eventId: ev.event_id,
+      eventSourceUrl: eventSourceUrl(props.url) ?? eventSourceUrl(props.page_url) ?? eventSourceUrl(page.url) ?? eventSourceUrl(attr.landing_url),
+      userAgent: str(ctx.user_agent) ?? str(ctx.userAgent),
+      fbp,
+      fbc,
+    };
+  }
+  let userData: RawUserData | null = null;
+  const userId = ev?.user_id ?? d.user_id;
+  if (userDataAllowed(userDataMode(d.config.send_user_data), attributionConsent) && userId) {
+    const profile = await db.one<{ properties: Record<string, unknown> }>(
+      "select properties from platform.app_users where environment_id = $1 and external_id = $2",
+      [d.environment_id, userId],
+    );
+    userData = { email: profile?.properties?.email, phone: profile?.properties?.phone, externalId: userId };
+  }
+  return { actionSource, web, userData };
 }
 
 export async function deliverPostbacks(opts: { limit?: number; deadline?: number; fetchImpl?: typeof fetch } = {}): Promise<{ succeeded: number; retrying: number; failed: number; skipped: number }> {
@@ -57,6 +141,7 @@ export async function deliverPostbacks(opts: { limit?: number; deadline?: number
          from due, platform.attribution_postbacks p
         where d.id = due.id and p.id = d.postback_id
        returning d.id, d.postback_id, d.organization_id, d.environment_id, d.attempts, d.payload, p.network, p.url_template, p.http_method, p.config, p.credentials_enc,
+                 d.attribution_event_id, d.conversion_id,
                  (select ae.anonymous_id from platform.attribution_events ae where ae.id = d.attribution_event_id) as anonymous_id,
                  (select ae.user_id from platform.attribution_events ae where ae.id = d.attribution_event_id) as user_id`,
       [Math.min(opts.limit ?? 200, 1000), LEASE_SECONDS],
@@ -81,10 +166,17 @@ export async function deliverPostbacks(opts: { limit?: number; deadline?: number
     let traceId: string | null = null;
     let providerRetry = false;
     let summary: Record<string, unknown> | null = null;
+    let send: SendContext | null = null;
+    let consent: boolean | null = null;
     try {
       if (d.network !== "custom") {
         const keys = userKeysOf({ userId: d.user_id, anonymousId: d.anonymous_id });
-        skip = eligibility(d.network, d.payload, { anonymousId: d.anonymous_id, userId: d.user_id }, effectiveConsent(consentRows.get(d.environment_id) ?? [], keys, "attribution"));
+        consent = effectiveConsent(consentRows.get(d.environment_id) ?? [], keys, "attribution");
+        if (consent !== false && (d.network === "meta" || d.network === "google")) send = await withSystem((db) => loadSendContext(db, d, consent));
+        const match = send
+          ? { actionSource: send.actionSource, browserIds: Boolean(send.web?.fbp || send.web?.fbc), userData: Boolean(send.userData?.email || send.userData?.phone || (d.network === "meta" && send.userData?.externalId)) }
+          : {};
+        skip = eligibility(d.network, d.payload, { anonymousId: d.anonymous_id, userId: d.user_id }, consent, match);
       }
       if (!skip) {
         const credentials = d.credentials_enc ? (JSON.parse(decryptSecret(d.credentials_enc)) as Record<string, string>) : {};
@@ -96,6 +188,9 @@ export async function deliverPostbacks(opts: { limit?: number; deadline?: number
         const built = buildRequest(d.network, {
           urlTemplate: d.url_template, method: d.http_method, config: d.config, credentials, payload: d.payload, accessToken,
           anonymousId: d.network === "meta" ? d.anonymous_id : null,
+          web: send?.web ?? null,
+          userData: send?.userData ?? null,
+          consentGranted: consent === true,
         });
         if (!built.ok) {
           error = built.error;
@@ -173,8 +268,13 @@ export async function purgeClickFingerprints(limit = 10_000): Promise<number> {
   return rows.length;
 }
 
-/** The scheduled attribution work: postback delivery, then fingerprint cleanup. */
-export async function runAttributionJobs(opts: { deadline?: number } = {}): Promise<{ postbacks: { succeeded: number; retrying: number; failed: number; skipped: number }; purged_fingerprints: number }> {
+/** The scheduled attribution work: postback delivery, Apple AdServices lookups, then fingerprint cleanup. */
+export async function runAttributionJobs(opts: { deadline?: number } = {}): Promise<{
+  postbacks: { succeeded: number; retrying: number; failed: number; skipped: number };
+  adservices: Awaited<ReturnType<typeof runAdServicesJobs>>;
+  purged_fingerprints: number;
+}> {
   const postbacks = await deliverPostbacks({ deadline: opts.deadline });
-  return { postbacks, purged_fingerprints: await purgeClickFingerprints() };
+  const adservices = await runAdServicesJobs({ deadline: opts.deadline });
+  return { postbacks, adservices, purged_fingerprints: await purgeClickFingerprints() };
 }

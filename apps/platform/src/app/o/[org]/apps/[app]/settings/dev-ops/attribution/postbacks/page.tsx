@@ -66,6 +66,10 @@ export default async function PostbacksPage(props: PageProps<"/o/[org]/apps/[app
                       {t(NETWORK_SPECS[p.network].label)}
                       {!NETWORK_SPECS[p.network].verified && <span className="pill ms-2 border-warn/40 text-warn">{t("not verified with the live network")}</span>}
                     </div>
+                    {NETWORK_SPECS[p.network].config.filter((f) => f.options && p.config[f.key] && p.config[f.key] !== f.options[0].value).map((f) => (
+                      <div key={f.key} className="text-xs text-ink-2">{t(f.label)}: {t(f.options!.find((o) => o.value === p.config[f.key])?.label ?? p.config[f.key])}</div>
+                    ))}
+                    {p.config.test_event_code && <div className="text-xs text-warn">{t("Test event code set: Meta shows these events under Test events only.")}</div>}
                     {p.url_template && <code className="mt-1 block font-mono text-xs break-all text-ink-2" dir="ltr">{p.http_method} {p.url_template}</code>}
                     {p.network !== "custom" && !p.has_credentials && <div className="text-xs text-alert">{t("Not connected: no credentials stored.")}</div>}
                   </td>
@@ -143,7 +147,16 @@ export default async function PostbacksPage(props: PageProps<"/o/[org]/apps/[app
             {spec.config.length > 0 && (
               <div className="grid gap-3 sm:grid-cols-2">
                 {spec.config.map((f) => (
-                  <label key={f.key} className="block"><span className="label">{t(f.label)}</span><input name={`config.${f.key}`} className="input" required={f.required} maxLength={500} /></label>
+                  <label key={f.key} className="block"><span className="label">{t(f.label)}</span>
+                    {f.options ? (
+                      <select name={`config.${f.key}`} className="input" defaultValue={f.options[0].value}>
+                        {f.options.map((o) => <option key={o.value} value={o.value}>{t(o.label)}</option>)}
+                      </select>
+                    ) : (
+                      <input name={`config.${f.key}`} className="input" required={f.required} maxLength={500} />
+                    )}
+                    {f.help && <span className="help">{t(f.help)}</span>}
+                  </label>
                 ))}
               </div>
             )}

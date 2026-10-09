@@ -6,6 +6,7 @@ import { NotFoundError, ValidationError } from "@/lib/errors";
 import { encryptionAvailable } from "@/lib/secret-box";
 import { msg } from "@/i18n/translate";
 import { localDate } from "@/modules/analytics/range";
+import { adServicesStats } from "@/modules/attribution/adservices";
 import { audit } from "@/modules/audit/service";
 import { can } from "@/modules/rbac/authorize";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
@@ -447,9 +448,22 @@ export interface PostbackNetworkStatus {
   skipped: number;
 }
 
+/**
+ * The status keys each postback reports under (see center.ts POSTBACK_KEY):
+ * its network, plus "meta:website" for Meta website events (action_source
+ * website, or auto which sends both) and "google:enhanced" for Google
+ * postbacks with Enhanced Conversions (send_user_data) on.
+ */
+const POSTBACK_KEYS_SQL = `case
+    when p.network = 'meta' and p.config->>'action_source' = 'website' then array['meta:website']
+    when p.network = 'meta' and p.config->>'action_source' = 'auto' then array['meta', 'meta:website']
+    when p.network = 'google' and p.config->>'send_user_data' in ('with_consent', 'unless_denied') then array['google', 'google:enhanced']
+    else array[p.network] end`;
+
 export interface CenterData {
   connections: ConnectionView[];
   postbacks: Record<string, PostbackNetworkStatus> | null;
+  adservices: { total: number; attributed: number; lastAnswerAt: Date | null; lastFailureAt: Date | null; lastError: string | null } | null;
   messaging: { provider: string; status: string; last_error: string | null; last_used_at: Date | null; live_verified_at: Date | null; updated_at: Date }[] | null;
   webhooks: { active: number; total: number; lastSuccessAt: Date | null; lastFailureAt: Date | null; lastError: string | null } | null;
   skan: { received: number; lastAt: Date | null } | null;
@@ -467,20 +481,24 @@ export async function centerData(ctx: TenantContext, appId: string, environmentI
   const connections = can(ctx.role, "integrations.read") ? await listConnections(ctx, appId, environmentId) : [];
   const postbacks = can(ctx.role, "attribution.read")
     ? await tenantTx(ctx, "attribution.read", async (db) => {
+        // Postbacks counted per capability key (POSTBACK_KEYS_SQL): a Meta postback for website events, or a Google one with
+        // Enhanced Conversions on, also reports on that capability.
         const rows = await db.query<{ network: string; postbacks: string; active: string; with_credentials: string; last_success_at: Date | null; last_failure_at: Date | null; skipped: string }>(
-          `select p.network, count(distinct p.id) as postbacks, count(distinct p.id) filter (where p.status = 'active') as active,
+          `select k.key as network, count(distinct p.id) as postbacks, count(distinct p.id) filter (where p.status = 'active') as active,
                   count(distinct p.id) filter (where p.has_credentials) as with_credentials,
                   max(d.delivered_at) as last_success_at,
                   max(d.created_at) filter (where d.status in ('failed', 'giving_up')) as last_failure_at,
                   count(d.id) filter (where d.status = 'skipped') as skipped
              from platform.attribution_postbacks p
+             cross join lateral unnest(${POSTBACK_KEYS_SQL}) as k(key)
              left join platform.attribution_postback_deliveries d on d.postback_id = p.id and d.created_at > now() - interval '30 days'
-            where p.app_id = $1 and p.environment_id = $2 group by p.network`,
+            where p.app_id = $1 and p.environment_id = $2 group by k.key`,
           [appId, environmentId],
         );
         const errors = await db.query<{ network: string; created_at: Date; last_error: string; provider_error_code: string | null }>(
-          `select p.network, d.created_at, d.last_error, d.provider_error_code
+          `select k.key as network, d.created_at, d.last_error, d.provider_error_code
              from platform.attribution_postback_deliveries d join platform.attribution_postbacks p on p.id = d.postback_id
+             cross join lateral unnest(${POSTBACK_KEYS_SQL}) as k(key)
             where p.app_id = $1 and d.environment_id = $2 and d.status in ('failed', 'giving_up') and d.last_error is not null
             order by d.created_at desc limit 30`,
           [appId, environmentId],
@@ -523,6 +541,7 @@ export async function centerData(ctx: TenantContext, appId: string, environmentI
         return { received: Number(r?.n ?? 0), lastAt: r?.last ?? null };
       })
     : null;
+  const adservices = attributionReads ? await tenantTx(ctx, "attribution.read", (db) => adServicesStats(db, environmentId)) : null;
   const links = attributionReads
     ? await tenantTx(ctx, "attribution.read", async (db) => {
         const r = await db.one<{ n: string; last: Date | null }>(
@@ -549,7 +568,7 @@ export async function centerData(ctx: TenantContext, appId: string, environmentI
         return { lastUsedAt: r?.last ?? null, activeKeys: Number(r?.n ?? 0) };
       })
     : null;
-  return { connections, postbacks, messaging, webhooks, skan, links, deepLinks, sdk };
+  return { connections, postbacks, adservices, messaging, webhooks, skan, links, deepLinks, sdk };
 }
 
 export { CONVERSION_NETWORK, credentialAad };

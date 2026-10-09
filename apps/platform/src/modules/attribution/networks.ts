@@ -8,19 +8,42 @@
  *   tiktok    TikTok Events API 2.0   POST business-api.tiktok.com/open_api/v1.3/event/track/
  *   snapchat  Snap Conversions API v3 POST tr.snapchat.com/v3/{snap_app_id}/events
  *   meta      Meta Conversions API    POST graph.facebook.com/{version}/{dataset_id}/events
+ *             action_source "app" (app events) or "website" (Pixel + Conversions API:
+ *             event_source_url, client_user_agent, fbp / fbc), chosen per postback
  *   google    Google Ads API          POST googleads.googleapis.com/{version}/customers/{id}:uploadClickConversions
+ *             with Enhanced Conversions user identifiers (hashed email / phone) when allowed
+ *
+ * These builders only format and deliver: which events a network receives and
+ * which click they are credited to are decided by the attribution engine
+ * before a delivery is queued.
  */
 import { expandMacros, type PostbackPayload } from "./pure";
+import { googleUserIdentifiers, metaActionSource, metaBrowserId, metaUserData, type RawUserData } from "./conversions";
 import { msg } from "@/i18n/translate";
 
 export const NETWORKS = ["custom", "tiktok", "snapchat", "meta", "google"] as const;
 export type Network = (typeof NETWORKS)[number];
 
+export interface ConfigField {
+  key: string;
+  label: string;
+  required: boolean;
+  /** A fixed list of values (the first is the default); shown as a select. */
+  options?: { value: string; label: string }[];
+  help?: string;
+}
+
+const USER_DATA_OPTIONS = [
+  { value: "off", label: msg("Off: send no email, phone or user id") },
+  { value: "with_consent", label: msg("Only when the user granted attribution consent") },
+  { value: "unless_denied", label: msg("Unless the user denied attribution consent") },
+];
+
 export interface NetworkSpec {
   label: string;
   verified: boolean;
   /** Non-secret settings (stored in `config`). */
-  config: { key: string; label: string; required: boolean }[];
+  config: ConfigField[];
   /** Secret settings (encrypted in `credentials_enc`). */
   credentials: { key: string; label: string; required: boolean }[];
   /** Ad-network click id the network needs to match the user, if any. */
@@ -52,8 +75,19 @@ export const NETWORK_SPECS: Record<Network, NetworkSpec> = {
     label: "Meta Conversions API",
     verified: false,
     config: [
-      { key: "dataset_id", label: msg("Dataset (app) ID"), required: true },
+      { key: "dataset_id", label: msg("Dataset (app) ID"), required: true, help: msg("For website events this is the dataset of your Meta Pixel (the Pixel ID).") },
       { key: "api_version", label: msg("Graph API version (default v21.0)"), required: false },
+      {
+        key: "action_source", label: msg("Event source"), required: false,
+        options: [
+          { value: "app", label: msg("App events (Conversions API for apps)") },
+          { value: "website", label: msg("Website events (Pixel + Conversions API)") },
+          { value: "auto", label: msg("By platform: web SDK events as website, others as app") },
+        ],
+      },
+      { key: "send_user_data", label: msg("Hashed user data (advanced matching)"), required: false, options: USER_DATA_OPTIONS,
+        help: msg("SHA-256 hashes of the email and phone user properties and the user id.") },
+      { key: "test_event_code", label: msg("Test event code (optional)"), required: false, help: msg("From Events Manager → Test events. Events sent with it appear there and are not used for ads; remove it when done.") },
     ],
     credentials: [{ key: "access_token", label: msg("System user access token"), required: true }],
     clickIdParam: "fbclid",
@@ -66,6 +100,8 @@ export const NETWORK_SPECS: Record<Network, NetworkSpec> = {
       { key: "conversion_action_id", label: msg("Conversion action ID"), required: true },
       { key: "login_customer_id", label: msg("Manager (login) customer ID"), required: false },
       { key: "api_version", label: msg("API version (default v18)"), required: false },
+      { key: "send_user_data", label: msg("Enhanced conversions (hashed email and phone)"), required: false, options: USER_DATA_OPTIONS,
+        help: msg("Turn on enhanced conversions for this conversion action in Google Ads first.") },
     ],
     credentials: [
       { key: "developer_token", label: msg("Developer token"), required: true },
@@ -115,11 +151,26 @@ export function networkEventName(network: Network, p: PostbackPayload, eventMap?
 const seconds = (p: PostbackPayload) => Number(p.timestamp) || Math.floor(Date.now() / 1000);
 const money = (p: PostbackPayload) => (isRevenue(p) ? { value: Number(p.revenue), currency: String(p.currency ?? "USD") } : null);
 
+/** Send-time details of the event behind a delivery (read by delivery.ts from the stored event; never kept on the delivery). */
+export interface WebContext {
+  /** The event's own event_id: the id a browser Pixel must send as eventID so Meta deduplicates the two. */
+  eventId?: string | null;
+  eventSourceUrl?: string | null;
+  userAgent?: string | null;
+  fbp?: string | null;
+  fbc?: string | null;
+}
+
 export function buildRequest(
   network: Network,
   opts: { urlTemplate?: string | null; method?: "GET" | "POST"; config: Cfg & { event_map?: unknown }; credentials: Cfg; payload: PostbackPayload; accessToken?: string;
     /** The install id, sent to Meta as user_data.anon_id (app events) when consent allows. */
-    anonymousId?: string | null },
+    anonymousId?: string | null;
+    web?: WebContext | null;
+    /** Plain email / phone / user id, hashed here. Pass only when send_user_data and the user's consent allow it. */
+    userData?: RawUserData | null;
+    /** The user's attribution consent is explicitly granted (sent to Google as consent.adUserData). */
+    consentGranted?: boolean },
 ): BuildResult {
   const p = opts.payload;
   const c = opts.config;
@@ -169,36 +220,57 @@ export function buildRequest(
     case "meta": {
       if (!s.access_token || !c.dataset_id) return { ok: false, error: msg("Dataset ID and access token are required.") };
       const m = money(p);
-      const fbc = p.network_click_id && p.network_click_param === "fbclid" ? `fb.1.${seconds(p) * 1000}.${p.network_click_id}` : undefined;
-      const body = {
-        data: [{
-          event_name: networkEventName("meta", p, eventMap),
-          event_time: seconds(p),
-          event_id: p.event_id,
-          action_source: "app",
-          user_data: { ...(fbc ? { fbc } : {}), ...(opts.anonymousId ? { anon_id: opts.anonymousId } : {}) },
-          ...(m ? { custom_data: { value: m.value, currency: m.currency } } : {}),
-          app_data: { advertiser_tracking_enabled: 0, application_tracking_enabled: 0, extinfo: [p.platform === "ios" ? "i2" : "a2", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""] },
-        }],
+      const source = metaActionSource(c.action_source, p.platform);
+      const web = opts.web ?? {};
+      const fromClick = p.network_click_id && p.network_click_param === "fbclid" ? `fb.1.${seconds(p) * 1000}.${p.network_click_id}` : undefined;
+      // The _fbc cookie set by the Pixel (or the SDK) wins over one rebuilt from the click id.
+      const fbc = metaBrowserId(web.fbc) ?? fromClick;
+      const hashed = opts.userData ? metaUserData(opts.userData) : {};
+      const event: Record<string, unknown> = {
+        event_name: networkEventName("meta", p, eventMap),
+        event_time: seconds(p),
+        event_id: p.event_id,
+        action_source: source,
       };
+      if (source === "website") {
+        // Same event_id as the browser Pixel's eventID, so Meta counts the pair once.
+        if (web.eventId) event.event_id = web.eventId;
+        if (web.eventSourceUrl) event.event_source_url = web.eventSourceUrl;
+        const fbp = metaBrowserId(web.fbp);
+        event.user_data = { ...(web.userAgent ? { client_user_agent: web.userAgent } : {}), ...(fbp ? { fbp } : {}), ...(fbc ? { fbc } : {}), ...hashed };
+      } else {
+        event.user_data = { ...(fbc ? { fbc } : {}), ...(opts.anonymousId ? { anon_id: opts.anonymousId } : {}), ...hashed };
+        event.app_data = { advertiser_tracking_enabled: 0, application_tracking_enabled: 0, extinfo: [p.platform === "ios" ? "i2" : "a2", "", "", "", "", "", "", "", "", "", "", "", "", "", "", ""] };
+      }
+      if (m) event.custom_data = { value: m.value, currency: m.currency };
+      const body: Record<string, unknown> = { data: [event] };
+      if (c.test_event_code) body.test_event_code = c.test_event_code;
       const version = c.api_version || "v21.0";
       const url = `https://graph.facebook.com/${encodeURIComponent(version)}/${encodeURIComponent(c.dataset_id)}/events?access_token=${encodeURIComponent(s.access_token)}`;
       return { ok: true, request: { url, method: "POST", headers: json, body: JSON.stringify(body) } };
     }
     case "google": {
       if (!c.customer_id || !c.conversion_action_id || !s.developer_token) return { ok: false, error: msg("Customer ID, conversion action and developer token are required.") };
-      if (!(p.network_click_id && ["gclid", "gbraid", "wbraid"].includes(String(p.network_click_param)))) return { ok: false, error: msg("No Google click id (gclid / gbraid / wbraid) on this attribution.") };
+      const click = p.network_click_id && ["gclid", "gbraid", "wbraid"].includes(String(p.network_click_param)) ? String(p.network_click_param) : null;
+      // gbraid / wbraid (iOS app campaigns) are not combined with user identifiers here: only gclid or no click id.
+      const identifiers = opts.userData && (click === null || click === "gclid") ? googleUserIdentifiers(opts.userData) : [];
+      if (!click && !identifiers.length) return { ok: false, error: msg("No Google click id (gclid / gbraid / wbraid) on this attribution.") };
       if (!opts.accessToken) return { ok: false, error: msg("No OAuth access token.") };
       const customer = c.customer_id.replace(/\D/g, "");
       const m = money(p);
       const when = new Date(seconds(p) * 1000).toISOString().replace("T", " ").replace(/\.\d+Z$/, "+00:00");
       const conversion: Record<string, unknown> = {
-        [String(p.network_click_param)]: p.network_click_id,
+        ...(click ? { [click]: p.network_click_id } : {}),
         conversionAction: `customers/${customer}/conversionActions/${c.conversion_action_id.replace(/\D/g, "")}`,
         conversionDateTime: when,
         orderId: p.event_id,
         ...(m ? { conversionValue: m.value, currencyCode: m.currency } : {}),
       };
+      if (identifiers.length) {
+        conversion.userIdentifiers = identifiers;
+        // Only an explicit grant is reported as GRANTED; otherwise consent is left unspecified, never assumed.
+        if (opts.consentGranted) conversion.consent = { adUserData: "GRANTED" };
+      }
       const headers: Record<string, string> = { ...json, Authorization: `Bearer ${opts.accessToken}`, "developer-token": s.developer_token };
       if (c.login_customer_id) headers["login-customer-id"] = c.login_customer_id.replace(/\D/g, "");
       const version = c.api_version || "v18";

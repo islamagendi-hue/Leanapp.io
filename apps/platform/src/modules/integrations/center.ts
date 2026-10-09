@@ -26,6 +26,8 @@ export interface CenterInput {
     capabilities: { capability: string; status: CapabilityStatus; status_detail: string | null; last_success_at: Date | null; last_error_at: Date | null; last_error: string | null; data_fresh_through: string | null }[];
   }[];
   postbacks: Record<string, { postbacks: number; active: number; withCredentials: number; lastSuccessAt: Date | null; lastFailureAt: Date | null; recentErrors: { at: Date; error: string; code: string | null }[]; skipped: number }> | null;
+  /** Apple AdServices lookups (null when the role can't see attribution). Optional for callers that predate it. */
+  adservices?: { total: number; attributed: number; lastAnswerAt: Date | null; lastFailureAt: Date | null; lastError: string | null } | null;
   messaging: { provider: string; status: string; last_error: string | null; last_used_at: Date | null; live_verified_at: Date | null }[] | null;
   webhooks: { total: number; lastSuccessAt: Date | null; lastFailureAt: Date | null; lastError: string | null } | null;
   skan: { received: number; lastAt: Date | null } | null;
@@ -33,6 +35,17 @@ export interface CenterInput {
   deepLinks: { configured: boolean; lastCheckedAt: Date | null } | null;
   sdk: { lastUsedAt: Date | null; activeKeys: number } | null;
   paymentsConnected: boolean | null;
+}
+
+/**
+ * The key postback status is grouped under for an outbound capability (see
+ * service.ts POSTBACK_KEYS_SQL): Meta website events and Google Enhanced
+ * Conversions are reported apart from the network's other deliveries.
+ */
+export function postbackKey(network: string, capability: CapabilityDescriptor["id"]): string {
+  if (capability === "web_conversions_outbound") return `${network}:website`;
+  if (capability === "enhanced_conversions") return `${network}:enhanced`;
+  return network;
 }
 
 const empty = (status: CapabilityStatus | null, detail: string | null = null): CapabilityState => ({ status, detail, lastSuccessAt: null, freshThrough: null, errors: [] });
@@ -65,14 +78,23 @@ export function capabilityState(provider: ProviderDescriptor, cap: CapabilityDes
       };
     }
     case "conversions_outbound":
+    case "web_conversions_outbound":
+    case "enhanced_conversions":
     case "custom_postbacks": {
       if (!d.postbacks) return empty(null);
-      const network = cap.id === "custom_postbacks" ? "custom" : isAdProvider(provider.id) ? CONVERSION_NETWORK[provider.id] : null;
+      const network = cap.id === "custom_postbacks" ? "custom" : isAdProvider(provider.id) ? postbackKey(CONVERSION_NETWORK[provider.id], cap.id) : null;
       const p = network ? d.postbacks[network] : undefined;
       if (!p || p.active === 0) return empty("not_configured");
       if (network !== "custom" && p.withCredentials === 0) return empty("credentials_missing");
       const s = bySuccessAndFailure(p.lastSuccessAt, p.lastFailureAt, null);
       return { ...s, errors: s.status === "error" ? p.recentErrors.map((e) => ({ at: e.at, message: e.error, code: e.code })) : [] };
+    }
+    case "adservices_attribution": {
+      if (d.adservices === undefined || d.adservices === null) return empty(null);
+      const a = d.adservices;
+      if (!a.total) return empty("not_configured", msg("No AdServices token received in the last 30 days."));
+      // Verified only by a real answer from Apple (attributed or not); tokens still waiting for Apple stay unverified.
+      return bySuccessAndFailure(a.lastAnswerAt, a.lastFailureAt, a.lastError);
     }
     case "skan_postbacks":
       if (!d.skan) return empty(null);

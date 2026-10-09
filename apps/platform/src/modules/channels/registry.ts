@@ -99,7 +99,7 @@ export const BUILT_IN_CHANNELS: readonly ChannelDef[] = [
   { key: "snapchat_ads", group: "paid", label: "Snapchat Ads", sources: ["snapchat", "snap"], network: "snapchat",
     link: { source: "snapchat", medium: "paid_social", hint: msg("Snapchat appends ScCid to the link.") } },
   { key: "apple_search_ads", group: "paid", label: "Apple Search Ads", sources: ["applesearchads", "asa", "searchads", "appleads"],
-    link: { source: "apple_search_ads", medium: "cpc", hint: msg("Apple Search Ads installs are reported by Apple's AdServices API, which LeanApp doesn't read yet; a link only covers web traffic.") } },
+    link: { source: "apple_search_ads", medium: "cpc", hint: msg("Apple Search Ads installs are reported by Apple's AdServices API: LeanApp looks up the token the iOS SDK sends and stores Apple's answer (Settings → Integrations). A link only covers web traffic.") } },
   { key: "linkedin_ads", group: "paid", label: "LinkedIn Ads", sources: ["linkedin", "linkedinads"], network: "linkedin",
     link: { source: "linkedin", medium: "paid_social", hint: msg("LinkedIn appends li_fat_id when enabled in Campaign Manager.") } },
   { key: "pinterest_ads", group: "paid", label: "Pinterest Ads", sources: ["pinterest", "pinterestads"], network: "pinterest",
