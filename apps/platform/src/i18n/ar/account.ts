@@ -55,7 +55,6 @@ const ar: Record<string, string> = {
   "Live demo": "عرض تجريبي مباشر",
   "LeanApp live demo": "العرض التجريبي المباشر لـ LeanApp",
   "Want your own app in it?": "تريد إضافة تطبيقك؟",
-  "Create a free account": "أنشئ حسابًا مجانيًا",
   "Explore a sample food delivery app with 30 days of data: Overview, funnels, retention, users and acquisition. You can only view it, and nothing in it is real.":
     "استكشف تطبيق توصيل طعام تجريبيًا فيه بيانات لآخر 30 يومًا: النظرة العامة ومسارات التحويل والاحتفاظ والمستخدمون والاستحواذ. يمكنك الاطلاع عليه فقط، ولا شيء فيه حقيقي.",
   "The demo couldn't open. Please try again in a minute.": "تعذّر فتح العرض التجريبي. حاول مرة أخرى بعد دقيقة.",
@@ -304,7 +303,7 @@ const ar: Record<string, string> = {
   "Invitation emailed to {email}. You can also share this link:": "تم إرسال الدعوة إلى {email}. يمكنك أيضًا مشاركة هذا الرابط:",
   "Invitation created, but the email couldn't be sent. Send this link yourself:": "تم إنشاء الدعوة، لكن تعذّر إرسال البريد. أرسل هذا الرابط بنفسك:",
   "Role updated.": "تم تحديث الدور.",
-  "This is the shared demo account, so it can't be changed. Create a free account to try this.": "هذا حساب العرض التجريبي المشترك، لذا لا يمكن تغييره. أنشئ حسابًا مجانيًا لتجربة ذلك.",
+  "This is the shared demo account, so it can't be changed. Create your own account to try this.": "هذا حساب العرض التجريبي المشترك، لذا لا يمكن تغييره. أنشئ حسابك الخاص لتجربة ذلك.",
 
   // Validation and errors from auth, organizations and billing
   "Enter your name.": "أدخل اسمك.",

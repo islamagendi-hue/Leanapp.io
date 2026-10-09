@@ -168,6 +168,40 @@ describe("revenue", () => {
   });
 });
 
+describe("MRR", () => {
+  it("counts subscriptions whose paid period covers the moment, as monthly amounts per currency", async () => {
+    const M = await makeTenant("mrr");
+    const sdk = (await authenticateIngestionKey(M.sdkKey))!;
+    const sub = (name: string, n: number, sid: string, o: Record<string, unknown> = {}) =>
+      track(name, n, { anonymous_id: `p-${sid}`, properties: { subscription_id: sid, plan_id: "pro_monthly", currency: "USD", billing_period: "monthly", ...o } });
+    const batch = [
+      sub("subscription_started", 28, "s1", { price: 30 }), // paid up through both ends of the week
+      sub("subscription_started", 5, "s2", { price: 120, billing_period: "yearly", plan_id: "pro_yearly" }), // 10 a month
+      sub("subscription_started", 5, "s3", { price: 7, billing_period: "weekly", currency: "SAR" }),
+      sub("subscription_started", 15, "s4", { price: 50 }), sub("subscription_expired", 2, "s4"), // ended inside the week
+      sub("subscription_started", 20, "s5", { price: 5, billing_period: "weekly" }), // never renewed: lapsed before the week
+      sub("subscription_started", 3, "s6", { price: 100, billing_period: "lifetime" }), // left out
+      sub("subscription_started", 10, "s7", { price: 9 }), sub("subscription_cancelled", 5, "s7"), // cancelled, still paid up
+      sub("subscription_started", 12, "s8", { price: 7, billing_period: "weekly", plan_id: "pro_weekly" }), sub("subscription_renewed", 5, "s8", { price: 7, billing_period: "weekly", plan_id: "pro_weekly" }),
+    ];
+    await ingest(sdk, { batch }, { mode: "batch" });
+    await processPendingEvents({ environmentId: M.dev.id, limit: 100 });
+    const r = await revenueReport(M.ctx, { environmentId: M.dev.id, timezone: "UTC" }, { days: 7 });
+    const usd = r.mrr.find((m) => m.currency === "USD")!;
+    expect(usd).toMatchObject({ mrr: 79.33, startMrr: 119.33, activeSubscriptions: 4 });
+    expect(usd.plans).toEqual([
+      { plan: "pro_monthly", mrr: 39, subscriptions: 2 },
+      { plan: "pro_weekly", mrr: 30.33, subscriptions: 1 },
+      { plan: "pro_yearly", mrr: 10, subscriptions: 1 },
+    ]);
+    expect(usd.series.at(-1)).toBe(79.33);
+    expect(usd.series).toHaveLength(r.days.length);
+    expect(r.mrr.find((m) => m.currency === "SAR")).toMatchObject({ mrr: 30.33, startMrr: 0, activeSubscriptions: 1 });
+    // The main tenant's subscription has no billing period, so it has no MRR.
+    expect((await revenueReport(A.ctx, scope, { days: 30 })).mrr).toEqual([]);
+  });
+});
+
 describe("user profiles", () => {
   it("searches users and installs by id prefix", async () => {
     const res = await searchPeople(A.ctx, A.dev.id, "u");

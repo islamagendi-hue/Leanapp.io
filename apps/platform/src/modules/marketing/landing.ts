@@ -183,7 +183,7 @@ const PLANS_EN: Plan[] = [
     price: 399,
     tagline: "For new apps",
     features: ["Core analytics and event tracking", "Basic funnels and retention", "Limited integrations and usage"],
-    limits: "2M events / month and up to 3 apps. Free up to 100K events.",
+    limits: "2M events / month and up to 3 apps.",
   },
   {
     id: "growth",
@@ -208,7 +208,7 @@ const PLANS_AR: Plan[] = [
     price: 399,
     tagline: "للتطبيقات الجديدة",
     features: ["التحليلات الأساسية وتتبّع الأحداث", "مسارات التحويل والاحتفاظ الأساسية", "تكاملات واستخدام محدودان"],
-    limits: "2 مليون حدث شهريًا، وحتى 3 تطبيقات. مجانًا حتى 100 ألف حدث.",
+    limits: "2 مليون حدث شهريًا، وحتى 3 تطبيقات.",
   },
   {
     id: "growth",
@@ -274,13 +274,13 @@ export const CONTACT_EMAIL = "hello@leanapp.io";
 
 const EN = {
   dir: "ltr" as "ltr" | "rtl",
-  nav: { demo: "Demo", how: "How we work", compare: "Compare", pricing: "Pricing", about: "About us", developers: "Developers", signIn: "Sign in", start: "Start free", dashboard: "Open dashboard", other: "العربية" },
+  nav: { demo: "Demo", how: "How we work", compare: "Compare", pricing: "Pricing", about: "About us", developers: "Developers", signIn: "Sign in", start: "Start now", dashboard: "Open dashboard", other: "العربية" },
   hero: {
     eyebrow: "Mobile app analytics for the Arab world",
     title: "Know your users. Grow your app.",
     lead: "See who installs, where they drop off and who comes back, then reach them with push, email and WhatsApp. One SDK, support in Arabic and English, priced for growing teams.",
     demo: "Try the live demo",
-    start: "Start free",
+    start: "Start now",
     note: "No card needed. The demo opens a sample food delivery app that you can explore but not change.",
   },
   flowLabel: "Product flow",
@@ -313,7 +313,7 @@ const EN = {
     labels: { yes: "Yes", beta: "Beta", partial: "Partly", no: "No" } as Record<Coverage, string>,
     value: [
       { title: "One tool instead of three", body: "Understand and reach users from the same data, without syncing audiences between products." },
-      { title: "Priced for the region", body: "Start free and grow from $399 a month, instead of enterprise contracts sized for global apps." },
+      { title: "Priced for the region", body: "Plans from $399 a month, instead of enterprise contracts sized for global apps." },
       { title: "Set up with you", body: "We build your tracking plan with you and help your developers, in Arabic or English." },
     ],
     honest: "Need fraud prevention or automatic ad cost import? Use a full attribution partner like Adjust too.",
@@ -323,7 +323,6 @@ const EN = {
     title: "Pricing",
     lead: "Clear monthly prices you can start on yourself, or a custom plan for larger teams. Prices in US dollars.",
     month: "/ month",
-    free: "Free",
     start: "Start now",
     demo: "Get a demo",
     contact: "Contact sales",
@@ -365,7 +364,7 @@ const EN = {
     ],
     cta: "Read the developer guide",
   },
-  cta: { title: "Ready to see your own app?", lead: "Create a free account and send your first event to LeanApp today.", start: "Start free", demo: "Try the demo first" },
+  cta: { title: "Ready to see your own app?", lead: "Create your account and send your first event to LeanApp today.", start: "Start now", demo: "Try the demo first" },
   footer: { rights: "LeanApp", contact: "Contact", developers: "Developers" },
 };
 
@@ -373,13 +372,13 @@ export type LandingCopy = typeof EN & { compareRows: CompareRow[]; flow: FlowSte
 
 const AR: typeof EN = {
   dir: "rtl",
-  nav: { demo: "العرض التجريبي", how: "طريقة عملنا", compare: "المقارنة", pricing: "الأسعار", about: "من نحن", developers: "للمطوّرين", signIn: "تسجيل الدخول", start: "ابدأ مجانًا", dashboard: "افتح لوحة التحكم", other: "English" },
+  nav: { demo: "العرض التجريبي", how: "طريقة عملنا", compare: "المقارنة", pricing: "الأسعار", about: "من نحن", developers: "للمطوّرين", signIn: "تسجيل الدخول", start: "ابدأ الآن", dashboard: "افتح لوحة التحكم", other: "English" },
   hero: {
     eyebrow: "تحليلات تطبيقات الجوال للعالم العربي",
     title: "اعرف مستخدميك، وطوّر تطبيقك.",
     lead: "اعرف من يثبّت تطبيقك، وأين يتوقف، ومن يعود إليه، ثم تواصل معه عبر الإشعارات والبريد الإلكتروني وواتساب. SDK واحد، ودعم بالعربية والإنجليزية، وأسعار تناسب الفرق النامية.",
     demo: "جرّب العرض المباشر",
-    start: "ابدأ مجانًا",
+    start: "ابدأ الآن",
     note: "لا حاجة إلى بطاقة. يفتح العرض تطبيقًا تجريبيًا لتوصيل الطعام، تستكشفه كما تشاء دون أن تغيّر شيئًا.",
   },
   flowLabel: "رحلة المنتج",
@@ -411,7 +410,7 @@ const AR: typeof EN = {
     labels: { yes: "نعم", beta: "تجريبي", partial: "جزئيًا", no: "لا" },
     value: [
       { title: "أداة واحدة بدل ثلاث", body: "افهم المستخدمين وتواصل معهم من البيانات نفسها، دون مزامنة الجماهير بين منتجات مختلفة." },
-      { title: "أسعار تناسب المنطقة", body: "ابدأ مجانًا وتوسّع بدءًا من 399 $ شهريًا، بدل عقود الشركات المصممة للتطبيقات العالمية." },
+      { title: "أسعار تناسب المنطقة", body: "باقات تبدأ من 399 $ شهريًا، بدل عقود الشركات المصممة للتطبيقات العالمية." },
       { title: "نُعدّه معك", body: "نبني معك خطة التتبّع، ونساعد مطوّريك في تنفيذها خطوة بخطوة، بالعربية أو بالإنجليزية." },
     ],
     honest: "هل تحتاج إلى منع الاحتيال، أو استيراد تكلفة الإعلانات تلقائيًا؟ استخدم لذلك شريك إسناد كاملًا مثل Adjust إلى جانب LeanApp.",
@@ -422,7 +421,6 @@ const AR: typeof EN = {
     title: "الأسعار",
     lead: "أسعار شهرية واضحة تبدأ بها بنفسك، أو باقة مخصصة للفرق الكبيرة. الأسعار بالدولار الأمريكي.",
     month: "/ شهريًا",
-    free: "مجانًا",
     start: "ابدأ الآن",
     demo: "اطلب عرضًا توضيحيًا",
     contact: "تواصل مع المبيعات",
@@ -464,7 +462,7 @@ const AR: typeof EN = {
     ],
     cta: "اقرأ دليل المطوّرين",
   },
-  cta: { title: "هل أنت مستعد لرؤية تطبيقك؟", lead: "أنشئ حسابًا مجانيًا وأرسل أول حدث اليوم.", start: "ابدأ مجانًا", demo: "جرّب العرض أولًا" },
+  cta: { title: "هل أنت مستعد لرؤية تطبيقك؟", lead: "أنشئ حسابك وأرسل أول حدث اليوم.", start: "ابدأ الآن", demo: "جرّب العرض أولًا" },
   footer: { rights: "LeanApp · لين آب", contact: "تواصل معنا", developers: "للمطوّرين" },
 };
 

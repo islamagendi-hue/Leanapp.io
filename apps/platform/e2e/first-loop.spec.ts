@@ -49,7 +49,7 @@ async function answerQuestionnaire(page: Page) {
 
 test("sign up, create an organization and an app", async ({ page }) => {
   await page.goto("/?lang=en");
-  await page.getByRole("link", { name: "Start free" }).first().click();
+  await page.getByRole("link", { name: "Start now" }).first().click();
   await page.fill('[name="name"]', "Sara Ali");
   await page.fill('[name="email"]', email);
   await page.fill('[name="password"]', password);

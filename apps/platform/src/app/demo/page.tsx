@@ -13,7 +13,7 @@ export default async function DemoPage(props: PageProps<"/demo">) {
   const sp = await props.searchParams;
   const t = await getT();
   return (
-    <AuthShell title={t("LeanApp live demo")} footer={<>{t("Want your own app in it?")} <Link className="underline" href="/signup">{t("Create a free account")}</Link></>}>
+    <AuthShell title={t("LeanApp live demo")} footer={<>{t("Want your own app in it?")} <Link className="underline" href="/signup">{t("Create your account")}</Link></>}>
       <div className="space-y-4">
         <p className="text-ink-2">{t("Explore a sample food delivery app with 30 days of data: Overview, funnels, retention, users and acquisition. You can only view it, and nothing in it is real.")}</p>
         {sp.error === "1" && <p role="alert" className="rounded-lg bg-alert-soft px-3 py-2 text-sm text-alert">{t("The demo couldn't open. Please try again in a minute.")}</p>}

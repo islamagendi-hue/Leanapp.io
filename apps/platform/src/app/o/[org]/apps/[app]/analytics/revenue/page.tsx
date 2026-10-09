@@ -8,6 +8,7 @@ import { CompareFields, Delta, MoreFilters, ReportRangeFields } from "@/componen
 import { SaveReport } from "@/components/SaveReport";
 import { CountUp } from "@/components/CountUp";
 import { TrendChart } from "@/components/TrendChart";
+import { Stat as Tile } from "@/components/Stat";
 import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN, NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport, type BreakdownRow } from "@/modules/analytics/revenue";
 import { FALLBACK_PROPERTY } from "@/modules/analytics/revenue-rules";
 import { rangeLabel, rangePhrase } from "@/modules/analytics/range";
@@ -27,6 +28,7 @@ const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic
 const INTERVAL_NAMES: Record<string, string> = { day: msg("day"), week: msg("week"), month: msg("month") };
 const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cur = (t: T, c: string) => (c === NO_CURRENCY ? t("No currency") : c);
+const round2 = (n: number) => Math.round(n * 100) / 100;
 const signed = (n: number) => (n < 0 ? `−${money(-n)}` : money(n));
 /** Spend, Return and ROAS cells of a channel row (blank without spend). Each column stands alone so one can be dropped. */
 const SPEND_COLUMNS: { label: string; cell: (g: BreakdownRow) => string }[] = [
@@ -92,6 +94,48 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
       <p className="rounded-lg bg-paper-2 px-3 py-2 text-sm text-ink-2">
         {t("Amounts are shown in the currency each event was sent in. There is no currency conversion, so each currency is totalled separately and never added to another.")}
       </p>
+
+      <section className="card space-y-4" aria-labelledby="mrr-title" data-testid="mrr">
+        <div className="space-y-1">
+          <h2 id="mrr-title" className="h2">MRR <span className="text-xs font-normal text-ink-3">{t("Monthly recurring revenue")}</span></h2>
+          <p className="text-sm text-ink-3">{t("Active subscriptions at the end of the range, each price turned into a monthly amount.")}</p>
+        </div>
+        {r.mrr.length === 0 ? (
+          <p className="text-sm text-ink-2">
+            {rich(t("No active subscriptions yet. MRR comes from {started} and {renewed} with a {price} and a {period}."), {
+              started: <span className="font-mono" dir="ltr">subscription_started</span>,
+              renewed: <span className="font-mono" dir="ltr">subscription_renewed</span>,
+              price: <span className="font-mono" dir="ltr">price</span>,
+              period: <span className="font-mono" dir="ltr">billing_period</span>,
+            })}
+          </p>
+        ) : (
+          r.mrr.map((m) => (
+            <div key={m.currency} className="space-y-4">
+              <div className="stat-grid">
+                <Tile label={t("MRR in {currency}", { currency: cur(t, m.currency) })} value={money(m.mrr)} note={t("At the start: {value}", { value: money(m.startMrr) })} />
+                <Tile label="ARR" value={money(m.mrr * 12)} note={t("MRR × 12")} />
+                <Tile label={t("Active subscriptions")} value={m.activeSubscriptions.toLocaleString("en-US")} />
+                <Tile label={t("Change in the range")} value={signed(round2(m.mrr - m.startMrr))} />
+              </div>
+              <TrendChart days={r.days} series={[{ key: m.currency, counts: m.series }]} label={t("{currency} MRR at the end of each {interval}", { currency: cur(t, m.currency), interval: t(INTERVAL_NAMES[r.interval] ?? r.interval) })} />
+              {m.plans.length > 0 && (
+                <div className="table-scroll">
+                  <table className="table">
+                    <thead><tr><th className="text-start">{t("Plan")}</th><th className="text-end">{t("Subscriptions")}</th><th className="text-end">MRR</th></tr></thead>
+                    <tbody>
+                      {m.plans.map((pl) => (
+                        <tr key={pl.plan}><td className="font-mono text-sm">{pl.plan === "(none)" ? t("(none)") : pl.plan}</td><td className="text-end tabular-nums">{pl.subscriptions.toLocaleString("en-US")}</td><td className="text-end tabular-nums">{money(pl.mrr)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+        <p className="text-xs text-ink-3">{t("A subscription counts until its paid period ends, plus 3 days for a late renewal, or until subscription_expired. Cancelling only stops the renewal. Lifetime plans are left out.")}</p>
+      </section>
 
       {r.currencies.length === 0 ? (
         <div className="card space-y-1">

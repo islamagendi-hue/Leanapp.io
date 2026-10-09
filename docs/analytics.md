@@ -24,6 +24,8 @@ The amount is the first of `revenue`, `price` (subscriptions) or `fee` (money mo
 
 **No currency conversion.** Each event's `currency` (ISO 4217, case-insensitive) is kept; totals, charts and breakdowns are per currency and different currencies are never added together. Events without a valid currency are shown under "No currency". ARPU divides a currency's net revenue by everyone active in the range (any track event); ARPPU by the people who had a revenue event in that currency.
 
+**MRR** (`modules/analytics/mrr.ts`) comes from `subscription_started`, `subscription_renewed` and `subscription_expired`, keyed by `subscription_id`. At a moment T a subscription is active when its latest charge before T still covers T (its `billing_period`, plus 3 days' grace for late renewal events) and no `subscription_expired` came after that charge. Cancelling only stops renewal. `price` becomes a monthly amount (weekly × 52/12, quarterly ÷ 3, yearly ÷ 12); lifetime and unknown periods are left out. The page shows MRR at the end and start of the range, ARR (MRR × 12), active subscriptions, MRR at the end of each bucket and per `plan_id`, per currency with no conversion.
+
 ### Audiences as report filters (formerly cohorts)
 
 Cohorts merged into [Audiences](audiences.md) (migration `0024_cohorts_into_audiences.sql`). There is one segmentation layer: the audience condition tree (AND / OR / NOT over events, properties, revenue, platform, first and last seen) and its one SQL compiler serve Analytics, Users and Engagement.

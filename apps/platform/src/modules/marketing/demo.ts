@@ -31,7 +31,7 @@ const USERS_PER_DAY = 14;
 
 export const demoEnabled = () => process.env.DEMO_ENABLED === "1";
 /** What the demo account sees when it tries to change itself or create an organization. */
-export const DEMO_LOCKED = msg("This is the shared demo account, so it can't be changed. Create a free account to try this.");
+export const DEMO_LOCKED = msg("This is the shared demo account, so it can't be changed. Create your own account to try this.");
 export const isDemoUser = (user: { email: string } | null | undefined) => user?.email.toLowerCase() === DEMO_EMAIL;
 
 export interface DemoRefs {

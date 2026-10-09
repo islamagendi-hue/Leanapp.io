@@ -312,5 +312,17 @@ const ar: Record<string, string> = {
   "More reports": "تقارير أخرى",
   "Loading…": "جارٍ التحميل…",
   "These starting steps come from your most used events. Change any step to build your own funnel.": "خطوات البداية هذه مأخوذة من أكثر أحداثك استخدامًا. غيّر أي خطوة لتبني مسار التحويل الذي تريده.",
+  "Monthly recurring revenue": "الإيراد الشهري المتكرر",
+  "Active subscriptions at the end of the range, each price turned into a monthly amount.": "الاشتراكات النشطة في نهاية الفترة، مع تحويل سعر كل اشتراك إلى مبلغ شهري.",
+  "No active subscriptions yet. MRR comes from {started} and {renewed} with a {price} and a {period}.": "لا توجد اشتراكات نشطة بعد. يُحسب MRR من {started} و{renewed} مع الخاصيتين {price} و{period}.",
+  "MRR in {currency}": "MRR بعملة {currency}",
+  "At the start: {value}": "في بداية الفترة: {value}",
+  "MRR × 12": "MRR مضروبًا في 12",
+  "Active subscriptions": "الاشتراكات النشطة",
+  "Change in the range": "التغيّر خلال الفترة",
+  "{currency} MRR at the end of each {interval}": "MRR بعملة {currency} في نهاية كل {interval}",
+  "Plan": "الباقة",
+  "Subscriptions": "الاشتراكات",
+  "A subscription counts until its paid period ends, plus 3 days for a late renewal, or until subscription_expired. Cancelling only stops the renewal. Lifetime plans are left out.": "يُحتسب الاشتراك حتى نهاية فترته المدفوعة، مع 3 أيام إضافية للتجديد المتأخر، أو حتى وصول subscription_expired. الإلغاء يوقف التجديد فقط. الباقات مدى الحياة غير محتسبة.",
 };
 export default ar;

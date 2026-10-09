@@ -178,7 +178,7 @@ const EN = {
     title: "LeanApp for developers: SDKs and setup guide",
     description: "LeanApp SDKs for JavaScript, React Native, Android, iOS and Flutter: setup, events, identity, consent, testing and the REST API.",
   },
-  nav: { home: "Home", developers: "Developers", sections: "Sections", other: "العربية", signIn: "Sign in", start: "Start free", dashboard: "Open dashboard" },
+  nav: { home: "Home", developers: "Developers", sections: "Sections", other: "العربية", signIn: "Sign in", start: "Start now", dashboard: "Open dashboard" },
   hero: {
     eyebrow: "For developers",
     title: "Add LeanApp to your app",
@@ -336,7 +336,7 @@ const EN = {
       { title: "Never ship a secret key", body: "Apps get the public key (la_pk_…) only. Secret keys stay on your servers, because anyone who downloads your app can extract a key from it." },
     ],
   },
-  cta: { title: "Ready to connect your app?", lead: "Create a free account to get your keys, or write to us and we'll help your developers.", start: "Start free", contact: "Email us" },
+  cta: { title: "Ready to connect your app?", lead: "Create your account to get your keys, or write to us and we'll help your developers.", start: "Start now", contact: "Email us" },
   footer: { rights: "LeanApp", contact: "Contact", home: "Home" },
 };
 
@@ -348,7 +348,7 @@ const AR: DevelopersCopy = {
     title: "LeanApp للمطوّرين: حزم SDK ودليل الإعداد",
     description: "حزم SDK من LeanApp لـ JavaScript و React Native و Android و iOS و Flutter: الإعداد، والأحداث، والمستخدمون، والموافقة، والاختبار، والـ REST API.",
   },
-  nav: { home: "الرئيسية", developers: "للمطوّرين", sections: "الأقسام", other: "English", signIn: "تسجيل الدخول", start: "ابدأ مجانًا", dashboard: "افتح لوحة التحكم" },
+  nav: { home: "الرئيسية", developers: "للمطوّرين", sections: "الأقسام", other: "English", signIn: "تسجيل الدخول", start: "ابدأ الآن", dashboard: "افتح لوحة التحكم" },
   hero: {
     eyebrow: "للمطوّرين",
     title: "أضف LeanApp إلى تطبيقك",
@@ -506,7 +506,7 @@ const AR: DevelopersCopy = {
       { title: "لا تضع مفتاحًا سريًا في تطبيق", body: "يحصل التطبيق على المفتاح العام (la_pk_…) فقط، وتبقى المفاتيح السرية على خوادمك، لأن أي شخص يحمّل تطبيقك يستطيع استخراج المفتاح منه." },
     ],
   },
-  cta: { title: "هل أنت مستعد لربط تطبيقك؟", lead: "أنشئ حسابًا مجانيًا لتحصل على مفاتيحك، أو راسلنا لنساعد مطوّريك.", start: "ابدأ مجانًا", contact: "راسلنا" },
+  cta: { title: "هل أنت مستعد لربط تطبيقك؟", lead: "أنشئ حسابك لتحصل على مفاتيحك، أو راسلنا لنساعد مطوّريك.", start: "ابدأ الآن", contact: "راسلنا" },
   footer: { rights: "LeanApp · لين آب", contact: "تواصل معنا", home: "الرئيسية" },
 };
 

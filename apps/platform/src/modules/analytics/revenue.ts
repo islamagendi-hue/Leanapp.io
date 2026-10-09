@@ -6,6 +6,7 @@ import { msg } from "@/i18n/translate";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { spendBySource } from "@/modules/attribution/spend";
 import { grossReturn, roas } from "@/modules/attribution/spend-pure";
+import { mrrByCurrency, type MrrCurrency } from "./mrr";
 import { revenueRules, type RevenueRule } from "./revenue-rules";
 import { bucketKeys, bucketSql, defaultInterval, intervalField, comparisonRange, rangeFields, resolveRange, type Interval, type ReportRange } from "./range";
 import { analyticsTx, eventsSource, rangeInfo, type RangeInfo } from "./service";
@@ -86,6 +87,8 @@ export interface RevenueReport {
   /** Channel breakdown: whether spend was matched (it isn't with an audience filter, which spend can't follow). */
   spendIncluded?: boolean;
   rules: RevenueRule[];
+  /** Monthly recurring revenue from subscription events, per currency (./mrr.ts). */
+  mrr: MrrCurrency[];
 }
 
 /** Revenue rules for the environment's app: its published plan, then the catalog. */
@@ -170,6 +173,7 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
       ps.p.values,
     );
     const dayKeys = bucketKeys(range, interval);
+    const mrr = await mrrByCurrency(db, scope, cohortId, range, interval, dayKeys);
     const previous = previousRangeOf ? await netByCurrency(db, scope, cohortId, rules, previousRangeOf) : null;
     const totals = new Map<string, CurrencyRevenue>();
     const ensure = (c: string) => {
@@ -258,6 +262,7 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
       properties: props.map((x) => x.key),
       ...(breakdown === "channel" ? { spendIncluded } : {}),
       rules,
+      mrr,
     };
   });
 }
