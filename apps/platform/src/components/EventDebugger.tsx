@@ -58,7 +58,7 @@ export function EventDebugger({ feedUrl, testCurl }: { feedUrl: string; testCurl
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 md:grid-cols-5">
+      <div className="grid gap-4 sm:grid-cols-3 lg:grid-cols-5">
         <Stat label={t("Status")} value={health ? (health.connected ? t("Connected") : t("Waiting for first event")) : "…"} accent={health?.connected} />
         <Stat label={t("Last event")} value={health?.lastEventAt ? new Date(health.lastEventAt).toLocaleTimeString(dateLocale(lang)) : "–"} />
         <Stat label={t("Events today")} value={String(health?.eventsToday ?? "–")} />

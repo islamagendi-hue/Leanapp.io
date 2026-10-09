@@ -34,7 +34,7 @@ export default async function PrivacyPage(props: PageProps<"/o/[org]/apps/[app]/
         <div>
           <h1 className="h1">{t("Privacy requests")}</h1>
           <p className="mt-1 max-w-2xl text-ink-2">
-            {t("Export or delete everything stored about one of your app's users in this environment. Use the user's ID, an install's anonymous ID, or both.")}
+            {t("Export or delete everything stored about one of your app's users, by user ID or anonymous ID.")}
           </p>
         </div>
       </div>
@@ -42,7 +42,7 @@ export default async function PrivacyPage(props: PageProps<"/o/[org]/apps/[app]/
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="card space-y-3">
           <h2 className="h2">{t("Export a user's data")}</h2>
-          <p className="text-sm text-ink-3">{t("Downloads a JSON file with their events, sessions, profile, installs, push tokens and consent.")}</p>
+          <p className="max-w-md text-sm text-ink-3">{t("Downloads one JSON file with their events, sessions, profile, installs, push tokens and consent records, ready to hand over to them.")}</p>
           <form action={`${base}/export`} method="post" className="space-y-3">
             <input type="hidden" name="environment" value={env.id} />
             <label className="block"><span className="label">{t("User ID")}</span><input name="user_id" className="input" maxLength={256} /></label>
@@ -53,8 +53,8 @@ export default async function PrivacyPage(props: PageProps<"/o/[org]/apps/[app]/
 
         <section className="card space-y-3">
           <h2 className="h2">{t("Delete a user's data")}</h2>
-          <p className="text-sm text-ink-3">
-            {t("Permanent. Removes their events, sessions, profile and push tokens in the {env} environment. Anonymous activity on a device shared with another user is kept, because it can't be attributed. Stop sending events for them first, or new data will arrive.", { env: t(ENV_LABEL[env.type] ?? env.type) })}
+          <p className="max-w-md text-sm text-ink-3">
+            {t("Permanent. Removes their events, sessions, profile and push tokens in the {env} environment. Anonymous activity on a device shared with another user is kept, because it can't be attributed to them. Stop sending events for them first, or new data about them will keep arriving.", { env: t(ENV_LABEL[env.type] ?? env.type) })}
           </p>
           <ActionForm action={requestDeletionAction.bind(null, org, app, env.id)} submitLabel={t("Delete data")} buttonClass="btn-danger" className="space-y-3">
             <label className="block"><span className="label">{t("User ID")}</span><input name="userId" className="input" maxLength={256} /></label>
@@ -66,7 +66,7 @@ export default async function PrivacyPage(props: PageProps<"/o/[org]/apps/[app]/
 
       <section className="card space-y-3">
         <h2 className="h2">{t("From your backend")}</h2>
-        <p className="text-sm text-ink-3">{t('Use a secret API key of this environment with the "Export user data" or "Delete user data" permission (SDK & keys). Deletions run in the background; poll the returned ID for the result.')}</p>
+        <p className="max-w-2xl text-sm text-ink-3">{t('Use a secret API key of this environment with the "Export user data" or "Delete user data" permission (SDK & keys). Deletions run in the background; poll the returned ID for the result.')}</p>
         <CodeTabs
           preferred="delete"
           tabs={[

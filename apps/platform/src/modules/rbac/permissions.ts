@@ -56,12 +56,12 @@ export const ROLES = ["owner", "admin", "developer", "analyst", "marketer", "vie
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_INFO: Record<Role, { name: string; description: string; rank: number }> = {
-  owner: { name: msg("Owner"), description: msg("Full access including billing, members and deletion."), rank: 100 },
+  owner: { name: msg("Owner"), description: msg("Full access, including billing, members and deleting the organization."), rank: 100 },
   admin: { name: msg("Admin"), description: msg("Full operational access except billing changes and deleting the organization."), rank: 80 },
   developer: { name: msg("Developer"), description: msg("Apps, environments, SDK, keys, events, integrations and webhooks."), rank: 50 },
-  analyst: { name: msg("Analyst"), description: msg("Analytics, funnels, retention, audiences, attribution and users."), rank: 30 },
+  analyst: { name: msg("Analyst"), description: msg("Analytics, funnels, retention, audiences, attribution and user profiles."), rank: 30 },
   marketer: { name: msg("Marketer"), description: msg("Audiences, automations, campaigns, analytics, users and attribution."), rank: 30 },
-  viewer: { name: msg("Viewer"), description: msg("Read-only access to analytics, activation, audiences and users."), rank: 10 },
+  viewer: { name: msg("Viewer"), description: msg("Read-only access to analytics, activation, audiences and user profiles."), rank: 10 },
 };
 
 const read: Permission[] = ["organization.read", "members.read", "apps.read", "implementation.read"];

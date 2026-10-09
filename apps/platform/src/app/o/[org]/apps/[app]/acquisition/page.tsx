@@ -30,7 +30,7 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
   return (
     <div className="space-y-6">
       <AcquisitionHeader base={base} current="" env={env.type} title={tr("Acquisition")}
-        description={tr("Where installs come from and what they lead to, for the selected environment.")} />
+        description={tr("Where your installs come from and what they lead to, for the selected environment.")} />
       <AcquisitionRange env={env.type} range={r.range} />
 
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label={tr("Acquisition numbers")}>
@@ -50,9 +50,9 @@ export default async function AcquisitionOverviewPage(props: PageProps<"/o/[org]
 
       {allInstalls === 0 && t.clicks === 0 ? (
         <div className="card space-y-2">
-          <p>{tr("No acquisition data in {env} for this range.", { env: envName(tr, env.type) })}</p>
-          <p className="text-sm text-ink-3">
-            {rich(tr("Create a {link} for your campaigns, and make sure your app sends {event} with the install referrer or click id (see Settings → Dev Ops → SDK)."), {
+          <p>{tr("No acquisition data in {env} for the selected range of dates.", { env: envName(tr, env.type) })}</p>
+          <p className="max-w-2xl text-sm text-ink-3">
+            {rich(tr("Create a {link} for your campaigns, then make sure your app sends {event} with the install referrer or click id when it is first opened (see Settings → Dev Ops → SDK)."), {
               link: <Link className="underline" href={`${base}/links?env=${env.type}`}>{tr("tracking link")}</Link>,
               event: <code className="font-mono">app_installed</code>,
             })}

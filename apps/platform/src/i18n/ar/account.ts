@@ -81,7 +81,8 @@ const ar: Record<string, string> = {
   View: "عرض",
 
   // Profile and account sections
-  "Your name, password and sessions. They are yours, the same in every organization you belong to.": "اسمك وكلمة المرور والجلسات. هذه خاصة بك، وهي نفسها في كل مؤسسة تنتمي إليها.",
+  "Your name, password and sessions. They are yours, the same in every organization you belong to.":
+    "اسمك وكلمة مرورك وجلساتك. هذه خاصة بك، وتبقى نفسها في كل مؤسسة تنتمي إليها.",
   "Unknown device": "جهاز غير معروف",
   Browser: "متصفح",
   "{browser} on {os}": "{browser} على {os}",
@@ -89,10 +90,11 @@ const ar: Record<string, string> = {
   Profile: "الملف الشخصي",
   confirmed: "مؤكَّد",
   "not confirmed": "غير مؤكَّد",
-  "Your teammates see this name in Members and in the audit log. To use another email, ask an owner to invite it.": "يرى زملاؤك هذا الاسم في الأعضاء وفي سجل التدقيق. لاستخدام بريد آخر، اطلب من المالك دعوته.",
+  "Your teammates see this name in Members and in the audit log. To use another email, ask an owner to invite it.": "يرى زملاؤك هذا الاسم في قائمة الأعضاء وفي سجل التدقيق. لاستخدام بريد إلكتروني آخر، اطلب من المالك دعوته.",
   "Create another organization": "أنشئ مؤسسة أخرى",
   "Change password": "غيّر كلمة المرور",
-  "Your other sessions are signed out when the password changes.": "يتم تسجيل خروج جلساتك الأخرى عند تغيير كلمة المرور.",
+  "Your other sessions are signed out when the password changes, on every device.":
+    "يتم تسجيل خروج جلساتك الأخرى عند تغيير كلمة المرور.",
   "Current password": "كلمة المرور الحالية",
   "Repeat new password": "أعد كتابة كلمة المرور الجديدة",
   "Where you're signed in": "أين سجّلت الدخول",
@@ -171,7 +173,7 @@ const ar: Record<string, string> = {
   "No projects yet. {link} to get its keys.": "لا توجد مشاريع بعد. {link} للحصول على مفاتيحه.",
   "Create one": "أنشئ مشروعًا",
   "Each project has three environments, each with its own keys and its own data. The public SDK key goes in your app; secret API keys are for your servers only.":
-    "لكل مشروع ثلاث بيئات، لكل منها مفاتيحها وبياناتها. يوضع مفتاح SDK العام في تطبيقك؛ أما مفاتيح API السرية فهي لخوادمك فقط.",
+    "لكل مشروع ثلاث بيئات، ولكل بيئة مفاتيحها وبياناتها. يوضع مفتاح SDK العام في تطبيقك؛ أما مفاتيح API السرية فلخوادمك فقط.",
   "Create, rotate or revoke keys from Manage.": "أنشئ المفاتيح أو بدّلها أو ألغها من «إدارة».",
   "Ask an owner or admin to create or revoke keys.": "اطلب من المالك أو المسؤول إنشاء المفاتيح أو إلغاءها.",
   "Public SDK key": "مفتاح SDK العام",
@@ -192,7 +194,8 @@ const ar: Record<string, string> = {
   Remove: "أزِل",
   "Remove {email} from {org}?": "إزالة {email} من {org}؟",
   "Invite someone": "ادعُ شخصًا",
-  "We email the invitation link, and you'll also see it here to share yourself. Invitations expire after 7 days.": "نرسل رابط الدعوة عبر البريد الإلكتروني، وستراه هنا أيضًا لتشاركه بنفسك. تنتهي صلاحية الدعوات بعد 7 أيام.",
+  "We email the invitation link; it expires after 7 days.":
+    "نرسل رابط الدعوة بالبريد، وتنتهي صلاحيته بعد 7 أيام.",
   "Create invitation": "أنشئ الدعوة",
   "Pending invitations": "الدعوات المعلّقة",
   "None.": "لا يوجد.",
@@ -244,10 +247,11 @@ const ar: Record<string, string> = {
   "Only owners can change the plan.": "يمكن للمالكين فقط تغيير الباقة.",
   "Use Manage billing to change an existing subscription.": "استخدم «إدارة الفوترة» لتغيير اشتراك قائم.",
   "You're on the {plan} plan.": "أنت على باقة {plan}.",
-  "Event data is kept for {n} days.": "يتم الاحتفاظ ببيانات الأحداث لمدة {n} يومًا.",
+  "Event data is kept for {n} days under your current plan.":
+    "نحتفظ ببيانات أحداثك لمدة {n} يومًا.",
   "Event data is kept for as long as you need.": "يتم الاحتفاظ ببيانات الأحداث للمدة التي تحتاجها.",
-  "Payments are not connected yet. Nothing is charged, and plans can't be bought online until LeanApp connects its payment provider.":
-    "لم يتم ربط المدفوعات بعد. لا يتم خصم أي مبلغ، ولا يمكن شراء الباقات عبر الإنترنت حتى تربط LeanApp مزوّد الدفع.",
+  "Payments aren't connected yet. Nothing is charged, and plans can't be bought online for now.":
+    "لم تُربط المدفوعات بعد. لا يُخصم أي مبلغ، ولا يمكن شراء الباقات عبر الإنترنت في الوقت الحالي.",
   "Checkout finished. Your plan changes here as soon as Stripe confirms the payment, usually within a minute. Refresh to see it.":
     "اكتمل الدفع. تتغير باقتك هنا فور تأكيد Stripe للدفع، عادةً خلال دقيقة. حدّث الصفحة لرؤيتها.",
   "Checkout was cancelled. Nothing was charged.": "تم إلغاء الدفع. لم يتم خصم أي مبلغ.",
@@ -261,8 +265,8 @@ const ar: Record<string, string> = {
   "Usage in {month}": "الاستخدام في {month}",
   "{n} event was refused this month because the allowance was used up (error {code}).": "تم رفض {n} حدث هذا الشهر لاستنفاد الحد المسموح (الخطأ {code}).",
   "{n} events were refused this month because the allowance was used up (error {code}).": "تم رفض {n} حدث هذا الشهر لاستنفاد الحد المسموح (الخطأ {code}).",
-  "Events count everything accepted by ingestion in all environments this month (UTC). Past the monthly allowance, events are still accepted for a 10% grace; after that ingestion refuses them with {code} until the month resets or you upgrade. Owners get an email at 80%, 100% and when events are refused. Apps and members (including pending invitations) can't be added beyond the plan.":
-    "تشمل الأحداث كل ما قبله الاستقبال في جميع البيئات هذا الشهر (UTC). بعد تجاوز الحد الشهري، تظل الأحداث مقبولة ضمن سماح 10%؛ وبعد ذلك يرفضها الاستقبال بالخطأ {code} حتى يبدأ شهر جديد أو ترقّي الباقة. يتلقى المالكون رسالة عند 80% و100% وعند رفض الأحداث. لا يمكن إضافة تطبيقات أو أعضاء (بما فيها الدعوات المعلّقة) بما يتجاوز الباقة.",
+  "Events count everything ingestion accepted in all environments this month (UTC). Past the allowance, events get a 10% grace; then ingestion refuses them with {code} until the month resets or you upgrade. Owners get an email at 80%, 100% and when events are refused. Apps and members (pending invitations too) can't exceed the plan's limits.":
+    "تشمل الأحداث كل ما قبله الاستقبال في جميع البيئات هذا الشهر (UTC). بعد تجاوز الحد الشهري، تظل الأحداث مقبولة ضمن سماح 10%؛ وبعد ذلك يرفضها الاستقبال بالخطأ {code} حتى يبدأ شهر جديد أو ترقّي الباقة. يتلقى المالكون رسالة بالبريد عند بلوغ 80% و100% وعند رفض الأحداث. ولا يمكن إضافة تطبيقات أو أعضاء (بما فيها الدعوات المعلّقة) بما يتجاوز الحدود التي تسمح بها الباقة.",
   Plans: "الباقات",
   "Plans and limits are placeholders until pricing is final. Payment happens on Stripe; card details never reach LeanApp.": "الباقات والحدود مؤقتة حتى اعتماد الأسعار النهائية. يتم الدفع عبر Stripe؛ ولا تصل بيانات البطاقة إلى LeanApp أبدًا.",
   Invoices: "الفواتير",

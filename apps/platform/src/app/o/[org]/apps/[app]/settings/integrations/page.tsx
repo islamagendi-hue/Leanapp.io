@@ -23,12 +23,12 @@ export default async function IntegrationsPage(props: PageProps<"/o/[org]/apps/[
     <div className="space-y-8">
       <div>
         <h1 className="h1">{t("Integrations")}</h1>
-        <p className="mt-1 max-w-2xl text-ink-2">{t("Everything this project can connect to, and where to set it up. Beta means built but not yet verified against the live service.")}</p>
+        <p className="mt-1 max-w-2xl text-ink-2">{t("Everything this project can connect to, and where to set it up. Beta means built but not yet verified live.")}</p>
       </div>
       {INTEGRATIONS.map((g) => (
         <section key={g.title} aria-labelledby={`int-${g.title}`}>
           <h2 id={`int-${g.title}`} className="mb-3 font-bold">{t(g.title)}</h2>
-          <ul className="grid gap-3 md:grid-cols-2">
+          <ul className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {g.items.map((i) => {
               const open = i.path && (!i.perm || can(ctx.role, i.perm));
               return (

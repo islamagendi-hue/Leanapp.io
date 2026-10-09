@@ -171,7 +171,8 @@ const ar: Record<string, string> = {
 
   // ── Debugger ───────────────────────────────────────────────────────────────
   "Event debugger": "مراقب الأحداث",
-  "Every event this environment receives, as it arrives, checked against your published tracking plan.": "كل حدث تستقبله هذه البيئة لحظة وصوله، مع فحصه مقابل خطة التتبّع المنشورة.",
+  "Every event this environment receives, as it arrives, checked against your published tracking plan.":
+    "كل حدث تستقبله هذه البيئة لحظة وصوله، مع فحصه مقابل خطة التتبّع المنشورة لهذا التطبيق.",
   Copied: "تم النسخ",
   Copy: "انسخ",
   "Your session expired. Sign in again.": "انتهت جلستك. سجّل الدخول مرة أخرى.",
@@ -212,7 +213,7 @@ const ar: Record<string, string> = {
   Processed: "تمت المعالجة",
   Context: "السياق",
   "Failed events ({days} days)": "الأحداث الفاشلة ({days} أيام)",
-  "An event whose processing failed is left out of every report until it is processed again.": "الحدث الذي فشلت معالجته يُستبعد من كل التقارير حتى تُعاد معالجته.",
+  "An event whose processing failed stays out of every report until it is processed again successfully.": "يُستبعد الحدث الفاشل من كل التقارير حتى تنجح إعادة معالجته.",
   "Retry failed events": "أعد معالجة الأحداث الفاشلة",
   "Put up to {n} failed events back in the processing queue?": "إعادة ما يصل إلى {n} حدثًا فاشلًا إلى قائمة انتظار المعالجة؟",
   "No failed events.": "لا توجد أحداث فاشلة.",
@@ -223,8 +224,10 @@ const ar: Record<string, string> = {
   // ── Validation (events) ────────────────────────────────────────────────────
   Validation: "التحقق",
   "Live events compared with tracking plan v{n}.": "الأحداث الحية مقارنةً بخطة التتبّع v{n}.",
-  "No published tracking plan yet, so nothing to validate against.": "لا توجد خطة تتبّع منشورة بعد، فلا شيء نتحقق مقابله.",
-  "Publish a tracking plan to get an implementation score and per-event validation.": "انشر خطة تتبّع لتحصل على درجة التنفيذ والتحقق لكل حدث.",
+  "No tracking plan has been published yet, so there is nothing to validate events against.":
+    "لا توجد خطة تتبّع منشورة بعد، فلا شيء نتحقق مقابله.",
+  "Publish a tracking plan to get an implementation score and event checks.":
+    "انشر خطة تتبّع لتحصل على درجة التنفيذ وعلى التحقق من كل حدث يصل إليك.",
   "Open tracking plan": "افتح خطة التتبّع",
   "Implementation score": "درجة التنفيذ",
   "{validated} of {expected} planned events validated, {implemented} received.": "تم التحقق من {validated} من أصل {expected} حدثًا مخططًا، واستُلم {implemented}.",
@@ -239,10 +242,11 @@ const ar: Record<string, string> = {
   Sources: "المصادر",
   "not received": "لم يُستلم",
   "Unplanned events": "أحداث خارج الخطة",
-  "Received but not in the published plan. Map them to a planned event if they mean the same thing.": "استُلمت لكنها ليست في الخطة المنشورة. اربطها بحدث مخطط إن كانت تعني الشيء نفسه.",
+  "Received but not in the published plan. Map them to a planned event if they mean the same thing, so they count toward it in your reports.":
+    "استُلمت لكنها ليست في الخطة المنشورة. اربطها بحدث مخطط إن كانت تعني الشيء نفسه، لتُحتسب ضمنه في التقارير وفي درجة التنفيذ أيضًا.",
   "Event mappings": "ربط الأحداث",
-  "An accepted mapping counts an existing event name as the planned one, without changing your app. Suggestions are never applied until someone accepts them.":
-    "الربط المقبول يحتسب اسم حدث موجود على أنه الحدث المخطط، دون تغيير تطبيقك. لا تُطبَّق الاقتراحات أبدًا حتى يقبلها أحد.",
+  "An accepted mapping counts an existing event name as the planned one, without any change to your app. Suggestions are never applied until someone on your team reviews and accepts them.":
+    "الربط المقبول يحتسب اسم حدث موجود على أنه الحدث المخطط، دون أي تغيير في تطبيقك. ولا تُطبَّق الاقتراحات أبدًا قبل أن يراجعها أحد أعضاء الفريق ويقبلها.",
   "{n}% match": "تطابق {n}%",
   Accept: "اقبل",
   Reject: "ارفض",
@@ -251,8 +255,8 @@ const ar: Record<string, string> = {
   "Event your app sends": "الحدث الذي يرسله تطبيقك",
   "Planned event": "الحدث المخطط",
   "Mapping history": "سجل الربط",
-  "Every change to a mapping, with who made it. Any revision can be restored, and each change re-maps all past events, not only the last 30 days.":
-    "كل تغيير على الربط ومن قام به. يمكن استعادة أي مراجعة، وكل تغيير يعيد ربط كل الأحداث السابقة، لا آخر 30 يومًا فقط.",
+  "Every change to a mapping, with who made it and when. Any revision can be restored, and each change re-maps all past events, not only the last 30 days.":
+    "كل تغيير على الربط ومن أجراه. يمكن استعادة أي مراجعة، ويعيد كل تغيير ربط الأحداث السابقة كلها.",
   "Turn off": "أوقف",
   "Turn on mapping history": "فعّل سجل الربط",
   "Off for this app. Mappings work as before: a change re-maps the last 30 days (up to 5,000 events).": "متوقف لهذا التطبيق. يعمل الربط كما كان: التغيير يعيد ربط آخر 30 يومًا (حتى 5,000 حدث).",
@@ -273,18 +277,19 @@ const ar: Record<string, string> = {
 
   // ── Get started ────────────────────────────────────────────────────────────
   "Create the app": "أنشئ التطبيق",
-  "Answer questions about your business ({answered}/{total})": "أجب عن أسئلة حول نشاطك ({answered}/{total})",
-  "Answer questions about your business": "أجب عن أسئلة حول نشاطك",
+  "Answer business questions ({answered}/{total})": "أجب عن أسئلة حول نشاطك ({answered}/{total})",
+  "Answer business questions": "أجب عن أسئلة حول نشاطك",
   "Generate your tracking plan": "أنشئ خطة التتبّع",
   "Review and approve it": "راجعها واعتمدها",
   "Publish it": "انشرها",
   "Install the SDK": "ثبّت SDK",
   "Send your first event": "أرسل أول حدث",
-  "Reach a healthy implementation score": "حقّق درجة تنفيذ جيدة",
+  "Reach a healthy score": "حقّق درجة تنفيذ جيدة",
   "Define activation, core action and revenue": "حدّد التفعيل والإجراء الأساسي والإيرادات",
   "See your growth summary": "اطّلع على ملخص النمو",
-  "From business model to production-ready tracking. The first event is the moment it all connects.": "من نموذج العمل إلى تتبّع جاهز للإنتاج. أول حدث هو لحظة ترابط كل شيء.",
-  "Implementation score · development": "درجة التنفيذ · التطوير",
+  "From business model to production-ready tracking. The first event is the moment it all connects.":
+    "من نموذج العمل إلى تتبّع جاهز للإنتاج. وأول حدث يصل من تطبيقك هو لحظة ترابط كل شيء.",
+  "Score · development": "درجة التنفيذ · التطوير",
   "{validated}/{expected} planned events validated": "تم التحقق من {validated}/{expected} من الأحداث المخططة",
   "Publish a tracking plan to start scoring.": "انشر خطة تتبّع لبدء احتساب الدرجة.",
   "Next: {step}": "التالي: {step}",
@@ -371,7 +376,8 @@ const ar: Record<string, string> = {
   "We read your business as {model} with {secondary} behaviour.": "فهمنا أن نشاطك {model} مع سلوك {secondary}.",
   "We read your business as {model}.": "فهمنا أن نشاطك {model}.",
   "Let's understand your app": "لنتعرّف على تطبيقك",
-  "Questions adapt to your answers. We turn them into your tracking plan: events, properties, attribution and activation.": "تتكيّف الأسئلة مع إجاباتك. نحوّلها إلى خطة التتبّع: الأحداث والخصائص والإسناد والتفعيل.",
+  "Questions adapt to your answers. We turn them into your tracking plan of events and properties.":
+    "تتكيّف الأسئلة مع إجاباتك. ثم نحوّل الإجابات إلى خطة تتبّع لتطبيقك تضم الأحداث وخصائصها.",
   "Save and continue": "احفظ وتابع",
   "Your role can view answers but not change them.": "دورك يتيح عرض الإجابات دون تغييرها.",
   "All set": "كل شيء جاهز",
@@ -386,14 +392,16 @@ const ar: Record<string, string> = {
 
   // ── SDK & API keys ─────────────────────────────────────────────────────────
   "Send events": "إرسال الأحداث",
-  "Export user data, read consent and suppressions": "تصدير بيانات المستخدمين وقراءة الموافقات وقوائم الحظر",
+  "Export user data, read consent and suppressions":
+    "تصدير بيانات المستخدمين، وقراءة الموافقات والحظر",
   "Delete user data, manage suppressions": "حذف بيانات المستخدمين وإدارة قوائم الحظر",
   "Read app, environment and tracking plan": "قراءة التطبيق والبيئة وخطة التتبّع",
   "Add events to a draft plan": "إضافة أحداث إلى مسودة خطة",
   "Read events reports": "قراءة تقارير الأحداث",
   "Look up users": "البحث عن المستخدمين",
   "Send a test event now": "أرسل حدثًا تجريبيًا الآن",
-  "Each environment has its own keys and its own data.": "لكل بيئة مفاتيحها وبياناتها الخاصة.",
+  "Each environment has its own keys and its own data, kept apart.":
+    "لكل بيئة مفاتيحها وبياناتها الخاصة، ولا تختلط بيانات البيئات ببعضها أبدًا.",
   "All projects' keys": "مفاتيح كل المشاريع",
   "(paused)": "(متوقفة)",
   "1. Install and initialize": "1. التثبيت والتهيئة",
@@ -401,11 +409,11 @@ const ar: Record<string, string> = {
     "مكتبات SDK مبنية ومختبَرة لكنها ليست بعد على npm أو Maven Central أو pub.dev أو في إصدار Swift موسوم، لذا أضفها من مستودع LeanApp كما يوضح كل مقتطف. ثم افتح {debugger} وشاهد أول حدث يصل.",
   "event debugger": "مراقب الأحداث",
   "SDK release status": "حالة إصدار SDK",
-  Package: "الحزمة",
+  "SDK and package": "SDK والحزمة",
   Verified: "التحقق",
   "Not built yet": "لم يُبنَ بعد",
   Published: "منشورة",
-  "Not published: add from the repository": "غير منشورة: أضفها من المستودع",
+  "Not published": "غير منشورة",
   "Public SDK keys": "مفاتيح SDK العامة",
   "safe to embed in apps; can only send events": "آمنة للتضمين في التطبيقات؛ لا تستطيع إلا إرسال الأحداث",
   "Add key": "أضف مفتاحًا",
@@ -508,9 +516,9 @@ const ar: Record<string, string> = {
   "What does your company do?": "ماذا تفعل شركتك؟",
   "We are a food delivery app in Riyadh and Jeddah…": "نحن تطبيق توصيل طعام في الرياض وجدة…",
   "A sentence or two is enough. Arabic or English.": "تكفي جملة أو جملتان. بالعربية أو الإنجليزية.",
-  "What problem does the app solve for its users?": "ما المشكلة التي يحلّها التطبيق لمستخدميه؟",
+  "What problem does the app solve?": "ما المشكلة التي يحلّها التطبيق؟",
   "Which business model fits best?": "أي نموذج عمل هو الأنسب؟",
-  "We pre-selected one from your description. Change it if it's wrong.": "اخترنا واحدًا مسبقًا بناءً على وصفك. غيّره إن كان خاطئًا.",
+  "We picked one from your description. Change it if it's wrong.": "اخترنا واحدًا بناءً على وصفك. غيّره إن كان خاطئًا.",
   "Who is the customer?": "من هو العميل؟",
   "Consumers (B2C)": "المستهلكون (B2C)",
   "Businesses (B2B)": "الشركات (B2B)",
@@ -518,7 +526,7 @@ const ar: Record<string, string> = {
   Hybrid: "مختلط",
   "Which countries do you operate in?": "في أي دول تعمل؟",
   "Which currencies do customers pay in?": "بأي عملات يدفع العملاء؟",
-  "What is the main value users get?": "ما القيمة الأساسية التي يحصل عليها المستخدمون؟",
+  "What is the main value users get?": "ما القيمة التي يحصل عليها المستخدمون؟",
   "Hot food delivered in under 40 minutes.": "طعام ساخن يصل في أقل من 40 دقيقة.",
   "What does a user primarily do in the app?": "ما الذي يفعله المستخدم أساسًا في التطبيق؟",
   "Order food from nearby restaurants": "يطلب الطعام من المطاعم القريبة",
@@ -1270,14 +1278,14 @@ const ar: Record<string, string> = {
   // ── SDK release status (sdks.ts) ───────────────────────────────────────────
   "37 unit tests, typecheck and build in CI": "37 اختبار وحدة وفحص أنواع وبناء في CI",
   "Play install referrer on React Native (needs a native module)": "Play install referrer على React Native (يحتاج وحدة أصلية)",
-  "deep_link_url on opens": "deep_link_url عند فتح التطبيق",
-  "in-app message display": "عرض الرسائل داخل التطبيق",
+  "deep_link_url on app opens": "deep_link_url عند فتح التطبيق",
+  "in-app message display in the SDK": "عرض الرسائل داخل التطبيق نفسه",
   "deferred and resolve deep link calls": "استدعاءات الروابط العميقة المؤجلة والحلّ",
-  "29 JVM unit tests and the Android library build in CI": "29 اختبار وحدة على JVM وبناء مكتبة أندرويد في CI",
-  "consent per purpose (optOut / optIn only)": "الموافقة حسب الغرض (optOut / optIn فقط)",
-  "24 XCTest tests and device and simulator builds on macOS in CI": "24 اختبار XCTest وبناء للجهاز والمحاكي على macOS في CI",
+  "29 JVM unit tests and the Android library build, run in CI": "29 اختبار وحدة على JVM، وبناء مكتبة أندرويد، وكلها تعمل في CI",
+  "consent per purpose (optOut / optIn only, for now)": "الموافقة حسب الغرض (optOut / optIn فقط)",
+  "24 XCTest tests and device and simulator builds on macOS in CI": "24 اختبار XCTest، وبناء للجهاز والمحاكي على macOS، وكلها تعمل في CI",
   "SKAdNetwork / AdAttributionKit conversion values": "قيم التحويل في SKAdNetwork / AdAttributionKit",
   "25 tests and flutter analyze in CI": "25 اختبارًا وflutter analyze في CI",
-  "install referrer without a plugin": "install referrer بدون إضافة",
+  "install referrer without a separate plugin": "قراءة install referrer دون الحاجة إلى إضافة منفصلة",
 };
 export default ar;

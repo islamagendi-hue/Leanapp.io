@@ -28,13 +28,13 @@ export default async function GetStartedPage(props: PageProps<"/o/[org]/apps/[ap
 
   const steps = [
     { label: t("Create the app"), short: msg("Create the app"), done: true, href: `${base}/settings/dev-ops/get-started` },
-    { label: t("Answer questions about your business ({answered}/{total})", { answered: q.answered, total: q.total }), short: msg("Answer questions about your business"), done: q.complete, href: `${base}/settings/dev-ops/implementation/questions` },
+    { label: t("Answer business questions ({answered}/{total})", { answered: q.answered, total: q.total }), short: msg("Answer business questions"), done: q.complete, href: `${base}/settings/dev-ops/implementation/questions` },
     { label: t("Generate your tracking plan"), short: msg("Generate your tracking plan"), done: versions.length > 0, href: `${base}/settings/dev-ops/implementation/plan` },
     { label: t("Review and approve it"), short: msg("Review and approve it"), done: versions.some((v) => v.status === "approved" || v.status === "published" || (v.status === "archived" && v.approved_at)), href: `${base}/settings/dev-ops/implementation/plan` },
     { label: t("Publish it"), short: msg("Publish it"), done: !!project.publishedVersionId, href: `${base}/settings/dev-ops/implementation/plan` },
     { label: t("Install the SDK"), short: msg("Install the SDK"), done: !!firstEvent, href: `${base}/settings/dev-ops/sdk?env=development` },
     { label: t("Send your first event"), short: msg("Send your first event"), done: !!firstEvent, href: `${base}/settings/dev-ops/debugger?env=development` },
-    { label: t("Reach a healthy implementation score"), short: msg("Reach a healthy implementation score"), done: (devReport.score?.overall ?? 0) >= 80, href: `${base}/settings/dev-ops/events?env=development` },
+    { label: t("Reach a healthy score"), short: msg("Reach a healthy score"), done: (devReport.score?.overall ?? 0) >= 80, href: `${base}/settings/dev-ops/events?env=development` },
   ];
   // With the growth model on, setup ends on the growth summary.
   if ((await getAppFeatures(ctx, a.id)).growth_model && can(ctx.role, "growth.read")) {
@@ -67,7 +67,7 @@ export default async function GetStartedPage(props: PageProps<"/o/[org]/apps/[ap
         </ol>
         <div className="space-y-4">
           <div className="card">
-            <p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("Implementation score · development")}</p>
+            <p className="font-mono text-xs uppercase tracking-wide text-ink-3">{t("Score · development")}</p>
             <p className="mt-2 text-4xl font-bold">{devReport.score ? `${devReport.score.overall}%` : "–"}</p>
             <p className="mt-1 text-sm text-ink-3">{devReport.score ? t("{validated}/{expected} planned events validated", { validated: devReport.score.validated, expected: devReport.score.expected }) : t("Publish a tracking plan to start scoring.")}</p>
           </div>

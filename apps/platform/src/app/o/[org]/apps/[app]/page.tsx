@@ -59,7 +59,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
   const withRange = (path: string, extra: [string, string][] = []) => `${path}?${new URLSearchParams([["env", env.type], ...rangeParams, ...extra])}`;
 
   const sections: { label: string; href: string; text: string; perm: Permission }[] = [
-    { label: msg("Events & trends"), href: `${base}/analytics/events`, text: msg("How often each event happens and how many people do it."), perm: "analytics.read" },
+    { label: msg("Events & trends"), href: `${base}/analytics/events`, text: msg("How often each event happens, and who does it."), perm: "analytics.read" },
     { label: msg("Funnels"), href: `${base}/analytics/funnels`, text: msg("Conversion through ordered steps."), perm: "analytics.read" },
     { label: msg("Retention"), href: `${base}/analytics/retention`, text: msg("Who comes back after day 1, 7 and 30."), perm: "analytics.read" },
     { label: msg("Dashboards"), href: `${base}/analytics/dashboards`, text: msg("Reports and numbers you check together."), perm: "analytics.read" },
@@ -100,7 +100,7 @@ export default async function OverviewPage(props: PageProps<"/o/[org]/apps/[app]
           <div>
             <h2 className="h2">{t("Connect your app")}</h2>
             <p className="mt-1 max-w-xl text-sm text-ink-2">
-              {t("Production hasn't received any events yet. Install the SDK and send your first event; your reports fill in as data arrives.")}
+              {t("Production hasn't received any events yet. Install the SDK and send your first event.")}
             </p>
           </div>
           {can(ctx.role, "implementation.read") && <Link href={`${base}/settings/dev-ops/get-started`} className="btn">{t("Get started")}</Link>}

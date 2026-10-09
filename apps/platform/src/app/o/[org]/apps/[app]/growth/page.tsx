@@ -40,7 +40,7 @@ export default async function GrowthPage(props: PageProps<"/o/[org]/apps/[app]/g
 
       {!o.enabled && (
         <div className="card space-y-3">
-          <p>{t("The growth model is off for this app. Turning it on builds a growth state for every person from all past events, then keeps it current as events arrive. Nothing else changes.")}</p>
+          <p className="max-w-2xl">{t("The growth model is off for this app. Turning it on builds a growth state for every person from all past events, then keeps it current as events arrive. Nothing else changes.")}</p>
           {canToggle ? (
             <ActionForm action={setGrowthModelAction.bind(null, org, app, a.id, true)} submitLabel={t("Turn on the growth model")} className="contents" />
           ) : (

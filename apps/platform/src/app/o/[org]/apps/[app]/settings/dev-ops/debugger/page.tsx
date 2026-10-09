@@ -50,7 +50,7 @@ export default async function DebuggerPage(props: PageProps<"/o/[org]/apps/[app]
               {t("Failed events ({days} days)", { days: FAILED_WINDOW_DAYS })}{" "}
               <span className={`font-mono ${failed.total ? "text-alert" : "text-ink-3"}`} data-testid="failed-count">{failed.total}</span>
             </h2>
-            <p className="mt-1 text-sm text-ink-2">{t("An event whose processing failed is left out of every report until it is processed again.")}</p>
+            <p className="mt-1 text-sm text-ink-2">{t("An event whose processing failed stays out of every report until it is processed again successfully.")}</p>
           </div>
           {canRetry && failed.total > 0 && (
             <ActionForm

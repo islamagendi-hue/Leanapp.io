@@ -219,9 +219,9 @@ const ar: Record<string, string> = {
   "Project not found.": "لم يُعثر على المشروع.",
 
   // Growth (Activation)
-  "Who activates, keeps coming back and pays, per person, from your own events.": "من يتفعّل ويواصل العودة ويدفع، لكل شخص، من أحداثك أنت.",
+  "Who activates, keeps coming back and pays, per person, from your own events.": "من يتفعّل ويعود ويدفع، شخصًا بشخص، من أحداثك أنت.",
   "The growth model is off for this app. Turning it on builds a growth state for every person from all past events, then keeps it current as events arrive. Nothing else changes.":
-    "نموذج النمو متوقف لهذا التطبيق. تشغيله يبني حالة نمو لكل شخص من كل الأحداث السابقة، ثم يُبقيها محدّثة مع وصول الأحداث. لا يتغير شيء آخر.",
+    "نموذج النمو متوقف لهذا التطبيق. تشغيله يبني حالة نمو لكل شخص من كل الأحداث السابقة، ثم يُبقيها محدّثة مع وصول كل حدث جديد. لا يتغير أي شيء آخر في التطبيق أو في تقاريرك.",
   "Turn on the growth model": "شغّل نموذج النمو",
   "Turn off the growth model": "أوقف نموذج النمو",
   "Ask an owner, admin or developer to turn it on.": "اطلب من المالك أو المسؤول أو المطوّر تشغيله.",
@@ -250,7 +250,7 @@ const ar: Record<string, string> = {
   "From tracking plan v{version}.": "من خطة التتبّع v{version}.",
   "From tracking plan v{version}, derived from its activation and north-star events.": "من خطة التتبّع v{version}، مستمدة من حدثي التفعيل ونجم الشمال فيها.",
   "No published tracking plan yet. Until there is one, the growth state only counts activity and retention.":
-    "لا توجد خطة تتبّع منشورة بعد. إلى أن تتوفر، لا تحتسب حالة النمو إلا النشاط والاحتفاظ.",
+    "لا توجد خطة تتبّع منشورة بعد. إلى أن تتوفر خطة، لا تحتسب حالة النمو إلا النشاط والاحتفاظ.",
   "Draft v{version} has different definitions waiting for approval.": "المسودة v{version} فيها تعريفات مختلفة بانتظار الموافقة.",
   "Growth state stops updating. Turning it on again rebuilds it from all events.": "ستتوقف حالة النمو عن التحديث. إعادة التشغيل تبنيها من جديد من كل الأحداث.",
   "Growth model on. Growth state is being built from all past events.": "نموذج النمو يعمل. جارٍ بناء حالة النمو من كل الأحداث السابقة.",
@@ -274,7 +274,7 @@ const ar: Record<string, string> = {
 
   // Growth setup
   "Growth setup": "إعداد النمو",
-  "Growth definitions are saved with the tracking plan. Create a tracking plan first.": "تُحفظ تعريفات النمو مع خطة التتبّع. أنشئ خطة تتبّع أولًا.",
+  "Growth definitions are saved with the tracking plan. Create a tracking plan first.": "أنشئ خطة تتبّع أولًا، ففيها تُحفظ تعريفات النمو.",
   "Open tracking plan": "افتح خطة التتبّع",
   "Define what activation, the core action, revenue and retention mean for this app. They are saved in the draft tracking plan and apply once that draft is approved and published.":
     "حدّد معنى التفعيل والإجراء الأساسي والإيرادات والاحتفاظ لهذا التطبيق. تُحفظ في مسودة خطة التتبّع وتُطبَّق بعد الموافقة على المسودة ونشرها.",

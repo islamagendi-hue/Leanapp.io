@@ -59,7 +59,7 @@ export default async function ProjectGeneralPage(props: PageProps<"/o/[org]/apps
           </p>
         ) : (
           <p className="mt-1 text-sm text-ink-2">
-            {t("Archiving stops the project receiving events (its SDK keys are refused), hides it from the project list and frees its place on your plan. Data, reports and settings are kept, and an owner or admin can restore it.")}
+            {t("Archiving stops the project receiving events (its SDK keys are refused), hides it from the list and frees its place on your plan. Data, reports and settings are kept, and an owner or admin can restore it.")}
           </p>
         )}
         {can(ctx.role, "apps.delete") ? (

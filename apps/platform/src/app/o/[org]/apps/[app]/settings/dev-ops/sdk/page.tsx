@@ -72,7 +72,7 @@ curl -X POST ${api}/v1/events \\
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="h1">{t("SDK & API keys")}</h1>
-          <p className="mt-1 text-ink-2">{t("Each environment has its own keys and its own data.")} <Link className="underline" href={`/o/${org}/settings/api-keys`}>{t("All projects' keys")}</Link></p>
+          <p className="mt-1 text-ink-2">{t("Each environment has its own keys and its own data, kept apart.")} <Link className="underline" href={`/o/${org}/settings/api-keys`}>{t("All projects' keys")}</Link></p>
         </div>
       </div>
       <nav className="flex flex-wrap gap-2" aria-label={t("Environment")}>
@@ -87,19 +87,18 @@ curl -X POST ${api}/v1/events \\
       <section className="card space-y-3">
         <h2 className="h2">{t("1. Install and initialize")}</h2>
         <CodeTabs tabs={install} preferred="react_native" />
-        <p className="text-sm text-ink-3">{(([x, y]) => <>{x}<a className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>{t("event debugger")}</a>{y}</>)(t("The SDKs are built and tested but not on npm, Maven Central, pub.dev or a tagged Swift release yet, so add them from the LeanApp repository as each snippet shows. Then open the {debugger} and watch your first event arrive.").split("{debugger}"))}</p>
+        <p className="max-w-2xl text-sm text-ink-3">{(([x, y]) => <>{x}<a className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/debugger?env=${env.type}`}>{t("event debugger")}</a>{y}</>)(t("The SDKs are built and tested but not on npm, Maven Central, pub.dev or a tagged Swift release yet, so add them from the LeanApp repository as each snippet shows. Then open the {debugger} and watch your first event arrive.").split("{debugger}"))}</p>
       </section>
 
       <section className="card overflow-x-auto p-0" aria-label={t("SDK release status")}>
         <h2 className="h2 px-5 pt-5">{t("SDK release status")}</h2>
-        <table className="table mt-3">
-          <thead><tr><th>SDK</th><th>{t("Package")}</th><th>{t("Status")}</th><th>{t("Verified")}</th><th>{t("Not built yet")}</th></tr></thead>
+        <table className="table mt-3 w-max">
+          <thead><tr><th className="w-56">{t("SDK and package")}</th><th>{t("Status")}</th><th className="w-64">{t("Verified")}</th><th className="w-72">{t("Not built yet")}</th></tr></thead>
           <tbody>
             {SDK_RELEASES.map((r) => (
               <tr key={r.key}>
-                <td className="font-medium">{r.label}</td>
-                <td className="font-mono text-xs">{r.pkg}</td>
-                <td>{r.published ? <span className="pill border-accent/40 bg-accent-soft text-xs text-accent-ink">{t("Published")}</span> : <span className="pill border-warn/40 bg-warn-soft text-xs text-warn">{t("Not published: add from the repository")}</span>}</td>
+                <td><span className="block font-medium">{r.label}</span><span className="block font-mono text-xs text-ink-3">{r.pkg}</span></td>
+                <td>{r.published ? <span className="pill border-accent/40 bg-accent-soft text-xs text-accent-ink">{t("Published")}</span> : <span className="pill border-warn/40 bg-warn-soft text-xs text-warn">{t("Not published")}</span>}</td>
                 <td className="text-sm text-ink-2">{t(r.verified)}</td>
                 <td className="text-sm text-ink-2">{r.gaps.map((g) => t(g)).join(lang === "ar" ? "؛ " : "; ")}</td>
               </tr>
@@ -115,7 +114,7 @@ curl -X POST ${api}/v1/events \\
         </div>
         <div className="overflow-x-auto">
           <table className="table">
-            <thead><tr><th>{t("Key")}</th><th>{t("Status")}</th><th>{t("Last used")}</th><th>{t("Expires")}</th><th /></tr></thead>
+            <thead><tr><th>{t("Key")}</th><th>{t("Status")}</th><th className="min-w-28">{t("Last used")}</th><th>{t("Expires")}</th><th /></tr></thead>
             <tbody>
               {sdkKeys.map((k) => {
                 const expired = k.expires_at && new Date(k.expires_at) <= new Date();
@@ -150,7 +149,7 @@ curl -X POST ${api}/v1/events \\
         {apiKeys.length > 0 && (
           <div className="overflow-x-auto">
             <table className="table">
-              <thead><tr><th>{t("Key")}</th><th>{t("Label")}</th><th>{t("Permissions")}</th><th>{t("Status")}</th><th>{t("Last used")}</th><th>{t("Expires")}</th><th /></tr></thead>
+              <thead><tr><th>{t("Key")}</th><th>{t("Label")}</th><th>{t("Permissions")}</th><th>{t("Status")}</th><th className="min-w-28">{t("Last used")}</th><th>{t("Expires")}</th><th /></tr></thead>
               <tbody>
                 {apiKeys.map((k) => (
                   <tr key={k.id}>
