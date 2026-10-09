@@ -229,7 +229,7 @@ export function BuildingDashboard({ copy, lang }: { copy: Copy; lang: "en" | "ar
                 </div>
               </Slot>
 
-              {/* Installs by source */}
+              {/* Acquisition by source */}
               <Slot filled={on(SOURCES)} className="p-3 sm:p-4">
                 <p data-cursor="sources" className="text-xs font-semibold sm:text-sm">{b.sources}</p>
                 <ul className="mt-3 space-y-1.5">
