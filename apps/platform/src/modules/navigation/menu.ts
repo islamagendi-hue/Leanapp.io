@@ -52,6 +52,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
         beta: true,
         items: pick(role, [
           { label: msg("Overview"), href: `${base}/acquisition`, perm: "attribution.read" },
+          { label: msg("CAC & LTV"), href: `${base}/acquisition/channels`, perm: "attribution.read" },
           { label: msg("Sources & campaigns"), href: `${base}/acquisition/sources`, perm: "attribution.read" },
           { label: msg("Ad spend"), href: `${base}/acquisition/spend`, perm: "attribution.read" },
         ]),
