@@ -6,6 +6,9 @@
 /// ```
 library leanapp_analytics;
 
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'package:flutter/widgets.dart';
 
 import 'src/attribution.dart';
@@ -13,8 +16,10 @@ import 'src/client.dart';
 import 'src/device_context.dart';
 import 'src/storage.dart';
 
-export 'src/attribution.dart' show InstallReferrer, attributionParams, parseAttribution;
-export 'src/client.dart' show FlushResult, LeanAppClient, LeanAppOptions, defaultEndpoint, eventIdsHash, idempotencyKey, sdkName, sdkVersion, storagePrefix;
+export 'src/attribution.dart'
+    show InstallReferrer, attributionParams, campaignIdParams, clickIdParams, hasSourceParams, parseAttribution, utmParams;
+export 'src/client.dart'
+    show ConsentStatus, DeferredDeepLink, FlushResult, LeanAppClient, LeanAppOptions, consentPurposes, defaultEndpoint, eventIdsHash, idempotencyKey, sdkName, sdkVersion, storagePrefix;
 export 'src/device_context.dart' show flutterContext;
 export 'src/storage.dart' show KeyValueStore, MemoryStore, SharedPreferencesStore;
 
@@ -55,6 +60,9 @@ class Analytics {
   static bool _warned = false;
   static LeanAppLifecycleObserver? _observer;
 
+  /// Android: completes when the app passed the install referrer (or null), so the deferred deep link request carries it.
+  static Completer<void>? _referrerSet;
+
   static LeanAppClient? _client() {
     if (_instance == null && !_warned) {
       _warned = true;
@@ -80,6 +88,10 @@ class Analytics {
     bool debug = false,
     bool trackLifecycleEvents = true,
     KeyValueStore? store,
+    ConsentStatus consentDefault = ConsentStatus.granted,
+    Map<String, ConsentStatus> consentDefaults = const {},
+    bool deferredDeepLinks = true,
+    void Function(DeferredDeepLink result)? onDeferredDeepLink,
   }) async {
     final existing = _instance;
     if (existing != null) return existing;
@@ -98,6 +110,9 @@ class Analytics {
         context: context,
         optedOut: optedOut,
         debug: debug,
+        consentDefault: consentDefault,
+        consentDefaults: consentDefaults,
+        deferredDeepLinks: deferredDeepLinks,
       ),
       store: store ?? SharedPreferencesStore(),
       contextProvider: flutterContext,
@@ -111,7 +126,29 @@ class Analytics {
     _observer = observer;
     WidgetsBinding.instance.addObserver(observer);
     await client.whenReady();
+    if (deferredDeepLinks) unawaited(_askDeferred(client, onDeferredDeepLink));
     return client;
+  }
+
+  /// Once per new install (the client keeps track). On Android it waits up to 10 s for setInstallReferrer so the
+  /// request can carry LeanApp's click id from the Play referrer.
+  static Future<void> _askDeferred(LeanAppClient client, void Function(DeferredDeepLink result)? callback) async {
+    String? os;
+    String? osVersion;
+    try {
+      if (Platform.isAndroid || Platform.isIOS) {
+        os = Platform.isAndroid ? 'android' : 'ios';
+        osVersion = Platform.operatingSystemVersion;
+      }
+    } catch (_) {
+      // dart:io is not available (web)
+    }
+    if (os == 'android' && await client.installReferrerPending()) {
+      final waiting = _referrerSet = Completer<void>();
+      await waiting.future.timeout(const Duration(seconds: 10), onTimeout: () {});
+    }
+    final result = await client.requestDeferredDeepLink(os: os, osVersion: osVersion);
+    if (result != null && callback != null) callback(result);
   }
 
   static void track(String eventName, [Map<String, Object?> properties = const {}, String? eventId, DateTime? timestamp]) =>
@@ -135,7 +172,18 @@ class Analytics {
   static ({Map<String, String> first, Map<String, String> latest})? getAttribution() => _client()?.getAttribution();
 
   /// Android: the Play Install Referrer from a plugin such as play_install_referrer, once per install.
-  static void setInstallReferrer(InstallReferrer? referrer) => _client()?.setInstallReferrer(referrer);
+  static void setInstallReferrer(InstallReferrer? referrer) {
+    _client()?.setInstallReferrer(referrer);
+    final waiting = _referrerSet;
+    if (waiting != null && !waiting.isCompleted) waiting.complete();
+  }
+
+  /// Records the user's consent answers from your consent screen, e.g. {'analytics': true, 'attribution': false}.
+  /// Purposes: analytics, marketing, push, attribution. Purposes left out keep their state.
+  static void setConsent(Map<String, bool> consent) => _client()?.setConsent(consent);
+
+  /// Current consent per purpose, or null before initialize.
+  static Map<String, ConsentStatus>? getConsent() => _client()?.getConsent();
 
   static Future<bool> installReferrerPending() async => await _client()?.installReferrerPending() ?? false;
 
