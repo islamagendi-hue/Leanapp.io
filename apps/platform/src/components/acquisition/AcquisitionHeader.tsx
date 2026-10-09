@@ -48,7 +48,7 @@ export async function AcquisitionHeader({ base, current, title, description, env
           {t("Installs and re-engagements are matched from LeanApp's own event stream: clicks on LeanApp tracking links, the store install referrer and the ad-network click ids your app sends. Each conversion is credited to the last touch before it. Apple's SKAdNetwork postbacks appear separately, in aggregate only, and are never tied to a user.")}
         </p>
         <p className="mt-2">
-          {t("It is not a full mobile measurement partner: ad spend is entered by hand or by CSV, as automatic import from ad networks is not built yet, and there is no fraud prevention, no multi-touch or view-through attribution, and no installs reported by ad networks themselves. Numbers can differ from what the ad networks report.")}
+          {t("It is not a full mobile measurement partner: ad spend comes from the cost import of an ad account you connect in Integrations, or is entered by hand or by CSV, and there is no fraud prevention, no multi-touch or view-through attribution, and no installs reported by ad networks themselves. Numbers can differ from what the ad networks report.")}
         </p>
       </details>
       {env !== "production" && (

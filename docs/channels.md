@@ -77,7 +77,7 @@ The engine now stores why a no-match install is organic: `match_key = store_orga
 
 ## Channel analytics
 
-Acquisition → **Sources & campaigns** opens with a **Channels** table (model selector next to the range), and Acquisition → **Overview** shows the top channels; both show **Coverage and freshness**. No new page: the numbers sit with the existing Acquisition reports. Per channel, for the range (app timezone, per environment):
+Acquisition → **Sources & campaigns** opens with a **Channels** table (model selector next to the range), and Acquisition → **Overview** is the acquisition dashboard (see *Acquisition dashboard and provenance* below); both show **Coverage and freshness**. No new page: the numbers sit with the existing Acquisition reports. Per channel, for the range (app timezone, per environment):
 
 | Number | Source | When it's not available |
 | --- | --- | --- |
@@ -92,6 +92,34 @@ Acquisition → **Sources & campaigns** opens with a **Channels** table (model s
 | Freshness | Last click, last matched install / open, last processed attribution, last conversion, last spend day and save | — |
 
 **Not reported:** sessions by channel (no LeanApp SDK sends a session event carrying the touch); installs or first opens that LeanApp never received (e.g. ad-network-reported installs without a click). The page says so.
+
+## Acquisition dashboard and provenance
+
+Acquisition → **Overview** shows, for the range and credit model (last / first touch), **new users, installs, sign-ups, activation, purchases, revenue, spend, CAC and ROAS**: as key numbers, **by source** (channel) and **by campaign** (top 50). Built on the channel report above (`report.ts`), plus `channels/provenance-data.ts` (campaign rows, spend origin, ad cost-import state) and the pure `channels/provenance.ts`.
+
+Every metric carries one of four labels:
+
+| Label | Meaning | Metrics |
+| --- | --- | --- |
+| Observed | Counted by LeanApp from the app's own events | New users, installs, sign-ups, activation, purchases, revenue |
+| Imported | From outside the event stream: Ad spend, imported from an ad account's cost import (`origin = import`) or entered by hand / CSV (`origin = manual`); the cell says which | Spend; CAC and ROAS |
+| Modeled | Inferred, not observed: installs matched probabilistically (opt-in Android device-signal match). Installs show the modeled share; a row whose installs are all modeled is labelled Modeled | Installs |
+| Unavailable | No data: growth model off, no spend for a paid channel, no spend expected (organic, owned…), no revenue event ever received, no `analytics.read` permission for spend, spend and revenue in different currencies | Any |
+
+A derived metric takes the **weakest** label of its inputs (observed < imported < modeled < unavailable). CAC = spend ÷ new users, ROAS = revenue ÷ spend, per currency, never converted. CAC and ROAS are shown **Incomplete**, with the reasons, when:
+
+- the cost import feeding that channel is failing (`error`, `credentials_missing`, or its ad reporting import in `error`) or behind the range end by more than the networks' 2-day restatement lag;
+- (totals) a paid channel with clicks, installs or conversions in the range has no spend;
+- (rows) some installs are unattributed (that channel's users may be among them: CAC overstated) or some conversions have no install on record (its revenue may be among them: ROAS understated);
+- revenue is in a currency the spend is not in.
+
+Revenue before any revenue event has ever been received is **Unavailable**, not 0; after that, 0 in a range is an observed 0.
+
+**Coverage warnings** (Data coverage card): no spend and no ad cost import; paid channels with activity but no spend; cost import failing, behind or never verified; ad reporting imported with cost import off; campaigns with spend but nothing attributed under that name (Ad spend campaign names must match link / UTM campaigns); unattributed installs (with the iOS count) and conversions; no revenue events; growth model off; first-touch fallback; SKAdNetwork / AdAttributionKit postbacks (provider-reported, never added). Each links to where it is fixed when the viewer may open that page. Integration state needs `integrations.read`; without it no claim is made about imports. Spend needs `analytics.read`.
+
+Campaign rows: installs, new users and activation by the install's campaign; conversions by the credited touch's campaign; spend by Ad spend campaign name (case-insensitive). Spend entered for a whole source stays on its own row ("All campaigns (spend not split)"), never spread; S1 applies (a whole-source row on a day with campaign rows is left out). Campaign rows show spend as entered; the channel rows apply S2 as well.
+
+On phones each row is an expandable card with every metric, its label and reasons; on wider screens it is a table whose column headers carry the usual label and whose cells are tagged where they differ.
 
 ## Reconciliation rules
 
@@ -113,9 +141,9 @@ The Deep links "New deep link" form lists every registry channel with a link pre
 
 ## Tests
 
-- Unit: `channels/classify.test.ts` (registry coverage, normalisation, classification order, custom rules, evidence), `reconcile.test.ts`, `report-pure.test.ts`, `attribution/pure.test.ts` (`organicReason`).
-- Integration (Postgres, simulated SDK events and link clicks): `test/growth-channels.int.test.ts` — organic / direct / unattributed reasons, first vs last touch, the channel report with evidence, coverage and spend reconciliation, the reporting model setting, custom channels and rules (validation, audit, pause / archive / delete), RBAC and tenant isolation.
+- Unit: `channels/classify.test.ts` (registry coverage, normalisation, classification order, custom rules, evidence), `reconcile.test.ts`, `report-pure.test.ts`, `provenance.test.ts` (labels, CAC / ROAS completeness, coverage warnings, campaign rows), `attribution/pure.test.ts` (`organicReason`).
+- Integration (Postgres, simulated SDK events and link clicks): `test/growth-channels.int.test.ts` — organic / direct / unattributed reasons, first vs last touch, the channel report with evidence, coverage and spend reconciliation, the reporting model setting, custom channels and rules (validation, audit, pause / archive / delete), RBAC and tenant isolation. `test/acquisition-dashboard.int.test.ts` — the dashboard by source and campaign with provenance, imported vs hand-entered spend, a failing cost import (capability rows written directly, no provider called), permission-gated spend and integration state, and tenant isolation.
 
 ## Owner actions
 
-None required to use it. Optional: turn on the growth model (Growth settings) so activation and retention by acquisition channel are measured; add custom channels and rules for sources the registry doesn't know (`unknown` in the Channels table shows which).
+None required to use it. Optional: turn on the growth model (Growth settings) so activation and retention by acquisition channel are measured; add custom channels and rules for sources the registry doesn't know (`unknown` in the Channels table shows which). For CAC and ROAS without the Incomplete mark: connect each paid network's cost import in Integrations (or enter spend on Ad spend) and keep campaign names in Ad spend identical to the campaign on links / UTM parameters.
