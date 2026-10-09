@@ -5,7 +5,7 @@
 - **Events:** every event in the range with counts and distinct people; a daily chart for one event, optionally split by platform, app version, country or an event property (top 5 values, the rest as Other).
 - **Funnels:** 2–6 ordered steps, a conversion window of 1–30 days, conversion from start and from the previous step, median time between steps, optional split by platform.
 - **Retention:** cohorts by the day of a person's first start event; day 1, 3, 7, 14 and 30 returns, as a heat map with a weighted average. Days that aren't over yet are left empty.
-- **Revenue** (`revenue.ts`, `revenue-rules.ts`): totals per currency (gross, refunds, net, transactions, paying people, ARPU, ARPPU), a daily net chart per currency, and a breakdown by platform, event, acquisition channel or any event property. Channel is the source of the paying person's latest install or reinstall at or before each transaction (last touch, labelled as in Acquisition: a source, `organic`, `(unknown)`, or `(no install on record)`); the install is found by the person's user_id, anonymous_id or an install linked to their user_id.
+- **Revenue** (`revenue.ts`, `revenue-rules.ts`): totals per currency (gross, refunds, net, transactions, paying people, ARPU, ARPPU), a daily net chart per currency, and a breakdown by platform, event, acquisition channel or any event property. Channel is the source of the paying person's latest install or reinstall at or before each transaction (last touch, labelled as in Acquisition: a source, `organic`, `(unknown)`, or `(no install on record)`); the install is found by the person's user_id, anonymous_id or an install linked to their user_id. Broken down by channel, each row also carries the ad spend entered for that source in that currency over the range (Acquisition → Ad spend), **Return** (gross − spend) and **ROAS** (gross ÷ spend), and sources with spend but no revenue get a row ([attribution: ad spend](attribution.md#ad-spend)); not with an audience filter.
 - **Audience filter**: any [audience](audiences.md) limits events, funnels, retention, revenue and the Users list to its people.
 - **User profiles** (`profiles.ts`, needs `users.read`): search by user ID or anonymous ID (prefix), and a profile with identity, user properties, first/last seen, latest platform and app version, sessions, revenue per currency and a paged event timeline.
 - **Saved reports** (`saved-reports.ts`): named trend, funnel, retention and revenue configurations per environment, opened as links that re-run the report on current data.
@@ -90,7 +90,7 @@ Not built yet: activation reports, a campaign breakdown for revenue, CSV export.
 | Funnels | Ordered steps with conversion windows, broken down by property, platform, campaign |
 | Retention | N-day and unbounded retention from a start event to a return event |
 | Audiences | Saved user groups by behaviour or property, one layer for Analytics, Users and Engagement ([audiences](audiences.md)) |
-| Revenue | Revenue by day, platform and property per currency (built); by channel and campaign once attribution exists |
+| Revenue | Revenue by day, platform, event, property and acquisition channel per currency, with entered ad spend, return and ROAS by channel (built); by campaign later |
 | User profiles | Timeline per user across devices |
 | Activation | Time to activation event, activation rate by acquisition channel |
 

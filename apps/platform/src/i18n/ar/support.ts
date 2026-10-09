@@ -54,7 +54,8 @@ const ar: Record<string, string> = {
   "Coming next": "قريبًا",
   "Open session recordings and heatmaps for the users in your reports.": "افتح تسجيلات الجلسات والخرائط الحرارية للمستخدمين في تقاريرك.",
   "Ad spend import": "استيراد تكلفة الإعلانات",
-  "Bring in cost from Meta, Google, TikTok and Snap to see CPI and ROAS.": "استورد التكلفة من Meta وGoogle وTikTok وSnap لترى CPI و ROAS.",
+  "Automatic import from Meta, Google, TikTok and Snap is coming. Until then, enter spend by hand or by CSV on the Ad spend page in Acquisition.":
+    "استيراد التكلفة تلقائيًا من Meta وGoogle وTikTok وSnap قادم. وإلى ذلك الحين، أدخِل الإنفاق يدويًا أو بملف CSV في صفحة إنفاق الإعلانات ضمن الاستحواذ.",
   "Send your events to GA4 as well.": "أرسل أحداثك إلى GA4 أيضًا.",
   "Data warehouse export": "التصدير إلى مستودع بيانات",
   "Copy your raw events to BigQuery or Snowflake.": "انسخ أحداثك الخام إلى BigQuery أو Snowflake.",

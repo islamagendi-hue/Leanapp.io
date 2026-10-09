@@ -159,9 +159,9 @@ const COMING_AR: string[] = [
 ];
 
 export const NOT_OFFERED =
-  "Not offered: SMS, web push, A/B tests, predictive scores, importing ad cost and ROAS, fraud prevention, exports to a data warehouse, and single sign-on (SSO). If your team needs one of these, please tell us before you start.";
+  "Not offered: SMS, web push, A/B tests, predictive scores, automatic ad cost import, fraud prevention, exports to a data warehouse, and single sign-on (SSO). If your team needs one of these, please tell us before you start.";
 const NOT_OFFERED_AR =
-  "غير متوفر: الرسائل النصية SMS، إشعارات الويب، اختبارات A/B، التوقّعات الذكية، استيراد تكلفة الإعلانات و ROAS، منع الاحتيال، التصدير لمستودع بيانات، والدخول الموحّد SSO. إذا كان فريقك يحتاج إلى إحداها، فأخبرنا قبل أن تبدأ.";
+  "غير متوفر: الرسائل النصية SMS، إشعارات الويب، اختبارات A/B، التوقّعات الذكية، الاستيراد التلقائي لتكلفة الإعلانات، منع الاحتيال، التصدير لمستودع بيانات، والدخول الموحّد SSO. إذا كان فريقك يحتاج إلى إحداها، فأخبرنا قبل أن تبدأ.";
 
 /** A plan card. Starter and Growth are self-serve with a monthly price; Enterprise is priced on a call. */
 export interface Plan {
@@ -238,29 +238,29 @@ export interface CompareRow {
 
 /**
  * The comparison with Mixpanel, Adjust and MoEngage, from each product's public
- * website. Kept conservative on purpose: what we lack (fraud prevention, ad
- * cost and ROAS, a full MMP) is in the table too. Same rows in both languages.
+ * website. Kept conservative on purpose: what we lack (fraud prevention,
+ * automatic ad cost import, a full MMP) is in the table too. Same rows in both languages.
  */
 const COMPARE_CELLS: CompareRow["cells"][] = [
   ["yes", "yes", "partial", "yes"], // events, funnels, retention
   ["yes", "no", "no", "yes"], // push, email, WhatsApp
   ["beta", "no", "yes", "partial"], // install attribution
   ["yes", "no", "no", "no"], // tracking plan from your business
-  ["no", "no", "yes", "no"], // fraud prevention, ad cost & ROAS
+  ["no", "no", "yes", "no"], // fraud prevention, automatic ad cost import
 ];
 const COMPARE_NEEDS_EN = [
   "Events, funnels and retention",
   "Push, email and WhatsApp campaigns",
   "Install attribution (sources and campaigns)",
   "Tracking plan built from your business model",
-  "Ad fraud prevention, ad cost and ROAS",
+  "Fraud prevention and ad cost import",
 ];
 const COMPARE_NEEDS_AR = [
   "الأحداث ومسارات التحويل والاحتفاظ",
   "حملات إشعارات وبريد وواتساب",
   "إسناد التثبيتات (المصادر والحملات)",
   "خطة تتبّع مبنية على نموذج عملك",
-  "منع احتيال الإعلانات وتكلفة الإعلانات و ROAS",
+  "منع الاحتيال واستيراد تكلفة الإعلانات",
 ];
 export const COMPARE_EN: CompareRow[] = COMPARE_CELLS.map((cells, i) => ({ need: COMPARE_NEEDS_EN[i], cells }));
 export const COMPARE_AR: CompareRow[] = COMPARE_CELLS.map((cells, i) => ({ need: COMPARE_NEEDS_AR[i], cells }));
@@ -311,7 +311,7 @@ const EN = {
       { title: "Priced for the region", body: "Start free and grow from $49 a month, instead of enterprise contracts sized for global apps." },
       { title: "Set up with you", body: "We build your tracking plan with you and help your developers, in Arabic or English." },
     ],
-    honest: "Need fraud prevention, or ad spend and ROAS? For those, use a full attribution partner like Adjust alongside LeanApp.",
+    honest: "Need fraud prevention or automatic ad cost import? Use a full attribution partner like Adjust too.",
     source: "Based on each product's public website, October 2026. Mixpanel, Adjust and MoEngage are trademarks of their owners.",
   },
   pricing: {
@@ -408,7 +408,7 @@ const AR: typeof EN = {
       { title: "أسعار تناسب المنطقة", body: "ابدأ مجانًا وتوسّع بدءًا من 49$ شهريًا، بدل عقود الشركات المصممة للتطبيقات العالمية." },
       { title: "نُعدّه معك", body: "نبني معك خطة التتبّع، ونساعد مطوّريك في تنفيذها خطوة بخطوة، بالعربية أو بالإنجليزية." },
     ],
-    honest: "هل تحتاج إلى منع الاحتيال، أو تكلفة الإعلانات و ROAS؟ استخدم لذلك شريك إسناد كاملًا مثل Adjust إلى جانب LeanApp.",
+    honest: "هل تحتاج إلى منع الاحتيال، أو استيراد تكلفة الإعلانات تلقائيًا؟ استخدم لذلك شريك إسناد كاملًا مثل Adjust إلى جانب LeanApp.",
     source: "استنادًا إلى المواقع الرسمية لكل منتج، أكتوبر 2026. Mixpanel و Adjust و MoEngage علامات تجارية مملوكة لأصحابها.",
   },
   features: { title: "ماذا يتضمن", lead: "بجانب كل ميزة توضيح لحالتها: متاحة، أو تجريبية، أو قريبًا.", coming: "قريبًا" },

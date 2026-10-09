@@ -76,6 +76,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
         items: pick(role, [
           { label: msg("Overview"), href: `${base}/acquisition`, perm: "attribution.read" },
           { label: msg("Sources & campaigns"), href: `${base}/acquisition/sources`, perm: "attribution.read" },
+          { label: msg("Ad spend"), href: `${base}/acquisition/spend`, perm: "attribution.read" },
           { label: msg("Attribution"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
           { label: msg("Tracking links & QR"), href: `${base}/acquisition/links`, perm: "attribution.read" },
           { label: msg("Deep links"), href: `${base}/acquisition/deep-links`, perm: "attribution.read" },

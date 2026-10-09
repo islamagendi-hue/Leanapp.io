@@ -62,7 +62,7 @@ export const INTEGRATIONS: IntegrationGroup[] = [
     title: msg("Coming next"),
     items: [
       { id: "clarity", name: "Microsoft Clarity", what: msg("Open session recordings and heatmaps for the users in your reports."), state: "soon" },
-      { id: "ad-spend", name: msg("Ad spend import"), what: msg("Bring in cost from Meta, Google, TikTok and Snap to see CPI and ROAS."), state: "soon" },
+      { id: "ad-spend", name: msg("Ad spend import"), what: msg("Automatic import from Meta, Google, TikTok and Snap is coming. Until then, enter spend by hand or by CSV on the Ad spend page in Acquisition."), state: "soon" },
       { id: "ga4", name: "Google Analytics 4", what: msg("Send your events to GA4 as well."), state: "soon" },
       { id: "warehouse", name: msg("Data warehouse export"), what: msg("Copy your raw events to BigQuery or Snowflake."), state: "soon" },
     ],

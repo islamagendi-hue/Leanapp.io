@@ -7,7 +7,7 @@ import { CohortSelect } from "@/components/CohortSelect";
 import { Delta, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
 import { TrendChart } from "@/components/TrendChart";
-import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN, NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport } from "@/modules/analytics/revenue";
+import { CHANNEL_NO_INSTALL, CHANNEL_ORGANIC, CHANNEL_UNKNOWN, NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport, type BreakdownRow } from "@/modules/analytics/revenue";
 import { FALLBACK_PROPERTY } from "@/modules/analytics/revenue-rules";
 import { rangeLabel, rangePhrase } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
@@ -26,6 +26,13 @@ const CHANNEL_LABELS: Record<string, string> = { [CHANNEL_ORGANIC]: msg("organic
 const INTERVAL_NAMES: Record<string, string> = { day: msg("day"), week: msg("week"), month: msg("month") };
 const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const cur = (t: T, c: string) => (c === NO_CURRENCY ? t("No currency") : c);
+const signed = (n: number) => (n < 0 ? `−${money(-n)}` : money(n));
+/** Spend, Return and ROAS cells of a channel row (blank without spend). Each column stands alone so one can be dropped. */
+const SPEND_COLUMNS: { label: string; cell: (g: BreakdownRow) => string }[] = [
+  { label: msg("Spend"), cell: (g) => (g.spend == null ? "" : money(g.spend)) },
+  { label: msg("Return"), cell: (g) => (g.return == null ? "" : signed(g.return)) },
+  { label: "ROAS", cell: (g) => (g.roas == null ? "" : `${g.roas.toFixed(2)}×`) },
+];
 
 export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/analytics/revenue">) {
   const { org, app } = await props.params;
@@ -43,6 +50,11 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
   const reports = reportRunner(ctx, scope, sp);
   const revenueInput = { ...range, interval: param(sp.interval), breakdown, cohortId: cf.cohortId };
   const r = await reports.run("revenue", revenueInput, () => revenueReport(ctx, scope, revenueInput));
+  const spendColumns = r.breakdownBy === "channel" && r.spendIncluded ? SPEND_COLUMNS : [];
+
+  const spendLink = can(ctx.role, "attribution.read")
+    ? <Link className="underline" href={`/o/${org}/apps/${app}/acquisition/spend?env=${env.type}`}>{t("Ad spend")}</Link>
+    : <>{t("Ad spend")}</>;
 
   return (
     <div className="space-y-6">
@@ -122,6 +134,7 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
                     <th className="text-start">{r.breakdownBy?.startsWith("property:") ? r.breakdownBy.slice(9) : t(BREAKDOWN_LABELS[r.breakdownBy ?? ""] ?? "")}</th>
                     <th className="text-start">{t("Currency")}</th>
                     <th className="text-end">{t("Gross")}</th><th className="text-end">{t("Refunds")}</th><th className="text-end">{t("Net")}</th><th className="text-end">{t("Paying people")}</th>
+                    {spendColumns.map((c) => <th key={c.label} className="text-end">{t(c.label)}</th>)}
                   </tr>
                 </thead>
                 <tbody>
@@ -133,10 +146,18 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
                       <td className="text-end tabular-nums">{g.refunds ? `−${money(g.refunds)}` : ""}</td>
                       <td className="text-end tabular-nums font-medium">{money(g.net)}</td>
                       <td className="text-end tabular-nums">{g.payingUsers.toLocaleString("en-US")}</td>
+                      {spendColumns.map((c) => <td key={c.label} className="text-end tabular-nums" dir="ltr">{c.cell(g)}</td>)}
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {r.breakdownBy === "channel" && (
+                <p className="px-5 pb-4 pt-3 text-sm text-ink-3" data-testid="revenue-spend-note">
+                  {r.spendIncluded
+                    ? rich(t("Spend is entered on the {page} page. Return is gross minus spend; ROAS is gross ÷ spend."), { page: spendLink })
+                    : rich(t("Spend from the {page} page isn't shown with an audience filter, as it can't be split by audience."), { page: spendLink })}
+                </p>
+              )}
             </section>
           )}
           {cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="revenue" query={sp} />}

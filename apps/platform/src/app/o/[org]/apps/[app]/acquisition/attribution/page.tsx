@@ -99,7 +99,7 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
       <section className="card space-y-2 text-sm">
         <h2 className="h2">{tr("Not included in the Beta")}</h2>
         <ul className="list-disc space-y-1 ps-5 text-ink-2">
-          <li>{tr("Ad cost import, CPI and ROAS")}</li>
+          <li>{tr("Automatic import of ad cost, and CPI")}</li>
           <li>{tr("Fraud prevention")}</li>
           <li>{tr("Multi-touch and view-through attribution")}</li>
           <li>{tr("Installs claimed by ad networks (self-attributing networks) and audience export to them")}</li>

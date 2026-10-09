@@ -4,6 +4,8 @@ import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
 import { msg } from "@/i18n/translate";
 import type { TenantContext } from "@/modules/tenancy/context";
+import { spendBySource } from "@/modules/attribution/spend";
+import { grossReturn, roas } from "@/modules/attribution/spend-pure";
 import { revenueRules, type RevenueRule } from "./revenue-rules";
 import { bucketKeys, bucketSql, defaultInterval, intervalField, comparisonRange, rangeFields, resolveRange, type Interval, type ReportRange } from "./range";
 import { analyticsTx, eventsSource, rangeInfo, type RangeInfo } from "./service";
@@ -15,7 +17,10 @@ import { numeric, type Params } from "./sql";
  * FX conversion, so totals in different currencies are never added together.
  * Refunds are subtracted from the currency they were sent in. A transaction is
  * counted once per event name and `transaction_id` (events without one count
- * individually). People and stitching follow the other reports.
+ * individually). People and stitching follow the other reports. Broken down
+ * by channel, each source also gets the ad spend entered for it (Acquisition →
+ * Ad spend, modules/attribution/spend.ts) in the same currency, with return
+ * and ROAS.
  */
 
 export const REVENUE_BREAKDOWNS = ["platform", "event", "channel"] as const;
@@ -49,6 +54,23 @@ export interface CurrencyRevenue {
   arppu: number;
 }
 
+export interface BreakdownRow {
+  key: string;
+  currency: string;
+  gross: number;
+  refunds: number;
+  net: number;
+  payingUsers: number;
+  /**
+   * Channel breakdown only: ad spend entered for this source in this currency
+   * over the range (null when none), gross revenue minus spend, and gross
+   * revenue divided by spend (ROAS).
+   */
+  spend?: number | null;
+  return?: number | null;
+  roas?: number | null;
+}
+
 export interface RevenueReport {
   /** Bucket keys (days, week starts or month starts). */
   days: string[];
@@ -60,8 +82,10 @@ export interface RevenueReport {
   daily: { key: string; counts: number[] }[];
   /** Net revenue per currency in the comparison period, when one was asked for. */
   previous: { currency: string; net: number }[] | null;
-  breakdown: { key: string; currency: string; gross: number; refunds: number; net: number; payingUsers: number }[] | null;
+  breakdown: BreakdownRow[] | null;
   breakdownBy: string | null;
+  /** Channel breakdown: whether spend was matched (it isn't with an audience filter, which spend can't follow). */
+  spendIncluded?: boolean;
   rules: RevenueRule[];
 }
 
@@ -162,7 +186,7 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
       return totals.get(c)!;
     };
     const daily = new Map<string, number[]>();
-    const groups = new Map<string, { key: string; currency: string; gross: number; refunds: number; net: number; payingUsers: number }>();
+    const groups = new Map<string, BreakdownRow>();
     let activeUsers = 0;
     for (const row of rows) {
       if (row.kind === "active") {
@@ -209,6 +233,17 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
       };
     }).sort((a, b) => b.transactions - a.transactions || a.currency.localeCompare(b.currency));
     const order = currencies.map((c) => c.currency);
+    const rank = (c: string) => (order.includes(c) ? order.indexOf(c) : order.length);
+    // Channel breakdown: put manually entered spend next to each source's revenue,
+    // in the same currency only; sources with spend but no revenue get a row too.
+    const spendIncluded = breakdown === "channel" && !cohortId;
+    if (spendIncluded) {
+      for (const s of await spendBySource(db, scope.environmentId, range.from, range.to)) {
+        const key = `${s.currency}\u0000${s.source}`;
+        if (!groups.has(key)) groups.set(key, { key: s.source, currency: s.currency, gross: 0, refunds: 0, net: 0, payingUsers: 0 });
+        groups.get(key)!.spend = s.amount;
+      }
+    }
     return {
       days: dayKeys,
       interval,
@@ -219,13 +254,25 @@ export async function revenueReport(ctx: TenantContext, scope: { environmentId: 
       daily: order.filter((c) => daily.has(c)).map((c) => ({ key: c, counts: daily.get(c)!.map(round) })),
       breakdown: breakdown
         ? [...groups.values()]
-            .map((x) => ({ ...x, gross: round(x.gross), refunds: round(x.refunds), net: round(x.gross - x.refunds) }))
-            .sort((a, b) => order.indexOf(a.currency) - order.indexOf(b.currency) || b.net - a.net || a.key.localeCompare(b.key))
+            .map((x) => ({
+              ...x,
+              gross: round(x.gross),
+              refunds: round(x.refunds),
+              net: round(x.gross - x.refunds),
+              ...(spendIncluded ? withSpend(round(x.gross), x.spend ?? null) : {}),
+            }))
+            .sort((a, b) => rank(a.currency) - rank(b.currency) || a.currency.localeCompare(b.currency) || b.net - a.net || (b.spend ?? 0) - (a.spend ?? 0) || a.key.localeCompare(b.key))
         : null,
       breakdownBy: breakdown ?? null,
+      ...(breakdown === "channel" ? { spendIncluded } : {}),
       rules,
     };
   });
+}
+
+/** Spend, return (gross − spend) and ROAS (gross ÷ spend) of a channel row; each is null without spend. */
+function withSpend(gross: number, spend: number | null) {
+  return { spend: spend === null ? null : round(spend), return: grossReturn(gross, spend), roas: roas(gross, spend) };
 }
 
 /** Net revenue per currency in a range (the comparison period's totals). */
