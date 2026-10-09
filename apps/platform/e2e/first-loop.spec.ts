@@ -69,6 +69,16 @@ test("sign up, create an organization and an app", async ({ page }) => {
 test("questionnaire → tracking plan → approve → publish", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}/settings/dev-ops/implementation/questions`);
+  // The project switcher doesn't stay open once the pointer moves away, or on Escape.
+  const switcher = page.locator("details", { has: page.locator('summary[title="Switch project"]') });
+  await switcher.locator("summary").click();
+  await expect(switcher).toHaveAttribute("open", "");
+  await page.mouse.move(600, 500);
+  await expect(switcher).not.toHaveAttribute("open");
+  await switcher.locator("summary").click();
+  await expect(switcher).toHaveAttribute("open", "");
+  await page.keyboard.press("Escape");
+  await expect(switcher).not.toHaveAttribute("open");
   await answerQuestionnaire(page);
   await page.getByRole("button", { name: "Generate my tracking plan" }).click();
   await page.waitForURL(/implementation\/plan/);

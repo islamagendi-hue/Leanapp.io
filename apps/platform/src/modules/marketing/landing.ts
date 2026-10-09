@@ -304,10 +304,10 @@ const EN = {
   flowLabel: "Product flow",
   demo: {
     title: "From one event to a full dashboard",
-    lead: "Pick an event and the reports fill in: key numbers, a daily trend, the order funnel and where sign ups come from.",
+    lead: "Pick an event and the reports fill in: key numbers, a daily trend, the conversion funnel and where sign ups come from.",
     note: "Sample data from the demo food delivery app.",
     cta: "Open the live demo",
-    alt: "Animation: a sample dashboard builds itself. An event is picked, four key numbers count up, orders per day draw in, then the order funnel and acquisition by source fill in.",
+    alt: "Animation: a sample dashboard builds itself. An event is picked, four key numbers count up, orders per day draw in, then the conversion funnel and acquisition by source fill in.",
     pause: "Pause animation",
     play: "Play animation",
     board: {
@@ -320,7 +320,7 @@ const EN = {
       kpis: ["Sign ups", "Active users", "Orders", "Revenue"],
       currency: "SAR",
       chart: "Orders per day",
-      funnel: "Order funnel",
+      funnel: "Conversion funnel",
       steps: ["Install", "Sign up", "Add to cart", "Order"],
       sources: "Acquisition by source",
       organic: "Organic",
@@ -419,10 +419,10 @@ const AR: typeof EN = {
   flowLabel: "رحلة المنتج",
   demo: {
     title: "من حدث واحد إلى لوحة كاملة",
-    lead: "اختر حدثًا فتمتلئ التقارير: الأرقام الأساسية، والاتجاه اليومي، ومسار الطلب، ومصادر التسجيلات.",
+    lead: "اختر حدثًا فتمتلئ التقارير: الأرقام الأساسية، والاتجاه اليومي، ومسار التحويل، ومصادر التسجيلات.",
     note: "بيانات تجريبية من تطبيق توصيل الطعام في العرض.",
     cta: "افتح العرض المباشر",
-    alt: "رسم متحرك: لوحة متابعة تجريبية تبني نفسها. يُختار حدث، ثم تعدّ أربعة أرقام أساسية، ويُرسم خط الطلبات اليومية، ثم يمتلئ مسار الطلب والاستحواذ حسب المصدر.",
+    alt: "رسم متحرك: لوحة متابعة تجريبية تبني نفسها. يُختار حدث، ثم تعدّ أربعة أرقام أساسية، ويُرسم خط الطلبات اليومية، ثم يمتلئ مسار التحويل والاستحواذ حسب المصدر.",
     pause: "أوقف الحركة",
     play: "شغّل الحركة",
     board: {
@@ -435,7 +435,7 @@ const AR: typeof EN = {
       kpis: ["التسجيلات", "المستخدمون النشطون", "الطلبات", "الإيرادات"],
       currency: "ر.س",
       chart: "الطلبات يوميًا",
-      funnel: "مسار الطلب",
+      funnel: "مسار التحويل",
       steps: ["تثبيت", "تسجيل", "إضافة للسلة", "طلب"],
       sources: "الاستحواذ حسب المصدر",
       organic: "عضوي",

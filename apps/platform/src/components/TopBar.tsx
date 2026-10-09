@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type PointerEvent, type ReactNode } from "react";
 import { useT } from "@/i18n/client";
 import { msg } from "@/i18n/translate";
 import { LanguageSwitch } from "@/components/LanguageSwitch";
@@ -22,13 +22,49 @@ function projectInPath(path: string): string | undefined {
   return slug && slug !== "new" ? decodeURIComponent(slug) : undefined;
 }
 
-/** A small dropdown on <details>; closes when an entry is chosen. */
+/** How long the pointer may stray off an open menu before it closes. */
+const LEAVE_DELAY_MS = 300;
+
+/**
+ * A small dropdown on <details>. It closes when an entry is chosen, on a click
+ * or tap outside it, on Escape, and when a mouse pointer leaves it for a moment.
+ */
 function Menu({ label, title, children, summary, align = "start" }: { label: string; title: string; children: ReactNode; summary?: ReactNode; align?: "start" | "end" }) {
+  const ref = useRef<HTMLDetailsElement>(null);
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [open, setOpen] = useState(false);
+  const shut = () => ref.current?.removeAttribute("open");
   const close = (e: MouseEvent<HTMLDivElement>) => {
-    if ((e.target as HTMLElement).closest("a")) e.currentTarget.closest("details")?.removeAttribute("open");
+    if ((e.target as HTMLElement).closest("a")) shut();
   };
+  const leave = (e: PointerEvent<HTMLDetailsElement>) => {
+    if (e.pointerType !== "mouse") return;
+    clearTimeout(timer.current);
+    timer.current = setTimeout(shut, LEAVE_DELAY_MS);
+  };
+  const enter = () => clearTimeout(timer.current);
+
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: globalThis.PointerEvent) => {
+      if (!ref.current?.contains(e.target as Node)) shut();
+    };
+    const escape = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      shut();
+      ref.current?.querySelector("summary")?.focus();
+    };
+    document.addEventListener("pointerdown", outside);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", outside);
+      document.removeEventListener("keydown", escape);
+      clearTimeout(timer.current);
+    };
+  }, [open]);
+
   return (
-    <details className="relative">
+    <details ref={ref} className="relative" onToggle={(e) => setOpen(e.currentTarget.open)} onPointerLeave={leave} onPointerEnter={enter}>
       <summary className="flex min-h-10 cursor-pointer list-none items-center gap-1.5 rounded-md px-2 hover:bg-paper-2 lg:min-h-8" title={title} aria-label={summary ? label : undefined}>
         {summary ?? <span className="max-w-[6.5rem] truncate sm:max-w-[12rem]">{label}</span>}
         <span aria-hidden className="text-xs text-ink-3 max-sm:hidden">▾</span>
