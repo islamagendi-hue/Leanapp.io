@@ -288,7 +288,7 @@ export async function captureException(
   ctx: { source: string; route?: string; title?: string; details?: Record<string, Detail> },
 ): Promise<void> {
   if (isControlFlow(err) || isClientError(err)) return;
-  // A step that reported its error rethrows it; Next's onRequestError must not report it again.
+  // An error a step already reported is marked, so a later report of the same object (e.g. Next's onRequestError) is skipped.
   if (typeof err === "object" && err !== null) {
     if (captured.has(err)) return;
     captured.add(err);
