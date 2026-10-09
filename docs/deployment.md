@@ -93,6 +93,7 @@ webhooks). It needs a schedule:
    - `ATTRIBUTION_IP_HASH_SECRET` (`openssl rand -base64 32`)
    - `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `LeanApp <no-reply@leanapp.io>`)
    - Optional: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` ([billing](billing.md)); `EVENT_RETENTION` stays unset (deletion is off until paid plans are final); `DEMO_ENABLED=1` turns on the public read-only demo (sample data, refreshed by the scheduled worker).
+   - Monitoring ([ops/monitoring.md](ops/monitoring.md)): `ALERT_WEBHOOK_URL` (Slack/Discord webhook), optionally `SENTRY_DSN`, and `MONITORING_SECRET` for the uptime check of `/api/internal/worker-status`.
 6. **GitHub environments** (repository Settings → Environments): create
    `staging` and `production`; on `production` add yourself as a required
    reviewer and restrict it to the `main` branch (leave `staging` unrestricted:

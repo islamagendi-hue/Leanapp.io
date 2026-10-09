@@ -5,6 +5,8 @@ import { authenticateIngestionKey, type ApiKeyScope, type IngestionPrincipal } f
 import { resolveTenant, type TenantContext } from "@/modules/tenancy/context";
 import { SESSION_COOKIE } from "./session";
 import { log } from "@/lib/log";
+import { captureException } from "@/lib/monitoring";
+import { reportInBackground } from "@/server/report-in-background";
 import { withSystem } from "@/lib/db";
 import { consumeRateLimit } from "@/lib/rate-limit";
 import { envNumber } from "@/lib/env-number";
@@ -134,6 +136,7 @@ export function apiError(err: unknown): Response {
   }
   if (err instanceof AppError) return Response.json({ error: err.code, message: err.message }, { status: err.status });
   log.error("api.failed", { error: err });
+  reportInBackground(() => captureException(err, { source: "api", title: "Unexpected error in an API route" }));
   return Response.json({ error: "internal_error", message: "Unexpected error." }, { status: 500 });
 }
 

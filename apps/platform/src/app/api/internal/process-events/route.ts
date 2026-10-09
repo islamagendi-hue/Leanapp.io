@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
+import { after } from "next/server";
 import { log } from "@/lib/log";
+import { captureException, report } from "@/lib/monitoring";
 import { purgeRateLimitBuckets } from "@/lib/rate-limit";
 import { sendUsageNotices } from "@/modules/billing/notices";
 import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
@@ -10,6 +12,7 @@ import { runDeletionJobs } from "@/modules/privacy/service";
 import { runReprocessJobs } from "@/modules/reprocess/jobs";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { checkConfig } from "@/server/config";
+import { alertOnProblems, checkWorkerHealth } from "@/server/worker-health";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -32,6 +35,21 @@ function authorized(req: Request): boolean {
   return timingSafeEqual(Buffer.from(given), Buffer.from(secret));
 }
 
+const ROUTE = "GET /api/internal/process-events";
+
+/**
+ * Monitoring only: reports a failing step (docs/ops/monitoring.md), then
+ * rethrows, so the run fails exactly as it did without it.
+ */
+async function step<T>(name: string, fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    await captureException(e, { source: `worker:${name}`, route: ROUTE, title: `Worker step "${name}" failed`, details: { step: name } });
+    throw e;
+  }
+}
+
 /**
  * Scheduled worker: retries privacy deletions, drains events the after() hook
  * missed (time-boxed; the rest waits for the next run), re-map and growth
@@ -47,32 +65,46 @@ export async function GET(req: Request) {
   const config = checkConfig();
   if (config.errors.length) {
     log.error("cron.refused", { errors: config.errors.map((e) => e.variable) });
+    await report({ key: "worker:config_invalid", severity: "error", title: "Worker refused to run: configuration invalid", source: "worker", route: ROUTE, details: { variables: config.errors.map((e) => e.variable).join(",") } });
     return Response.json({ error: "configuration_invalid", variables: config.errors.map((e) => e.variable) }, { status: 503 });
   }
   // Privacy deletions first (they have deadlines), then event processing under a
   // wall-clock budget so housekeeping always fits inside maxDuration.
   const started = Date.now();
-  const deletions = await runDeletionJobs({ limit: 20 });
-  const { processed, failed } = await processPendingEvents({ limit: 20_000, deadline: started + PROCESSING_BUDGET_MS });
+  const deletions = await step("deletions", () => runDeletionJobs({ limit: 20 }));
+  const { processed, failed } = await step("processing", () => processPendingEvents({ limit: 20_000, deadline: started + PROCESSING_BUDGET_MS }));
   // Background re-map of past events and growth-state rebuilds, in small chunks while time is left.
-  const reprocess = Date.now() < started + REPROCESS_BUDGET_MS ? await runReprocessJobs({ deadline: started + REPROCESS_BUDGET_MS }) : null;
-  const purged = { rate_limit_buckets: await purgeRateLimitBuckets(), ...(await purgeOperationalData()) };
-  const retention = await applyEventRetention();
+  const reprocess = Date.now() < started + REPROCESS_BUDGET_MS ? await step("reprocess", () => runReprocessJobs({ deadline: started + REPROCESS_BUDGET_MS })) : null;
+  const purged = { rate_limit_buckets: await step("purge_rate_limits", () => purgeRateLimitBuckets()), ...(await step("purge_operational", () => purgeOperationalData())) };
+  const retention = await step("retention", () => applyEventRetention());
   // Plan usage emails (80% / 100% / refusing), once per threshold per month.
-  const usageNotices = Date.now() - started < LATE_STEPS_BUDGET_MS ? await sendUsageNotices({ limit: 100 }) : { notices: 0, emails: 0, skipped: true };
+  const usageNotices = Date.now() - started < LATE_STEPS_BUDGET_MS ? await step("usage_notices", () => sendUsageNotices({ limit: 100 })) : { notices: 0, emails: 0, skipped: true };
   // Attribution postbacks and click fingerprint cleanup, only while time is left.
-  const attribution = Date.now() < started + ATTRIBUTION_BUDGET_MS ? await runAttributionJobs({ deadline: started + ATTRIBUTION_BUDGET_MS }) : null;
+  const attribution = Date.now() < started + ATTRIBUTION_BUDGET_MS ? await step("attribution", () => runAttributionJobs({ deadline: started + ATTRIBUTION_BUDGET_MS })) : null;
   // Engagement: audiences, automation triggers and steps, webhook deliveries, only while time is left.
-  const engagement = Date.now() < started + ENGAGEMENT_BUDGET_MS ? await runEngagement({ deadline: started + ENGAGEMENT_BUDGET_MS }) : { skipped: "time budget" };
+  const engagement = Date.now() < started + ENGAGEMENT_BUDGET_MS ? await step("engagement", () => runEngagement({ deadline: started + ENGAGEMENT_BUDGET_MS })) : { skipped: "time budget" };
   // The public demo's sample data, re-sent a few times a day so its reports stay current.
   let demo: string | null = null;
   if (demoEnabled() && Date.now() < started + LATE_STEPS_BUDGET_MS) {
     demo = await ensureDemo({ staleHours: 6, deadline: started + LATE_STEPS_BUDGET_MS + 5_000 }).then(
       () => "ok",
-      (e) => (log.error("demo.refresh_failed", { error: e }), "failed"),
+      async (e) => {
+        log.error("demo.refresh_failed", { error: e });
+        await captureException(e, { source: "worker:demo", route: ROUTE, title: 'Worker step "demo" failed', details: { step: "demo" } });
+        return "failed";
+      },
     );
   }
   const summary = { processed, failed, deletions, reprocess, purged, retention: { mode: retention.mode, organizations: retention.organizations.length }, usage_notices: usageNotices, attribution, engagement, demo };
   log.info("cron.completed", summary);
+  // Heartbeat checks after the response: stale backlog, ingestion 5xx rate, pg_cron history. Alerts are throttled.
+  after(async () => {
+    if (failed > 0) {
+      await report({ key: "worker:events_failed", severity: "warning", title: "Events failed processing permanently in a worker run", source: "worker", route: ROUTE, details: { failed, processed } });
+    }
+    await checkWorkerHealth()
+      .then(alertOnProblems)
+      .catch((e) => log.error("worker_health.failed", { error: e }));
+  });
   return Response.json({ processed, failed, deletions, reprocess, purged, retention, usage_notices: usageNotices, attribution, engagement, demo });
 }
