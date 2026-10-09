@@ -74,6 +74,15 @@ class LeanAppClient @JvmOverloads constructor(
     // State below is only touched on the executor thread.
     private var state = State(anonymousId = "")
     private val queue = ArrayList<QueuedEvent>()
+    /** Events waiting for consent: memory only, never persisted or sent until consent is granted. */
+    private val held = ArrayList<QueuedEvent>()
+    /** Attribution captured while attribution consent is pending: memory only. */
+    private var heldFirst: Map<String, String>? = null
+    private var heldLatest: Map<String, String>? = null
+    private val consentDefaults: Map<String, ConsentStatus> =
+        ConsentPurpose.ALL.associateWith { config.consentDefaults[it] ?: config.consentDefault }
+    /** The deferred deep link request waiting for attribution consent (or running). */
+    private var deferredRequest: DeferredRequest? = null
     private var paused = false
     @Volatile private var optedOut: Boolean = config.optedOut
     private var failures = 0
@@ -90,6 +99,7 @@ class LeanAppClient @JvmOverloads constructor(
     @Volatile private var userIdSnapshot: String? = null
     @Volatile private var attributionSnapshot: Pair<Map<String, String>, Map<String, String>>? = null
     @Volatile private var queueLengthSnapshot = 0
+    @Volatile private var consentSnapshot: Map<String, ConsentStatus> = consentDefaults
 
     init {
         if (!KEY_PATTERN.matches(config.apiKey)) {
@@ -130,14 +140,18 @@ class LeanAppClient @JvmOverloads constructor(
     @JvmOverloads
     fun identify(userId: String?, traits: Map<String, Any?> = emptyMap()) {
         val t = LinkedHashMap(traits)
+        var changed = false
         enqueue {
             if (!userId.isNullOrEmpty()) {
+                changed = state.userId != userId
                 state.userId = userId
                 userIdSnapshot = userId
                 persistState()
             }
             linkedMapOf("type" to "identify", "user_properties" to t)
         }
+        // Consent given on this device follows the user who signs in on it.
+        post { if (changed) resendConsent() }
     }
 
     fun setUserProperties(traits: Map<String, Any?>) = identify(null, traits)
@@ -152,31 +166,73 @@ class LeanAppClient @JvmOverloads constructor(
             persistState()
             linkedMapOf("type" to "alias", "previous_id" to prev)
         }
+        post { resendConsent() }
     }
 
-    /** provider: "fcm" or "apns"; permission: granted, denied, provisional or unknown. */
+    /** provider: "fcm" or "apns"; permission: granted, denied, provisional or unknown. Governed by push consent. */
     @JvmOverloads
     fun registerPushToken(token: String, provider: String = "fcm", permission: String = "unknown") {
         if (provider != "fcm" && provider != "apns") return warn("registerPushToken() provider must be fcm or apns")
-        enqueue { linkedMapOf("type" to "push_token", "push_token" to linkedMapOf("token" to token, "provider" to provider, "permission" to permission)) }
+        enqueue(purpose = ConsentPurpose.PUSH) { linkedMapOf("type" to "push_token", "push_token" to linkedMapOf("token" to token, "provider" to provider, "permission" to permission)) }
     }
 
     /**
      * Captures campaign parameters from a deep link or landing URL. The first touch is kept; the latest
      * touch is attached to every following event as context.attribution, with the opening URL as
-     * deep_link_url so re-engagement can be matched.
+     * deep_link_url so re-engagement can be matched. Governed by attribution consent: ignored when
+     * denied, kept in memory only while pending.
      */
     fun captureAttribution(url: String): Map<String, String>? {
         val parsed = parseAttribution(url) ?: return null
         val touch = LinkedHashMap(parsed)
         touch["deep_link_url"] = url.take(1000)
-        post {
-            state.attributionFirst = state.attributionFirst ?: touch
-            state.attributionLatest = touch
-            attributionSnapshot = Pair(state.attributionFirst!!, touch)
-            persistState()
-        }
+        post { recordTouch(touch, firstOnly = false) }
         return touch
+    }
+
+    /**
+     * Records the user's consent answers (purpose name → granted), e.g. from your consent screen. Purposes
+     * left out keep their state. The answers are stored on the device and sent to LeanApp whatever they
+     * are, so the platform can honour them. Granting analytics releases events waiting in memory; denying
+     * it discards them and clears the unsent queue.
+     */
+    fun setConsent(consent: Map<String, Boolean>) {
+        val changes = LinkedHashMap<String, Boolean>()
+        for (p in ConsentPurpose.ALL) consent[p]?.let { changes[p] = it }
+        if (changes.isEmpty()) return warn("setConsent() needs at least one of analytics, marketing, push, attribution")
+        val at = clock()
+        post {
+            state.consent = LinkedHashMap(state.consent).also { it.putAll(changes) }
+            persistState()
+            // The change goes first, then whatever it releases.
+            pushConsent(changes, at)
+            applyConsent()
+            publish()
+        }
+    }
+
+    /** Current consent per purpose: the user's answer, or the configured default where they haven't answered. */
+    fun getConsent(): Map<String, ConsentStatus> {
+        awaitIdle()
+        return consentSnapshot
+    }
+
+    /**
+     * Asks LeanApp once per new install (POST /v1/deep-links/deferred) for the deep link of the ad or link
+     * click the install came from. Waits for attribution consent; [callback] (on the SDK thread) gets the
+     * answer, or null when the request failed, attribution consent was denied, deferred deep links are off
+     * or this install already asked. Call it after the install referrer was read (the Android module does).
+     */
+    @JvmOverloads
+    fun requestDeferredDeepLink(os: String? = null, osVersion: String? = null, callback: ((DeferredDeepLink?) -> Unit)? = null) {
+        post {
+            if (!o.deferredDeepLinks || state.deferredChecked != false || deferredRequest != null) {
+                callback?.invoke(null)
+                return@post
+            }
+            deferredRequest = DeferredRequest(os, osVersion, callback)
+            maybeFetchDeferred()
+        }
     }
 
     /** First and latest touch captured on this device, or null. */
@@ -195,7 +251,10 @@ class LeanAppClient @JvmOverloads constructor(
         return userIdSnapshot
     }
 
-    /** Call on logout: forgets the user and attribution and starts a new anonymous identity and session. Queued events keep their ids. */
+    /**
+     * Call on logout: forgets the user and attribution and starts a new anonymous identity and session.
+     * Queued events keep their ids. Consent belongs to the device and is kept (and recorded for the new id).
+     */
     fun reset() {
         post {
             state = State(
@@ -204,9 +263,14 @@ class LeanAppClient @JvmOverloads constructor(
                 installReferrerChecked = state.installReferrerChecked,
                 appVersion = state.appVersion,
                 appBuild = state.appBuild,
+                consent = state.consent,
+                deferredChecked = state.deferredChecked,
             )
+            heldFirst = null
+            heldLatest = null
             publish()
             persistState()
+            resendConsent()
         }
     }
 
@@ -255,13 +319,9 @@ class LeanAppClient @JvmOverloads constructor(
         post {
             state.installReferrerChecked = true
             if (referrer != null && referrer.referrer.isNotEmpty()) {
+                // Kept on the device so it is not asked again; sent (context.campaign) only with attribution consent.
                 state.installReferrer = referrer
-                val parsed = parseAttribution(referrer.referrer)
-                if (parsed != null && state.attributionFirst == null) {
-                    state.attributionFirst = parsed
-                    if (state.attributionLatest == null) state.attributionLatest = parsed
-                    attributionSnapshot = Pair(parsed, state.attributionLatest!!)
-                }
+                parseAttribution(referrer.referrer)?.let { recordTouch(it, firstOnly = true) }
             }
             persistState()
         }
@@ -347,7 +407,10 @@ class LeanAppClient @JvmOverloads constructor(
             val rawState = store.get(prefix + "state")
             val rawQueue = store.get(prefix + "queue")
             val s = rawState?.let { State.fromJson(Json.parse(it)) }
-            state = if (s != null && s.anonymousId.isNotEmpty()) s else State(anonymousId = uuid())
+            // A new install still has to ask for its deferred deep link (false until answered); installs
+            // from before deferred deep links existed are not new and never ask.
+            state = if (s != null && s.anonymousId.isNotEmpty()) s else State(anonymousId = uuid(), deferredChecked = false)
+            if (state.deferredChecked == null) state.deferredChecked = true
             queue.clear()
             val q = rawQueue?.let { Json.parse(it) }
             if (q is List<*>) {
@@ -355,9 +418,11 @@ class LeanAppClient @JvmOverloads constructor(
             }
         } catch (e: Exception) {
             warn("could not read persisted state; starting fresh", e)
-            state = State(anonymousId = uuid())
+            state = State(anonymousId = uuid(), deferredChecked = true)
             queue.clear()
         }
+        // Unsent events from before a denial (e.g. the app closed mid-way) are not sent.
+        queue.removeAll { it.e["type"] != "consent" && consentFor(purposeOf(it)) == ConsentStatus.DENIED }
         publish()
         persistState()
         persistQueue()
@@ -372,24 +437,39 @@ class LeanAppClient @JvmOverloads constructor(
         val latest = state.attributionLatest
         attributionSnapshot = if (first != null && latest != null) Pair(first, latest) else null
         queueLengthSnapshot = queue.size
+        consentSnapshot = ConsentPurpose.ALL.associateWith { consentFor(it) }
     }
 
-    private fun enqueue(eventId: String? = null, timestampMs: Long? = null, build: () -> MutableMap<String, Any?>) {
+    private fun enqueue(eventId: String? = null, timestampMs: Long? = null, purpose: String = ConsentPurpose.ANALYTICS, build: () -> MutableMap<String, Any?>) {
         // Timestamp is taken at call time, not when the SDK thread gets to it.
         val at = timestampMs ?: clock()
-        post { enqueueNow(eventId, at, build()) }
+        post { enqueueNow(eventId, at, build(), purpose) }
     }
 
-    private fun enqueueNow(eventId: String?, at: Long, partial: MutableMap<String, Any?>) {
+    private fun enqueueNow(eventId: String?, at: Long, partial: MutableMap<String, Any?>, purpose: String = ConsentPurpose.ANALYTICS) {
         try {
+            val status = consentFor(purpose)
+            if (status == ConsentStatus.DENIED) return log("dropped (consent denied): ${partial["type"]} ${partial["event_name"] ?: ""}")
+            val id = eventId ?: uuid()
+            if (queue.any { it.e["event_id"] == id } || held.any { it.e["event_id"] == id }) return // duplicate call with the same event id
             val e = LinkedHashMap<String, Any?>(partial)
-            e["event_id"] = eventId ?: uuid()
+            e["event_id"] = id
             e["timestamp"] = Iso8601.format(at)
             e["anonymous_id"] = state.anonymousId
             e["session_id"] = touchSession(at)
-            e["context"] = context()
+            val ctx = context()
+            val attr = attributionContext()
+            val attrStatus = consentFor(ConsentPurpose.ATTRIBUTION)
+            if (attrStatus == ConsentStatus.GRANTED) ctx.putAll(attr)
+            e["context"] = ctx
             state.userId?.let { e["user_id"] = it }
-            if (queue.any { it.e["event_id"] == e["event_id"] }) return // duplicate call with the same event id
+            if (status == ConsentStatus.PENDING) {
+                // Waiting for consent: memory only, bounded like the queue. The attribution context waits
+                // too, in case attribution consent is granted by the time the event is released.
+                held.add(QueuedEvent(e, clock(), if (attrStatus == ConsentStatus.PENDING && attr.isNotEmpty()) attr else null))
+                if (held.size > o.maxQueueSize) held.subList(0, held.size - o.maxQueueSize).clear()
+                return log("held until consent: ${e["type"]} ${e["event_name"] ?: ""}")
+            }
             queue.add(QueuedEvent(e, clock()))
             if (queue.size > o.maxQueueSize) {
                 val dropped = queue.size - o.maxQueueSize
@@ -413,7 +493,7 @@ class LeanAppClient @JvmOverloads constructor(
         return s.sessionId!!
     }
 
-    private fun context(): Map<String, Any?> {
+    private fun context(): MutableMap<String, Any?> {
         val ctx = LinkedHashMap<String, Any?>()
         try {
             ctx.putAll(contextProvider())
@@ -425,9 +505,167 @@ class LeanAppClient @JvmOverloads constructor(
         ctx["sdk"] = linkedMapOf("name" to sdkName, "version" to sdkVersion)
         o.appVersion?.let { ctx["app_version"] = it }
         o.appBuild?.let { ctx["app_build"] = it }
-        state.attributionLatest?.let { ctx["attribution"] = LinkedHashMap(it) }
-        state.installReferrer?.let { ctx["campaign"] = it.toContext() }
+        // The user's explicit answers only: a default is not consent the user gave.
+        if (state.consent.isNotEmpty()) ctx["consent"] = LinkedHashMap(state.consent)
         return ctx
+    }
+
+    /** context.attribution (latest touch) and context.campaign (install referrer), before consent is applied. */
+    private fun attributionContext(): Map<String, Any?> {
+        val out = LinkedHashMap<String, Any?>()
+        (state.attributionLatest ?: heldLatest)?.let { out["attribution"] = LinkedHashMap(it) }
+        state.installReferrer?.let { out["campaign"] = it.toContext() }
+        return out
+    }
+
+    private fun purposeOf(q: QueuedEvent): String = if (q.e["type"] == "push_token") ConsentPurpose.PUSH else ConsentPurpose.ANALYTICS
+
+    private fun consentFor(purpose: String): ConsentStatus = when (state.consent[purpose]) {
+        true -> ConsentStatus.GRANTED
+        false -> ConsentStatus.DENIED
+        null -> consentDefaults[purpose] ?: ConsentStatus.GRANTED
+    }
+
+    /** Stores a touch under attribution consent: the first is kept, the latest replaced (or only filled when [firstOnly]). */
+    private fun recordTouch(touch: Map<String, String>, firstOnly: Boolean) {
+        when (consentFor(ConsentPurpose.ATTRIBUTION)) {
+            ConsentStatus.DENIED -> return
+            ConsentStatus.PENDING -> {
+                // Kept in memory until the user decides; stored only once attribution consent is granted.
+                if (heldFirst == null) heldFirst = state.attributionFirst ?: touch
+                if (!firstOnly || heldLatest == null) heldLatest = touch
+            }
+            ConsentStatus.GRANTED -> {
+                if (firstOnly && state.attributionFirst != null) return
+                state.attributionFirst = state.attributionFirst ?: touch
+                if (!firstOnly || state.attributionLatest == null) state.attributionLatest = touch
+                publish()
+                persistState()
+            }
+        }
+    }
+
+    /** Moves or discards what was waiting for consent after the user's answer changed. */
+    private fun applyConsent() {
+        val attribution = consentFor(ConsentPurpose.ATTRIBUTION)
+        val release = held.filter { consentFor(purposeOf(it)) == ConsentStatus.GRANTED }
+        held.removeAll { consentFor(purposeOf(it)) != ConsentStatus.PENDING }
+        val before = queue.size
+        // Denied: unsent events of that purpose are discarded. Consent changes always stay.
+        queue.removeAll { it.e["type"] != "consent" && consentFor(purposeOf(it)) == ConsentStatus.DENIED }
+        if (before != queue.size) log("consent denied: discarded ${before - queue.size} unsent event(s)")
+        for (q in release) {
+            val attr = q.attr
+            // Attribution that waited with the event goes only if attribution consent is granted now.
+            val e = if (attr != null && attribution == ConsentStatus.GRANTED) {
+                val ctx = LinkedHashMap(q.e["context"] as? Map<String, Any?> ?: emptyMap())
+                ctx.putAll(attr)
+                LinkedHashMap(q.e).also { it["context"] = ctx }
+            } else {
+                q.e
+            }
+            queue.add(QueuedEvent(e, q.queuedAt))
+        }
+        if (queue.size > o.maxQueueSize) queue.subList(0, queue.size - o.maxQueueSize).clear()
+        if (attribution == ConsentStatus.GRANTED && (heldFirst != null || heldLatest != null)) {
+            state.attributionFirst = state.attributionFirst ?: heldFirst ?: heldLatest
+            heldLatest?.let { state.attributionLatest = it }
+            if (state.attributionLatest == null) state.attributionLatest = state.attributionFirst
+            persistState()
+        }
+        if (attribution != ConsentStatus.PENDING) {
+            heldFirst = null
+            heldLatest = null
+        }
+        if (attribution == ConsentStatus.DENIED && (state.attributionFirst != null || state.attributionLatest != null)) {
+            state.attributionFirst = null
+            state.attributionLatest = null
+            persistState()
+        }
+        if (before != queue.size || release.isNotEmpty()) persistQueue()
+        if (queue.isNotEmpty()) schedule(if (queue.size >= o.flushAt) 0 else o.flushIntervalMs)
+        maybeFetchDeferred()
+    }
+
+    /** Queues a consent change for LeanApp, whatever the answer, with only the ids and minimal context. */
+    private fun pushConsent(consent: Map<String, Boolean>, at: Long) {
+        val ctx = linkedMapOf<String, Any?>("platform" to o.platform, "sdk" to linkedMapOf("name" to sdkName, "version" to sdkVersion))
+        o.appVersion?.let { ctx["app_version"] = it }
+        val e = linkedMapOf<String, Any?>(
+            "type" to "consent",
+            "consent" to LinkedHashMap(consent),
+            "event_id" to uuid(),
+            "timestamp" to Iso8601.format(at),
+            "anonymous_id" to state.anonymousId,
+            "context" to ctx,
+        )
+        state.userId?.let { e["user_id"] = it }
+        queue.add(QueuedEvent(e, at))
+        if (queue.size > o.maxQueueSize) {
+            // Never drop a consent change to make room: drop the oldest other event instead.
+            val i = queue.indexOfFirst { it.e["type"] != "consent" }
+            queue.removeAt(if (i >= 0) i else 0)
+        }
+        log("queued consent $consent")
+        persistQueue()
+        schedule(0)
+    }
+
+    /** Records the device's explicit answers again for a new identity (sign-in, alias, reset). */
+    private fun resendConsent() {
+        if (state.consent.isNotEmpty()) pushConsent(LinkedHashMap(state.consent), clock())
+    }
+
+    private fun maybeFetchDeferred() {
+        val req = deferredRequest ?: return
+        if (req.running) return
+        when (consentFor(ConsentPurpose.ATTRIBUTION)) {
+            ConsentStatus.PENDING -> return // asked once attribution consent is granted
+            ConsentStatus.DENIED -> {
+                deferredRequest = null
+                req.callback?.invoke(null)
+                return
+            }
+            ConsentStatus.GRANTED -> Unit
+        }
+        req.running = true
+        val body = linkedMapOf<String, Any?>("anonymous_id" to state.anonymousId, "platform" to o.platform)
+        req.os?.let { body["os"] = it }
+        req.osVersion?.let { body["os_version"] = it.take(40) }
+        state.installReferrer?.let { body["install_referrer"] = it.referrer.take(2000) }
+        state.attributionLatest?.get("click_id")?.let { body["click_id"] = it.take(100) }
+        var result: DeferredDeepLink? = null
+        try {
+            val res = transport.post(
+                "${o.endpoint}/v1/deep-links/deferred",
+                linkedMapOf("Content-Type" to "application/json", "Authorization" to "Bearer ${o.apiKey}"),
+                Json.encode(body),
+            )
+            if (res.ok) {
+                result = DeferredDeepLink.fromJson(Json.parse(res.body))
+                state.deferredChecked = true
+                persistState()
+            } else {
+                warn("deferred deep link request failed with ${res.status}")
+                // Asked again on the next launch, unless the request itself was refused as invalid.
+                if (res.status == 400 || res.status == 422) {
+                    state.deferredChecked = true
+                    persistState()
+                }
+            }
+        } catch (err: Exception) {
+            warn("deferred deep link request failed", err)
+        }
+        deferredRequest = null
+        try {
+            req.callback?.invoke(result)
+        } catch (err: Throwable) {
+            warn("deferred deep link callback threw", err)
+        }
+    }
+
+    private class DeferredRequest(val os: String?, val osVersion: String?, val callback: ((DeferredDeepLink?) -> Unit)?) {
+        var running = false
     }
 
     private fun schedule(delayMs: Long) {
@@ -584,7 +822,8 @@ class LeanAppClient @JvmOverloads constructor(
         if (o.debug) logger.warn(msg, err)
     }
 
-    internal class QueuedEvent(val e: Map<String, Any?>, val queuedAt: Long) {
+    /** [attr]: memory only, on events held for consent: the attribution context to add if attribution consent is granted by then. */
+    internal class QueuedEvent(val e: Map<String, Any?>, val queuedAt: Long, val attr: Map<String, Any?>? = null) {
         fun toJson(): Map<String, Any?> = linkedMapOf("e" to e, "queuedAt" to queuedAt)
 
         companion object {
@@ -610,6 +849,10 @@ class LeanAppClient @JvmOverloads constructor(
         var installReferrerChecked: Boolean = false,
         var appVersion: String? = null,
         var appBuild: String? = null,
+        /** The user's explicit answers (setConsent). Purposes not here follow the configured default. */
+        var consent: Map<String, Boolean> = emptyMap(),
+        /** false: a new install that still has to ask for its deferred deep link; null: an install from before they existed. */
+        var deferredChecked: Boolean? = null,
     ) {
         fun toJson(): Map<String, Any?> {
             val m = linkedMapOf<String, Any?>("anonymousId" to anonymousId)
@@ -628,6 +871,8 @@ class LeanAppClient @JvmOverloads constructor(
             if (installReferrerChecked) m["installReferrerChecked"] = true
             appVersion?.let { m["appVersion"] = it }
             appBuild?.let { m["appBuild"] = it }
+            if (consent.isNotEmpty()) m["consent"] = LinkedHashMap(consent)
+            deferredChecked?.let { m["deferredChecked"] = it }
             return m
         }
 
@@ -656,6 +901,10 @@ class LeanAppClient @JvmOverloads constructor(
                     installReferrerChecked = m["installReferrerChecked"] as? Boolean ?: false,
                     appVersion = m["appVersion"] as? String,
                     appBuild = m["appBuild"] as? String,
+                    consent = (m["consent"] as? Map<*, *>)
+                        ?.entries?.filter { it.key is String && it.value is Boolean }
+                        ?.associate { it.key as String to it.value as Boolean } ?: emptyMap(),
+                    deferredChecked = m["deferredChecked"] as? Boolean,
                 )
             }
 
