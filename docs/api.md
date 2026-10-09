@@ -83,9 +83,9 @@ Everything else in the dashboard (questionnaire, plan editing, approval and publ
 
 ## Ingestion semantics
 
-- **Idempotency:** each event's `event_id` is unique per environment; duplicates count as `duplicates`, not errors. Send `Idempotency-Key` to make a whole request safely retryable; a replay returns the original response with `Idempotent-Replayed: true`.
+- **Idempotency:** each event's `event_id` is unique per environment; duplicates count as `duplicates`, not errors. Send `Idempotency-Key` to make a whole request safely retryable; a retry with the same key and the same events (same `event_id`s in the same order; `sent_at` and JSON key order may differ) returns the original response with `Idempotent-Replayed: true`. The same key with different events returns `409 idempotency_key_reused` and stores nothing: resend with a new key, or none (`event_id` still de-duplicates). Use one key per distinct batch.
 - **Partial success:** batches return `200` with `accepted`, `duplicates`, `rejected[]` (by index) and `warnings[]`. A single event sent to `/v1/events` that fails validation returns `400` with the same body.
-- **Errors:** `400 invalid_json | invalid_batch`, `401 invalid_api_key`, `403 forbidden` (secret key without `events:write`), `413 payload_too_large`, `429 rate_limited` (+ `Retry-After` seconds), `429 plan_limit_exceeded` (the organization used its monthly event allowance plus the 10% grace; + `Retry-After`; nothing in the request is stored, retry later), `500`.
+- **Errors:** `400 invalid_json | invalid_batch`, `401 invalid_api_key`, `403 forbidden` (secret key without `events:write`), `409 idempotency_key_reused` (the key was already used for a request with different events; nothing stored), `413 payload_too_large`, `429 rate_limited` (+ `Retry-After` seconds), `429 plan_limit_exceeded` (the organization used its monthly event allowance plus the 10% grace; + `Retry-After`; nothing in the request is stored, retry later), `500`.
 - **Plan allowance:** past 100% of the monthly allowance (inside the grace) responses carry `X-LeanApp-Plan-Limit: grace`. See [billing](billing.md).
 - **Limits:** see [events](events.md).
 - `source` is set by the server: `backend` for secret keys, `mobile_sdk` for public keys.
@@ -133,7 +133,7 @@ Each purpose is appended to the history (`consent_records`, deduplicated by `eve
 | 401 | `unauthorized`, `invalid_api_key` |
 | 403 | `forbidden`, `plan_limit_exceeded` (creating an app or inviting a member beyond the plan) |
 | 404 | `not_found` (also returned for organizations you are not a member of) |
-| 409 | `conflict` (e.g. the event is already in the draft) |
+| 409 | `conflict` (e.g. the event is already in the draft), `idempotency_key_reused` (ingestion: the Idempotency-Key was used for different events) |
 | 413 | `payload_too_large` |
 | 422 | `validation_error` (also invalid JSON on management endpoints) |
 | 429 | `rate_limited`, `plan_limit_exceeded` (ingestion past the monthly allowance and grace) |

@@ -134,6 +134,47 @@ function byteLength(s: string): number {
   return typeof TextEncoder !== "undefined" ? new TextEncoder().encode(s).length : s.length * 3;
 }
 
+/**
+ * FNV-1a (32-bit) of the UTF-8 bytes of the event ids joined by "\n", as 8 hex
+ * digits. Every SDK computes the same value for the same ids.
+ */
+export function eventIdsHash(ids: string[]): string {
+  let h = 0x811c9dc5;
+  const add = (b: number) => {
+    h = Math.imul(h ^ b, 0x01000193) >>> 0;
+  };
+  for (const ch of ids.join("\n")) {
+    const c = ch.codePointAt(0)!;
+    if (c < 0x80) {
+      add(c);
+    } else if (c < 0x800) {
+      add(0xc0 | (c >> 6));
+      add(0x80 | (c & 0x3f));
+    } else if (c < 0x10000) {
+      add(0xe0 | (c >> 12));
+      add(0x80 | ((c >> 6) & 0x3f));
+      add(0x80 | (c & 0x3f));
+    } else {
+      add(0xf0 | (c >> 18));
+      add(0x80 | ((c >> 12) & 0x3f));
+      add(0x80 | ((c >> 6) & 0x3f));
+      add(0x80 | (c & 0x3f));
+    }
+  }
+  return h.toString(16).padStart(8, "0");
+}
+
+/**
+ * `<batch size>:<hash of every event id>:<first event id>`. The same events give the
+ * same key on every retry; a batch whose events changed (one removed or added
+ * between a lost response and the retry) gets a different key, so the server never
+ * answers it with the response of a batch it did not send. The first id goes last
+ * so the server's 200-character limit can only truncate it, never the hash.
+ */
+export function idempotencyKey(ids: string[]): string {
+  return `${ids.length}:${eventIdsHash(ids)}:${ids[0] ?? ""}`;
+}
+
 function defaultUuid(): string {
   const c = (globalThis as { crypto?: { randomUUID?: () => string } }).crypto;
   if (c?.randomUUID) return c.randomUUID();
@@ -201,6 +242,8 @@ export class LeanAppClient {
   private optedOut: boolean;
   private failures = 0;
   private retryAt = 0;
+  /** Set after a 409 idempotency_key_reused: the next request goes without a key (event ids still de-duplicate). */
+  private skipIdempotencyKey = false;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private persistChain: Promise<void> = Promise.resolve();
 
@@ -658,6 +701,8 @@ export class LeanAppClient {
       if (byteLength(requestBody) > KEEPALIVE_MAX_BYTES) return { status: "retry", retryInMs: 0, reason: "event too large for keepalive" };
     }
     this.sending = true;
+    const withKey = !this.skipIdempotencyKey;
+    this.skipIdempotencyKey = false;
     try {
       const res = await this.o.fetch(`${this.o.endpoint}/v1/events/batch`, {
         method: "POST",
@@ -666,7 +711,7 @@ export class LeanAppClient {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.o.apiKey}`,
           // Same events → same key, so a retried request is answered from the server's idempotency store.
-          "Idempotency-Key": `${batch[0].e.event_id}:${batch.length}`,
+          ...(withKey ? { "Idempotency-Key": idempotencyKey(batch.map((q) => q.e.event_id)) } : {}),
         },
         body: requestBody,
       });
@@ -684,6 +729,12 @@ export class LeanAppClient {
         this.paused = true;
         this.warn("API key rejected (revoked, expired or wrong environment). Events are kept but not sent.");
         return { status: "unauthorized" };
+      }
+      if (res.status === 409) {
+        // idempotency_key_reused: nothing was stored. Keep the events and resend them without
+        // a key; their event ids still make the resend safe.
+        this.skipIdempotencyKey = true;
+        return this.backoff(0, "idempotency key already used for other events; resending without it");
       }
       if (res.status === 413 && batch.length > 1) {
         this.o.maxBatchSize = Math.max(1, Math.floor(batch.length / 2));

@@ -45,7 +45,7 @@ Events from a user whose latest analytics decision is "denied" are rejected with
 { "batch_id": "…", "accepted": 4, "duplicates": 1, "rejected": [ { "index": 2, "event_id": "…", "errors": [ { "field": "timestamp", "message": "…" } ] } ], "warnings": [] }
 ```
 
-Partial success is normal: valid events are stored, invalid ones are listed by index. A request with the same `Idempotency-Key` returns the stored response with `Idempotent-Replayed: true`.
+Partial success is normal: valid events are stored, invalid ones are listed by index. A request with the same `Idempotency-Key` and the same events (same `event_id`s, same order) returns the stored response with `Idempotent-Replayed: true`; the same key with different events returns `409 idempotency_key_reused` and stores nothing.
 
 ## Naming conventions
 

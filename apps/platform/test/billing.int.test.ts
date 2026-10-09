@@ -134,10 +134,12 @@ describe("monthly event allowance", () => {
     const other = await makeTenant("events-replay");
     await onPlan(other.org.id, "test_events2", { events: 2 });
     const sdk = (await authenticateIngestionKey(other.sdkKey))!;
-    const first = await ingest(sdk, { batch: track(3) }, { mode: "batch", idempotencyKey: "k1" });
+    const batch = track(3);
+    const first = await ingest(sdk, { batch }, { mode: "batch", idempotencyKey: "k1" });
     expect(first.status).toBe(200);
     expect((await ingest(sdk, { batch: track(1) }, { mode: "batch" })).status).toBe(429);
-    const again = await ingest(sdk, { batch: track(3) }, { mode: "batch", idempotencyKey: "k1" });
+    // The same events: a different batch under the same key is refused with 409 (ingestion-idempotency.int.test.ts).
+    const again = await ingest(sdk, { batch }, { mode: "batch", idempotencyKey: "k1" });
     expect(again).toMatchObject({ status: 200, replayed: true });
   });
 

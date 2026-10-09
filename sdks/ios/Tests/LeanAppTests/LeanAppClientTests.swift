@@ -166,9 +166,10 @@ final class LeanAppClientTests: XCTestCase {
         XCTAssertEqual(call.request.url?.absoluteString, "https://api.example.test/v1/events/batch")
         XCTAssertEqual(call.request.httpMethod, "POST")
         XCTAssertEqual(call.header("Authorization"), "Bearer \(key)")
-        XCTAssertEqual(call.header("Idempotency-Key"), "id-2:4")
         XCTAssertNotNil(call.body["sent_at"] as? String)
         let b = call.batch
+        // batch size : hash of every event id : first event id
+        XCTAssertEqual(call.header("Idempotency-Key"), "4:\(eventIdsHash(b.map { $0["event_id"] as? String ?? "" })):id-2")
         XCTAssertEqual(b[0]["type"] as? String, "track")
         XCTAssertEqual(b[0]["event_name"] as? String, "product_viewed")
         XCTAssertEqual(b[0]["properties"] as? [String: String], ["product_id": "p1"])
@@ -273,6 +274,34 @@ final class LeanAppClientTests: XCTestCase {
         XCTAssertEqual(sent.compactMap { $0["event_id"] as? String }, StubProtocol.calls[0].batch.compactMap { $0["event_id"] as? String })
         XCTAssertEqual(StubProtocol.calls.last!.header("Idempotency-Key"), StubProtocol.calls[0].header("Idempotency-Key"))
         XCTAssertEqual(second.getAnonymousId(), anon)
+    }
+
+    func testDerivesIdempotencyKeyFromEveryEventId() {
+        // FNV-1a 32-bit over the UTF-8 ids joined by "\n"; same vectors as the JavaScript SDK.
+        XCTAssertEqual(eventIdsHash(["a"]), "e40c292c")
+        XCTAssertEqual(eventIdsHash(["a", "b"]), "28e4c710")
+        XCTAssertEqual(eventIdsHash(["\u{e9}\u{1F600}"]), "039d63cc")
+        XCTAssertEqual(idempotencyKey(["id-2", "id-3"]), "2:408dab4a:id-2")
+        // Same first id and size but different events (the queue changed before a retry): different key.
+        XCTAssertNotEqual(idempotencyKey(["A", "B"]), idempotencyKey(["A", "C"]))
+        XCTAssertNotEqual(idempotencyKey(["A", "B"]), idempotencyKey(["B", "A"]))
+    }
+
+    func testResendsWithoutIdempotencyKeyAfterKeyReused() {
+        var n = 0
+        StubProtocol.responder = { call in
+            n += 1
+            return n == 1 ? .status(409, [:], "{\"error\":\"idempotency_key_reused\"}") : .status(200, [:], "{\"accepted\":\(call.batch.count),\"duplicates\":0,\"rejected\":[]}")
+        }
+        let c = make()
+        c.track("a")
+        c.track("b")
+        XCTAssertEqual(flush(c), .retry(retryInMs: 0, reason: "idempotency key already used for other events; resending without it"))
+        XCTAssertEqual(c.queueLength, 2) // never dropped
+        XCTAssertEqual(flush(c), .sent(accepted: 2, duplicates: 0, rejected: 0))
+        XCTAssertNotNil(StubProtocol.calls[0].header("Idempotency-Key"))
+        XCTAssertNil(StubProtocol.calls[1].header("Idempotency-Key"))
+        XCTAssertEqual(c.queueLength, 0)
     }
 
     func testHonoursRetryAfterOn429() {

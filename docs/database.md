@@ -38,7 +38,7 @@ Attribution, engagement and integration tables are in use ([attribution](attribu
 ## Key constraints
 
 - `events (environment_id, event_id)` unique: retries are de-duplicated.
-- `event_batches (environment_id, idempotency_key)` unique: a retried request returns the stored response.
+- `event_batches (environment_id, idempotency_key)` unique: a retried request with the same events (`payload_hash`) returns the stored response; different events under the same key are refused with 409.
 - `environments (app_id, type)` unique; `apps (organization_id, slug)` unique.
 - `tracking_plans.published_version_id` points at the single published version; publishing archives the previous one.
 - `event_mappings (app_id, from_name)` unique.

@@ -40,7 +40,7 @@ Analytics.reset() // on logout
 ## What it does automatically
 
 - **Queue** in Application Support/leanapp (atomic writes, excluded from backup), batches of up to 100 every 10 s or at 20 events, and a flush in a background task when the app enters the background.
-- **Retries** with exponential backoff and jitter (1 s → 5 min), `Retry-After` on 429, batch halving on 413, drop on 400/422, pause on 401/403, `Idempotency-Key` per batch.
+- **Retries** with exponential backoff and jitter (1 s → 5 min), `Retry-After` on 429, batch halving on 413, drop on 400/422, pause on 401/403, `Idempotency-Key` per batch derived from every event id (resent without it on `409`).
 - **Sessions**: new `session_id` after 30 minutes of inactivity.
 - **Context**: `platform: ios`, `os_version`, `device.model` (e.g. `iPhone15,2`), `device.type`, `screen`, `locale`, `language`, `timezone`, `app_version`/`app_build` from the bundle, `sdk {name: leanapp-ios}`. No IDFA/IDFV.
 - **Lifecycle**: `app_installed`, `app_updated`, `app_opened` (`from_background`).
