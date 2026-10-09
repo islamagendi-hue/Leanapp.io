@@ -28,6 +28,8 @@ export interface NavGroup {
   href?: string;
   match?: string;
   beta?: boolean;
+  /** Starts a block of the menu under this small heading (Growth, Analyze, Engage); "" is a plain divider. */
+  heading?: string;
   items: NavItem[];
 }
 
@@ -37,9 +39,16 @@ const pick = (role: Role, entries: Entry[]): NavItem[] =>
   entries.filter((e) => can(role, e.perm)).map(({ perm: _perm, ...item }) => item);
 
 function groups(list: (NavGroup & { perm?: Permission })[], role: Role): NavGroup[] {
-  return list
-    .filter((g) => (g.perm ? can(role, g.perm) : true) && (g.href || g.items.length > 0))
-    .map(({ perm: _perm, ...g }) => g);
+  const out: NavGroup[] = [];
+  let heading: string | undefined;
+  for (const { perm, ...g } of list) {
+    // A block's heading moves to its first entry this role can see.
+    heading = g.heading ?? heading;
+    if ((perm && !can(role, perm)) || (!g.href && g.items.length === 0)) continue;
+    out.push(heading !== undefined ? { ...g, heading } : g);
+    heading = undefined;
+  }
+  return out;
 }
 
 /** Main menu of a project. `base` is the project's path, /o/{org}/apps/{app}. */
@@ -49,6 +58,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       { label: msg("Overview"), href: base, items: [] },
       {
         label: msg("Acquisition"),
+        heading: msg("Growth"),
         beta: true,
         items: pick(role, [
           { label: msg("Overview"), href: `${base}/acquisition`, perm: "attribution.read" },
@@ -71,6 +81,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       },
       {
         label: msg("Reports"),
+        heading: msg("Analyze"),
         items: pick(role, [
           { label: msg("Events & trends"), href: `${base}/analytics/events`, perm: "analytics.read" },
           { label: msg("Funnels"), href: `${base}/analytics/funnels`, perm: "analytics.read" },
@@ -82,6 +93,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
       { label: msg("Audiences"), href: `${base}/engage/audiences`, perm: "audiences.read", items: [] },
       {
         label: msg("Flows Lab"),
+        heading: msg("Engage"),
         items: pick(role, [
           { label: msg("Campaigns"), href: `${base}/engage/campaigns`, perm: "automations.read" },
           { label: msg("Flows"), href: `${base}/engage/automations`, perm: "automations.read" },
@@ -90,7 +102,7 @@ export function projectMenu(role: Role, base: string): NavGroup[] {
         ]),
       },
       { label: msg("A/B experiments"), href: `${base}/engage/experiments`, perm: "automations.read", items: [] },
-      { label: msg("Settings"), href: `${base}/settings`, items: [] },
+      { label: msg("Settings"), href: `${base}/settings`, heading: "", items: [] },
     ],
     role,
   );

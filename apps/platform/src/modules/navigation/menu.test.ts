@@ -27,6 +27,11 @@ describe("navigation menu", () => {
     const main = links(projectMenu("owner", base));
     expect(main.some((h) => h.includes("/settings/dev-ops/") || h.includes("/settings/privacy"))).toBe(false);
     expect(projectMenu("owner", base).map((g) => g.label)).toEqual(["Overview", "Acquisition", "Activation", "Retention", "Revenue", "Attribution", "Reports", "Users", "Audiences", "Flows Lab", "A/B experiments", "Settings"]);
+    // Blocks under small headings: Growth, Analyze, Engage, then Settings on its own.
+    const headed = (role: Parameters<typeof projectMenu>[0]) => projectMenu(role, base).filter((g) => g.heading !== undefined).map((g) => `${g.heading}:${g.label}`);
+    expect(headed("owner")).toEqual(["Growth:Acquisition", "Analyze:Reports", "Engage:Flows Lab", ":Settings"]);
+    // A heading moves to the first entry the role can see, and is dropped with an empty block.
+    expect(headed("viewer")).toEqual(["Growth:Acquisition", "Analyze:Reports", ":Settings"]);
     expect(projectMenu("owner", base).find((g) => g.label === "Acquisition")?.beta).toBe(true);
     expect(labels(projectMenu("owner", base))).toContain("Attribution/Deep links");
     expect(labels(settingsMenu("owner", "acme", base)).filter((l) => !l.includes("/"))).toEqual(["You", "Workspace", "Project", "Dev Ops", "Security"]);

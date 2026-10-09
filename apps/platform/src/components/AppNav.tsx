@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useEffect, useRef, useSyncExternalStore } from "react";
+import { Fragment, useEffect, useRef, useSyncExternalStore } from "react";
 import { useT } from "@/i18n/client";
 import { activeHref, type NavGroup } from "@/modules/navigation/menu";
 
@@ -96,8 +96,12 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
         </Link>
       )}
       <p className="mb-4 truncate px-2 text-base font-bold">{title}</p>
-      {menu.map((g) =>
-        g.items.length === 0 && g.href ? (
+      {menu.map((g) => (
+        <Fragment key={g.label}>
+          {g.heading !== undefined && (
+            <p className="mb-1 mt-5 border-t border-line px-2 pt-3 text-[11px] font-semibold uppercase tracking-wider text-ink-3">{g.heading && t(g.heading)}</p>
+          )}
+          {g.items.length === 0 && g.href ? (
           <div key={g.label} className="mb-1">{link(g.href, g.label)}</div>
         ) : (
           <div key={g.label} className="mb-3 mt-3">
@@ -126,8 +130,9 @@ export function SideNav({ title, back, menu, path: given }: { title: string; bac
               ))}
             </ul>
           </div>
-        ),
-      )}
+          )}
+        </Fragment>
+      ))}
     </nav>
   );
   // Phones open the menu as a drawer from the start edge (the menu button is in the top bar,
