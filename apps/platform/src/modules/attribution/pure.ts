@@ -208,6 +208,28 @@ export function isOrganicUtm(utm: { source?: string; medium?: string }): boolean
   return medium === "organic" || medium === "none" || source === "organic" || source === "direct" || source === "not set";
 }
 
+/**
+ * How an install or re-engagement was matched, stored as `attribution_events.match_type`:
+ *   deterministic  a click id the install carried matches a click LeanApp's own link recorded
+ *   reported       only the install's context says where it came from (an ad-network click id
+ *                  or utm_* parameters with no recorded click of ours behind them): self-reported
+ *   probabilistic  opt-in Android IP-hash + OS match to an unclaimed click
+ *   organic        nothing matched (includes paid iOS installs without a click id: see docs)
+ */
+export const MATCH_TYPES = ["deterministic", "reported", "probabilistic", "organic"] as const;
+export type MatchType = (typeof MATCH_TYPES)[number];
+
+/** What a match rests on, and the match type that is honest for it. */
+export type MatchEvidence = "recorded_click" | "install_context" | "ip_os" | "none";
+export function matchTypeFor(evidence: MatchEvidence): MatchType {
+  switch (evidence) {
+    case "recorded_click": return "deterministic";
+    case "install_context": return "reported";
+    case "ip_os": return "probabilistic";
+    case "none": return "organic";
+  }
+}
+
 /** Revenue and currency of a conversion event, from the catalog's property names. Refunds count negative. */
 export function extractRevenue(eventName: string, props: Record<string, unknown>): { revenue: number | null; currency: string | null } {
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);

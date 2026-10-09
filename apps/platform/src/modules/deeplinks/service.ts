@@ -514,8 +514,13 @@ interface CandidateClick {
  *   1. deterministic: the LeanApp click id in the Play install referrer (or one the app
  *      passes from its own channel), clicked within the click lookback;
  *   2. probabilistic: only when the app turned probabilistic matching on in attribution
- *      settings, only Android, same keyed IP hash and Android version within the
- *      probabilistic window, unclaimed clicks only. Labelled "probabilistic".
+ *      settings, only Android, same keyed IP hash and Android version within both the
+ *      probabilistic window and the click lookback, unclaimed clicks only (not handed to
+ *      another install here, and not claimed by the install engine for another install).
+ *      Labelled "probabilistic".
+ * A click handed out here is claimed (touchpoint.matched_at): the install engine uses it
+ * for this install instead of searching itself, and never gives it to another install
+ * probabilistically, so the two paths never hand one click to two installs.
  * Only the key's environment is searched.
  */
 export async function deferredDeepLink(key: IngestionPrincipal, input: unknown, req: { ip: string | null }): Promise<DeferredDeepLink> {
@@ -557,10 +562,14 @@ export async function deferredDeepLink(key: IngestionPrincipal, input: unknown, 
         `select ${tpColumns} from platform.attribution_touchpoints t
           where t.environment_id = $1 and t.ip_hash = $2 and t.kind = 'click' and t.os_name = 'android' and t.link_id is not null
             and ($3::text is null or t.os_major is null or t.os_major = $3)
-            and t.touchpoint_at >= now() - make_interval(hours => $4)
+            and t.touchpoint_at >= greatest(now() - make_interval(hours => $4), now() - make_interval(days => $5))
             and not exists (select 1 from platform.deep_link_deferred_matches m where m.touchpoint_id = t.id)
-          order by t.touchpoint_at desc limit 1`,
-        [key.environmentId, ipHash, major, Math.min(settings.probabilistic_window_hours, 24 * 7)],
+            and (t.matched_at is null
+                 or exists (select 1 from platform.attribution_events ae
+                             where ae.environment_id = $1 and ae.anonymous_id = $6 and ae.touchpoint_id = t.id))
+          order by t.touchpoint_at desc limit 1
+          for update of t skip locked`,
+        [key.environmentId, ipHash, major, Math.min(settings.probabilistic_window_hours, 24 * 7), settings.click_lookback_days, b.anonymous_id],
       );
       matchType = "probabilistic";
       matchKey = "ip_os";
@@ -582,6 +591,9 @@ export async function deferredDeepLink(key: IngestionPrincipal, input: unknown, 
       if (!mine) await record(null);
       return { match_type: "none", reason: mine ? "already_checked" : "no_click", deep_link: null, is_deferred: true };
     }
+    // Claim the click, as the install engine does when it attributes one: its probabilistic
+    // step then won't hand this click to another install (and gives this install this click).
+    await db.query("update platform.attribution_touchpoints set matched_at = coalesce(matched_at, now()) where id = $1", [candidate.id]);
     const link = (await db.one<LinkWithConfig>(`${LINK_SELECT} where l.id = $1`, [candidate.link_id]))!;
     return {
       match_type: matchType,

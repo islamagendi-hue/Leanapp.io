@@ -42,7 +42,7 @@ function association(config: ConfigFacts | null, configured: boolean, file: stri
   const c = checked(config, file);
   if (!c) return { status: "unverified", detail: text.unverified };
   if (!c.ok) return { status: "unverified", detail: text.failed };
-  return { status: "live", detail: msg("Opens the installed app from the link. To land on the link's screen your app sends the opened URL to POST /v1/deep-links/resolve; the LeanApp SDKs don't make this call yet.") };
+  return { status: "live", detail: msg("Opens the installed app from the link. To land on the link's screen your app sends the opened URL to GET /v1/deep-links/resolve; the LeanApp SDKs don't make this call yet.") };
 }
 
 const IOS_TEXT: AssociationText = {

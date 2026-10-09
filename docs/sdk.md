@@ -147,8 +147,8 @@ What every SDK must send so the [attribution engine](attribution.md) can match i
 | `context.campaign.referrer_click_timestamp_seconds`, `install_begin_timestamp_seconds`, `google_play_instant` | Android | with the referrer | lookback check on the store click |
 | `context.attribution.deep_link_url` | all | on the app open caused by a deep / universal link (native SDKs; no SDK calls the deferred deep link API yet, see [deep links](deep-links.md)) | `click_id` and `utm_*` in the URL |
 | `context.attribution.click_id` | all | when the app was opened from a URL with `click_id` | exact match (install) and re-engagement (later opens) |
-| `context.attribution.gclid` / `gbraid` / `wbraid` / `fbclid` / `ttclid` / `ScCid` / `twclid` / `msclkid` | all | when present in the opening URL or referrer | ad-network deterministic match and network postbacks |
-| `context.attribution.utm_source` … `utm_content` | all | when present | campaign labels |
+| `context.attribution.gclid` / `gbraid` / `wbraid` / `fbclid` / `ttclid` / `ScCid` / `twclid` / `msclkid` | all | when present in the opening URL or referrer | deterministic when a LeanApp link recorded the same click id on the click, else `reported` (only the install says so); network postbacks |
+| `context.attribution.utm_source` … `utm_content` | all | when present | campaign labels; on their own a `reported` match, never deterministic |
 | `context.platform` + `context.os_version` | all | always | probabilistic matching (Android only, opt-in) needs `android` and the OS version |
 
 The JS SDK's `captureAttribution(url)` already fills `utm_*`, the ad-network click ids and `click_id`. It does not yet set `deep_link_url` or read the Play referrer (React Native needs a native module for that). The native SDKs (Android, iOS, Flutter) send `context.campaign` from the Play Install Referrer API as listed above.

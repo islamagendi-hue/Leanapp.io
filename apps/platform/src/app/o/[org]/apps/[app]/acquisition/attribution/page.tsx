@@ -24,12 +24,12 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
   const tr = await getT();
   const t = r.totals;
   const allInstalls = t.installs + t.reinstalls;
-  const deterministic = t.attributed - t.probabilistic;
 
   const rows: [string, number, string][] = [
-    [tr("Deterministic"), deterministic, tr("Matched on a link click id, the store install referrer or an ad-network click id.")],
+    [tr("Deterministic"), t.deterministic, tr("Matched to a click LeanApp's own tracking link recorded: its click id came back in the Play install referrer, a deep link or the SDK, or the click carried the same ad-network click id.")],
+    [tr("Reported"), t.reported, tr("Only the install says where it came from: an ad-network click id or UTM parameters with no recorded click behind them. Not verified by LeanApp.")],
     [tr("Probabilistic"), t.probabilistic, settings.probabilistic_enabled ? tr("Matched on device signals within {hours} hours of a click.", { hours: settings.probabilistic_window_hours }) : tr("Off for this app.")],
-    [tr("Organic"), t.organic, tr("No matching touch within the click lookback.")],
+    [tr("Organic / unattributed"), t.organic, tr("No matching touch within the click lookback. Includes paid iOS installs that carried no LeanApp click id.")],
     [tr("Reinstalls"), t.reinstalls, tr("A device that had installed before.")],
   ];
 
@@ -49,6 +49,9 @@ export default async function AttributionPage(props: PageProps<"/o/[org]/apps/[a
             ))}
           </tbody>
         </table>
+        <p className="px-5 pt-3 text-sm text-ink-2" data-testid="ios-attribution-note">
+          {tr("iOS: paid installs from ad networks can't be attributed deterministically without SKAdNetwork / AdAttributionKit or Apple Search Ads, and LeanApp never fingerprints iOS devices. Unless the install brings back a LeanApp click id, an iOS install counts as organic / unattributed ({n} in this range). Apple's aggregate postbacks are listed under SKAdNetwork postbacks below.", { n: num(t.organic_ios) })}
+        </p>
         <p className="px-5 pb-5 pt-3 text-sm text-ink-3">
           {tr("Also in this range: {reengagements} re-engagements (a returning user opening through a tracking link) and {conversions} conversions credited by last touch.", { reengagements: num(t.reengagements), conversions: num(t.conversions) })}
         </p>

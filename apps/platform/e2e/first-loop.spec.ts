@@ -555,6 +555,9 @@ test("acquisition (beta): overview, sources, attribution, and a tracking link wi
   await expect(page.getByText(/no cost, CPI or ROAS/)).toBeVisible();
   await tabs.getByRole("link", { name: "Attribution" }).click();
   await expect(page.getByRole("heading", { name: "How installs were matched" })).toBeVisible();
+  // Honest labels: self-reported sources are not "deterministic", and paid iOS installs are unattributed.
+  await expect(page.getByRole("cell", { name: "Reported", exact: true })).toBeVisible();
+  await expect(page.getByTestId("ios-attribution-note")).toContainText("can't be attributed deterministically without SKAdNetwork / AdAttributionKit or Apple Search Ads");
   await expect(page.getByRole("link", { name: "SKAdNetwork setup" })).toHaveAttribute("href", /settings\/dev-ops\/attribution\/skan$/);
   await expect(page.getByText("Multi-touch and view-through attribution")).toBeVisible();
 

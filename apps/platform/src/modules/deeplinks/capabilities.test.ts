@@ -13,6 +13,10 @@ describe("deepLinkCapabilities", () => {
     expect(status(deepLinkCapabilities(base)).ios).toBe("unverified");
     const checked = deepLinkCapabilities({ ...base, last_check: [{ file: "apple-app-site-association", ok: true }, { file: "assetlinks.json", ok: false }, { file: "apple-cdn", ok: false, warning: true }] });
     expect(status(checked)).toMatchObject({ ios: "live", android: "unverified" });
+    // The resolve endpoint is a GET (src/app/v1/deep-links/resolve/route.ts exports GET only).
+    const ios = checked.find((c) => c.key === "ios")!;
+    expect(ios.detail).toContain("GET /v1/deep-links/resolve");
+    expect(ios.detail).not.toContain("POST /v1/deep-links/resolve");
   });
 
   it("deferred deep links are never claimed as live", () => {

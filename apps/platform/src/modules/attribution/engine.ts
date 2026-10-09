@@ -2,7 +2,9 @@ import "server-only";
 import type { Db } from "@/lib/db";
 import { EVENT_LIBRARY } from "@/modules/implementation/catalog/events";
 import type { PublishedPlan } from "@/modules/implementation/plan-store";
-import { clickSignals, extractRevenue, INSTALL_EVENTS, isOrganicUtm, networkOfSource, SERVER_CONTEXT_KEY, type ClickSignals, type PostbackPayload } from "./pure";
+import {
+  clickSignals, extractRevenue, INSTALL_EVENTS, isOrganicUtm, matchTypeFor, networkOfSource, SERVER_CONTEXT_KEY, type ClickSignals, type MatchType, type PostbackPayload,
+} from "./pure";
 
 /**
  * The attribution step of event processing (called once per event from
@@ -12,11 +14,21 @@ import { clickSignals, extractRevenue, INSTALL_EVENTS, isOrganicUtm, networkOfSo
  * LeanApp click id, and conversion events run a few indexed lookups.
  *
  *   app_installed       → install / reinstall, matched in order of confidence:
- *                           1. LeanApp click id (install referrer, deep link, context)
- *                           2. ad-network click id (gclid, fbclid, ttclid, ScCid, …)
- *                           3. utm parameters the SDK captured from the link (not an organic referrer)
- *                           4. probabilistic (hashed IP + OS), only when enabled, never iOS
- *                           5. organic
+ *                           1. LeanApp click id (install referrer, deep link, context) of a
+ *                              click our link recorded → deterministic; else the click a deferred
+ *                              deep link already handed this install by click id
+ *                           2. ad-network click id (gclid, fbclid, ttclid, ScCid, …): carried by a
+ *                              click our link recorded → deterministic; only in the install's
+ *                              context → reported
+ *                           3. utm parameters the SDK captured from the link (not an organic
+ *                              referrer) → reported (the install says so; nothing verifies it)
+ *                           4. probabilistic (hashed IP + OS), only when enabled, never iOS: the
+ *                              click a deferred deep link handed this install, else an unclaimed one
+ *                           5. organic. Paid iOS installs without a click id land here: without
+ *                              SKAdNetwork / AdAttributionKit or Apple Search Ads data they can't
+ *                              be attributed, and iOS is never fingerprinted.
+ *   A click is claimed once (touchpoint.matched_at): probabilistic matching here and in the
+ *   deferred deep link API only takes unclaimed clicks.
  *   app_opened / deep_link_opened with a newer LeanApp click → re_engagement
  *   conversion / revenue events → attribution_conversions, last touch
  * Every attribution event and conversion queues the matching postbacks.
@@ -102,7 +114,7 @@ interface TouchpointRow {
 
 interface Match {
   touchpoint: TouchpointRow | null;
-  matchType: "deterministic" | "probabilistic" | "organic";
+  matchType: MatchType;
   matchKey: string | null;
 }
 
@@ -156,29 +168,39 @@ async function findMatch(db: Db, e: AttributableEvent, settings: AttributionSett
   const s = clickSignals(e.context);
   const from = new Date(e.timestamp.getTime() - settings.click_lookback_days * 86_400_000);
 
-  // 1. LeanApp click id: exact.
+  // 1. LeanApp click id: exact, against a click our own link recorded.
   if (s.clickId) {
     const tp = await findClick(db, e, "click_id", s.clickId.value, from);
-    if (tp) return { touchpoint: tp, matchType: "deterministic", matchKey: s.clickId.key };
+    if (tp) return { touchpoint: tp, matchType: matchTypeFor("recorded_click"), matchKey: s.clickId.key };
   }
+  // A deferred deep link lookup may already have handed this install a click: the install
+  // keeps that click, so one click never goes to two installs. A click-id claim counts here;
+  // a probabilistic one keeps its place in step 4.
+  const deferred = e.anonymous_id ? await deferredClaim(db, e, from) : null;
+  if (deferred?.matchType === "deterministic") return deferred;
   // The Play referrer API reports when the store click happened: older than the lookback window means organic.
   const campaign = (e.context.campaign ?? {}) as Record<string, unknown>;
   const clickSeconds = Number(campaign.referrer_click_timestamp_seconds);
   const clickAt = Number.isFinite(clickSeconds) && clickSeconds > 0 ? new Date(clickSeconds * 1000) : null;
   const inWindow = !clickAt || clickAt >= from;
 
-  // 2. Ad-network click id: a recorded click that carried it, else the context itself.
+  // 2. Ad-network click id: carried by a click our link recorded (deterministic), else only the
+  // install's context reports it (reported: nothing of ours verifies it).
   if (s.networkClickId) {
     const tp = await findClick(db, e, "network_click_id", s.networkClickId.value, from);
-    if (tp) return { touchpoint: tp, matchType: "deterministic", matchKey: s.networkClickId.param };
-    if (inWindow) return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: "deterministic", matchKey: s.networkClickId.param };
+    if (tp) return { touchpoint: tp, matchType: matchTypeFor("recorded_click"), matchKey: s.networkClickId.param };
+    if (inWindow) return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: matchTypeFor("install_context"), matchKey: s.networkClickId.param };
   }
-  // 3. Campaign parameters captured from the link that opened or installed the app.
+  // 3. Campaign parameters captured from the link that opened or installed the app: reported.
   // An organic referrer (Play's "utm_medium=organic") is not a campaign.
   if (s.utm.source && inWindow && !isOrganicUtm(s.utm)) {
-    return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: "deterministic", matchKey: s.installReferrer ? "install_referrer" : "utm_parameters" };
+    return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: matchTypeFor("install_context"), matchKey: s.installReferrer ? "install_referrer" : "utm_parameters" };
   }
-  // 4. Probabilistic: opt-in, Android only (no fingerprinting on iOS), short window, unclaimed clicks only.
+  // 4a. The click a probabilistic deferred deep link lookup already handed this install.
+  if (deferred) return deferred;
+  // 4b. Probabilistic: opt-in, Android only (no fingerprinting on iOS), short window, unclaimed clicks only.
+  // The row lock (held until the processing transaction commits, by when matched_at is set) and
+  // matched_at keep a concurrent deferred deep link lookup from handing out the same click.
   const ipHash = ((e.context[SERVER_CONTEXT_KEY] ?? {}) as { ip_hash?: string }).ip_hash;
   if (settings.probabilistic_enabled && ipHash && eventOs(e) === "android") {
     const window = new Date(e.timestamp.getTime() - settings.probabilistic_window_hours * 3_600_000);
@@ -191,12 +213,29 @@ async function findMatch(db: Db, e: AttributableEvent, settings: AttributionSett
           and ($3::text is null or t.os_major is null or t.os_major = $3)
           and t.matched_at is null
           and t.touchpoint_at >= greatest($4::timestamptz, $5::timestamptz) and t.touchpoint_at <= $6
-        order by t.touchpoint_at desc limit 1`,
+        order by t.touchpoint_at desc limit 1
+        for update of t skip locked`,
       [e.environment_id, ipHash, major, window, from, new Date(e.timestamp.getTime() + SKEW_MS)],
     );
-    if (tp) return { touchpoint: tp, matchType: "probabilistic", matchKey: "ip_ua" };
+    if (tp) return { touchpoint: tp, matchType: matchTypeFor("ip_os"), matchKey: "ip_ua" };
   }
-  return { touchpoint: null, matchType: "organic", matchKey: null };
+  return { touchpoint: null, matchType: matchTypeFor("none"), matchKey: null };
+}
+
+/** The click the deferred deep link API handed this install (within the click lookback), if any. */
+async function deferredClaim(db: Db, e: AttributableEvent, from: Date): Promise<Match | null> {
+  const row = await db.one<TouchpointRow & { deferred_match_type: string; deferred_match_key: string | null }>(
+    `select ${TP_COLUMNS}, m.match_type as deferred_match_type, m.match_key as deferred_match_key
+       from platform.deep_link_deferred_matches m
+       join platform.attribution_touchpoints t on t.id = m.touchpoint_id
+       left join platform.attribution_links l on l.id = t.link_id
+      where m.environment_id = $1 and m.anonymous_id = $2 and m.match_type in ('deterministic', 'probabilistic')
+        and t.touchpoint_at >= $3 and t.touchpoint_at <= $4`,
+    [e.environment_id, e.anonymous_id, from, new Date(e.timestamp.getTime() + SKEW_MS)],
+  );
+  if (!row) return null;
+  const { deferred_match_type, deferred_match_key, ...tp } = row;
+  return { touchpoint: tp, matchType: matchTypeFor(deferred_match_type === "deterministic" ? "recorded_click" : "ip_os"), matchKey: deferred_match_key };
 }
 
 async function recordAttribution(
@@ -276,7 +315,7 @@ async function attributeReengagement(db: Db, e: AttributableEvent, s: ClickSigna
     [e.environment_id, e.anonymous_id, tp.id],
   );
   if (already) return;
-  await recordAttribution(db, e, "re_engagement", { touchpoint: tp, matchType: "deterministic", matchKey: s.clickId.key });
+  await recordAttribution(db, e, "re_engagement", { touchpoint: tp, matchType: matchTypeFor("recorded_click"), matchKey: s.clickId.key });
 }
 
 async function attributeConversion(db: Db, e: AttributableEvent, name: string, settings: AttributionSettings) {

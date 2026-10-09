@@ -397,3 +397,76 @@ describe("deep link report (Acquisition → Deep links)", () => {
     expect((await deepLinkReport(other.ctx, { environmentId: t.dev.id, timezone: "UTC" }, { days: 30 })).links).toEqual([]);
   });
 });
+
+// After the report above, so its per-environment deferred counts stay as they were.
+describe("one click, one install: deferred deep links and the install engine", () => {
+  const settings = (o: { probabilistic: boolean; lookbackDays?: number; windowHours?: number }) =>
+    updateSettings(t.ctx, t.app.id, {
+      clickLookbackDays: o.lookbackDays ?? 7, probabilisticEnabled: o.probabilistic ? "on" : "", probabilisticWindowHours: o.windowHours ?? 24,
+      conversionWindowDays: 90, reengagementEnabled: "on",
+    });
+  async function androidClickAt(ip: string) {
+    const res = await linkRoute(get(`/l/${link.code}`, { ua: ANDROID, ip }), linkCtx({ code: link.code }));
+    const referrer = new URL(res.headers.get("location")!).searchParams.get("referrer")!;
+    return new URLSearchParams(referrer).get("click_id")!;
+  }
+  async function install(anon: string, ip: string) {
+    const sdk = (await authenticateIngestionKey(t.sdkKey))!;
+    const event = { type: "track", event_name: "app_installed", event_id: crypto.randomUUID(), anonymous_id: anon, context: { platform: "android", os_version: "14" } };
+    await ingest(sdk, { batch: [event] }, { mode: "batch", clientIp: ip });
+    await processPendingEvents({ environmentId: t.dev.id, limit: 1000 });
+    return withSystem((db) => db.one<{ match_type: string; match_key: string | null; touchpoint_id: string | null }>(
+      "select match_type, match_key, touchpoint_id from platform.attribution_events where environment_id = $1 and anonymous_id = $2 and kind in ('install', 'reinstall')",
+      [t.dev.id, anon]));
+  }
+  const touchpointOf = async (clickId: string) =>
+    (await withSystem((db) => db.one<{ id: string; matched_at: Date | null }>("select id, matched_at from platform.attribution_touchpoints where click_id = $1", [clickId])))!;
+  const ask = async (anon: string, ip: string, extra: Record<string, unknown> = { platform: "android", os_version: "14" }) =>
+    (await deferred(t.sdkKey, { anonymous_id: anon, ...extra }, ip)).json();
+
+  afterAll(() => settings({ probabilistic: false }));
+
+  it("a click the deferred API handed out is not given to another install by the engine, and the same install keeps it", async () => {
+    await settings({ probabilistic: true });
+    const ip = "192.0.2.10";
+    const clickId = await androidClickAt(ip);
+    expect(await ask("claim-a", ip)).toMatchObject({ match_type: "probabilistic", click_id: clickId });
+    const tp = await touchpointOf(clickId);
+    expect(tp.matched_at).not.toBeNull(); // claimed by the deferred lookup
+
+    // Another install from the same address and Android version: the claimed click is not reused.
+    expect(await install("claim-b", ip)).toMatchObject({ match_type: "organic", touchpoint_id: null });
+    // The install the deferred API answered is attributed to that same click.
+    expect(await install("claim-a", ip)).toMatchObject({ match_type: "probabilistic", match_key: "ip_os", touchpoint_id: tp.id });
+  });
+
+  it("a click the engine attributed is not handed to another install by the deferred API", async () => {
+    await settings({ probabilistic: true });
+    const ip = "192.0.2.11";
+    const clickId = await androidClickAt(ip);
+    const tp = await touchpointOf(clickId);
+    expect(await install("claim-c", ip)).toMatchObject({ match_type: "probabilistic", match_key: "ip_ua", touchpoint_id: tp.id });
+    expect(await ask("claim-d", ip)).toMatchObject({ match_type: "none", reason: "no_click" });
+    // The install the engine attributed still gets its own click's deep link.
+    expect(await ask("claim-c", ip)).toMatchObject({ match_type: "probabilistic", click_id: clickId, deep_link: { path: "/offers/ramadan" } });
+  });
+
+  it("a click id handed out by the deferred API is the install's deterministic match", async () => {
+    const ip = "192.0.2.12";
+    const clickId = await androidClickAt(ip);
+    // The app passes the click id from its own channel to the deferred API; its install event doesn't carry it.
+    expect(await ask("claim-e", ip, { click_id: clickId })).toMatchObject({ match_type: "deterministic", match_key: "click_id" });
+    expect(await install("claim-e", ip)).toMatchObject({ match_type: "deterministic", match_key: "click_id", touchpoint_id: (await touchpointOf(clickId)).id });
+  });
+
+  it("the probabilistic deferred lookup respects the click lookback", async () => {
+    const ip = "192.0.2.13";
+    const clickId = await androidClickAt(ip);
+    await withSystem((db) => db.query("update platform.attribution_touchpoints set touchpoint_at = now() - interval '36 hours' where click_id = $1", [clickId]));
+    // Probabilistic window 72 h, click lookback 1 day: the 36-hour-old click is outside the lookback.
+    await settings({ probabilistic: true, lookbackDays: 1, windowHours: 72 });
+    expect(await ask("lookback-1", ip)).toMatchObject({ match_type: "none", reason: "no_click" });
+    await settings({ probabilistic: true, lookbackDays: 2, windowHours: 72 });
+    expect(await ask("lookback-2", ip)).toMatchObject({ match_type: "probabilistic", click_id: clickId });
+  });
+});

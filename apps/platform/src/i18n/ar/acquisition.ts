@@ -55,8 +55,10 @@ const ar: Record<string, string> = {
   "First opens": "أول فتح للتطبيق",
   Attributed: "مُسنَدة",
   "{n} probabilistic": "{n} احتمالية",
-  "All deterministic": "كلها حتمية",
+  "{deterministic} deterministic · {reported} reported · {probabilistic} probabilistic": "{deterministic} حتمية · {reported} مُبلَّغ عنها · {probabilistic} احتمالية",
   Organic: "عضوية",
+  "Organic / unattributed": "عضوية / غير مُسنَدة",
+  "{n} on iOS, where paid installs can't be matched without SKAdNetwork or Apple Search Ads": "{n} على iOS، حيث لا يمكن مطابقة عمليات التثبيت المدفوعة دون SKAdNetwork أو Apple Search Ads",
   "{n} re-engagements": "{n} إعادة تفاعل",
   "No acquisition data in {env} for this range.": "لا توجد بيانات استحواذ في {env} لهذه الفترة.",
   "Create a {link} for your campaigns, and make sure your app sends {event} with the install referrer or click id (see Settings → Dev Ops → SDK).":
@@ -79,7 +81,17 @@ const ar: Record<string, string> = {
 
   // Attribution report
   Deterministic: "حتمي",
-  "Matched on a link click id, the store install referrer or an ad-network click id.": "طوبق عبر معرّف نقر الرابط أو مُحيل التثبيت من المتجر أو معرّف نقر من شبكة إعلانية.",
+  "Matched to a click LeanApp's own tracking link recorded: its click id came back in the Play install referrer, a deep link or the SDK, or the click carried the same ad-network click id.":
+    "طوبق مع نقرة سجّلها رابط التتبّع الخاص بـ LeanApp: عاد معرّف النقرة في مُحيل التثبيت من Play أو في رابط عميق أو عبر SDK، أو حملت النقرة معرّف النقر نفسه من الشبكة الإعلانية.",
+  Reported: "مُبلَّغ عنه",
+  "Only the install says where it came from: an ad-network click id or UTM parameters with no recorded click behind them. Not verified by LeanApp.":
+    "التثبيت وحده يذكر مصدره: معرّف نقر من شبكة إعلانية أو معلمات UTM دون نقرة مسجّلة وراءها. لم يتحقق منه LeanApp.",
+  "No matching touch within the click lookback. Includes paid iOS installs that carried no LeanApp click id.":
+    "لا توجد نقطة تواصل مطابقة ضمن نافذة النقر. تشمل عمليات تثبيت iOS المدفوعة التي لم تحمل معرّف نقر من LeanApp.",
+  "iOS: paid installs from ad networks can't be attributed deterministically without SKAdNetwork / AdAttributionKit or Apple Search Ads, and LeanApp never fingerprints iOS devices. Unless the install brings back a LeanApp click id, an iOS install counts as organic / unattributed ({n} in this range). Apple's aggregate postbacks are listed under SKAdNetwork postbacks below.":
+    "iOS: لا يمكن إسناد عمليات التثبيت المدفوعة من شبكات الإعلانات بشكل حتمي دون SKAdNetwork / AdAttributionKit أو Apple Search Ads، ولا يستخدم LeanApp بصمة أجهزة iOS أبدًا. ما لم يُعِد التثبيت معرّف نقر من LeanApp، يُحتسب تثبيت iOS عضويًا / غير مُسنَد ({n} في هذه الفترة). إشعارات Postback المجمّعة من Apple مدرجة أدناه تحت إشعارات SKAdNetwork.",
+  "Deterministic: matched to a click your tracking link recorded. Reported: only the install's own context (an ad-network click id or UTM parameters) names the source; nothing verifies it. Probabilistic: opt-in Android match on device signals. iOS installs without a LeanApp click id count as organic.":
+    "حتمي: طوبق مع نقرة سجّلها رابط التتبّع. مُبلَّغ عنه: سياق التثبيت وحده (معرّف نقر من شبكة إعلانية أو معلمات UTM) يذكر المصدر ولا شيء يتحقق منه. احتمالي: مطابقة اختيارية على Android عبر إشارات الجهاز. عمليات تثبيت iOS دون معرّف نقر من LeanApp تُحتسب عضوية.",
   Probabilistic: "احتمالي",
   "Matched on device signals within {hours} hours of a click.": "طوبق عبر إشارات الجهاز خلال {hours} ساعة من النقرة.",
   "Off for this app.": "متوقف لهذا التطبيق.",
@@ -196,8 +208,8 @@ const ar: Record<string, string> = {
   Live: "يعمل",
   "Not verified": "غير موثّق",
   "Needs setup": "يحتاج إلى إعداد",
-  "Opens the installed app from the link. To land on the link's screen your app sends the opened URL to POST /v1/deep-links/resolve; the LeanApp SDKs don't make this call yet.":
-    "يفتح التطبيق المثبّت من الرابط. للوصول إلى شاشة الرابط يرسل تطبيقك الرابط المفتوح إلى POST /v1/deep-links/resolve؛ ولا تُجري حزم LeanApp SDK هذا الاستدعاء بعد.",
+  "Opens the installed app from the link. To land on the link's screen your app sends the opened URL to GET /v1/deep-links/resolve; the LeanApp SDKs don't make this call yet.":
+    "يفتح التطبيق المثبّت من الرابط. للوصول إلى شاشة الرابط يرسل تطبيقك الرابط المفتوح إلى GET /v1/deep-links/resolve؛ ولا تُجري حزم LeanApp SDK هذا الاستدعاء بعد.",
   "Add the iOS app details in Deep link setup. Until then links go to the store even when the app is installed.": "أضف تفاصيل تطبيق iOS في إعداد الروابط العميقة. حتى ذلك الحين تنتقل الروابط إلى المتجر حتى لو كان التطبيق مثبّتًا.",
   "Configured. Run the check in Deep link setup to confirm apple-app-site-association is served correctly.": "مُعدّ. شغّل الفحص في إعداد الروابط العميقة للتأكد من أن apple-app-site-association يُقدَّم بشكل صحيح.",
   "The last check of apple-app-site-association failed. See Deep link setup.": "فشل آخر فحص لـ apple-app-site-association. راجع إعداد الروابط العميقة.",
@@ -242,12 +254,12 @@ const ar: Record<string, string> = {
   "Conversions this long after the install or re-engagement are credited to its source. Default 90.": "تُنسب التحويلات التي تحدث خلال هذه المدة بعد التثبيت أو إعادة التفاعل إلى مصدره. الافتراضي 90.",
   "A user who already has the app and opens it from a newer LeanApp link is credited to that link (last touch).": "المستخدم الذي لديه التطبيق ويفتحه من رابط LeanApp أحدث يُنسب إلى ذلك الرابط (آخر نقطة تواصل).",
   "Probabilistic matching (Android only)": "المطابقة الاحتمالية (Android فقط)",
-  "When nothing deterministic matches, credit an Android install to an unclaimed link click from the same network address (keyed hash, never the raw IP) and Android version within the window below. Reported separately as {probabilistic}. Never used on iOS. Off by default: turn it on only if your privacy notice discloses it.":
-    "عندما لا توجد مطابقة حتمية، يُنسب تثبيت Android إلى نقرة رابط غير مُطالَب بها من عنوان الشبكة نفسه (تجزئة بمفتاح، وليس عنوان IP الخام أبدًا) وإصدار Android نفسه ضمن النافذة أدناه. يُبلَّغ عنها بشكل منفصل على أنها {probabilistic}. لا تُستخدم أبدًا على iOS. متوقفة افتراضيًا: فعّلها فقط إذا كان إشعار الخصوصية لديك يُفصح عنها.",
+  "When no click id or campaign parameters match, credit an Android install to an unclaimed link click from the same network address (keyed hash, never the raw IP) and Android version within the window below and the click lookback. Reported separately as {probabilistic}. Never used on iOS. Off by default: turn it on only if your privacy notice discloses it.":
+    "عندما لا يطابق أي معرّف نقر أو معلمات حملة، يُنسب تثبيت Android إلى نقرة رابط غير مُطالَب بها من عنوان الشبكة نفسه (تجزئة بمفتاح، وليس عنوان IP الخام أبدًا) وإصدار Android نفسه ضمن النافذة أدناه ونافذة النقر. يُبلَّغ عنها بشكل منفصل على أنها {probabilistic}. لا تُستخدم أبدًا على iOS. متوقفة افتراضيًا: فعّلها فقط إذا كان إشعار الخصوصية لديك يُفصح عنها.",
   probabilistic: "احتمالية",
   "Window (hours)": "النافذة (ساعات)",
-  "View-through attribution (impressions) needs ad-network impression data, which LeanApp doesn't receive yet; the view lookback ({hours}h) is stored for when it does.":
-    "يحتاج الإسناد بالمشاهدة (مرات الظهور) إلى بيانات الظهور من شبكات الإعلانات، والتي لا يستقبلها LeanApp بعد؛ نافذة المشاهدة ({hours} ساعة) محفوظة لحين ذلك.",
+  "View-through (impression) attribution isn't built: it needs ad-network impression data, which LeanApp doesn't receive. The stored view lookback ({hours}h) is not used yet and changes nothing.":
+    "الإسناد بالمشاهدة (مرات الظهور) غير مبني: يحتاج إلى بيانات الظهور من شبكات الإعلانات، والتي لا يستقبلها LeanApp. نافذة المشاهدة المحفوظة ({hours} ساعة) غير مستخدمة بعد ولا تغيّر شيئًا.",
 
   // Postbacks
   "Tell ad networks and your own systems about the installs and conversions they drove. Deliveries are queued as events are processed and sent by the scheduled worker, with retries (1 min → 12 h) on errors.":

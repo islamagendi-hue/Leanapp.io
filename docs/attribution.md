@@ -4,7 +4,7 @@ LeanApp attributes installs from its own event stream and its own tracking links
 
 **Status: engine built (phase 3, platform side).** Built: tracking links with a click redirect, install / reinstall / re-engagement matching in event processing, last-touch conversion and revenue attribution, postbacks (custom URL, tested; TikTok, Snap, Meta and Google Ads request code, **not verified with the live networks**), the attribution dashboard, settings, and SKAdNetwork / AdAttributionKit postback copies with conversion value schemas (server side). Not built: the iOS SDK applying conversion values, view-through (impression) attribution, ad-network cost import, MMP import (AppsFlyer / Adjust / Branch), first-touch and linear reporting models.
 
-Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migration `0012_attribution.sql`. Dashboard: app → Acquisition (Beta): Overview, Sources & campaigns, Attribution, Tracking links & QR, Deep links. Settings live in Settings → Dev Ops → Attribution.
+Code: `apps/platform/src/modules/attribution/` (pure logic in `pure.ts`, matching in `engine.ts`, links/settings/postback configuration in `service.ts`, delivery in `delivery.ts`, network request builders in `networks.ts`, dashboard queries in `reports.ts`). Migrations `0012_attribution.sql`, `0030_attribution_match_methods.sql` (match types). Dashboard: app → Acquisition (Beta): Overview, Sources & campaigns, Attribution, Tracking links & QR, Deep links. Settings live in Settings → Dev Ops → Attribution.
 
 ## Why it matters here
 
@@ -36,13 +36,21 @@ Runs inside event processing (`modules/processing` step 5), once per event, for 
 
 | # | Signal | `match_type` / `match_key` |
 | --- | --- | --- |
-| 1 | LeanApp click id from the Play install referrer, a deep link URL, or `context.attribution.click_id` | deterministic / `install_referrer`, `deep_link`, `click_id` |
-| 2 | Ad-network click id in the install's context: matched to a recorded click that carried it, else a touchpoint is created from the context (network from the click id, campaign from `utm_*`) | deterministic / `gclid`, `ttclid`, `ScCid`, `fbclid`, … |
-| 3 | `utm_source` captured from the link that installed or opened the app (referrer or deep link) | deterministic / `install_referrer`, `utm_parameters` |
-| 4 | **Probabilistic**, only when the app turns it on (off by default): an *unclaimed* Android link click from the same IP hash and Android major version within the probabilistic window (default 24 h, max 7 days). Never used for iOS or unknown platforms. Reported separately everywhere | probabilistic / `ip_ua` |
+| 1 | LeanApp click id from the Play install referrer, a deep link URL, or `context.attribution.click_id`, found among the clicks LeanApp's own links recorded. Else the click the [deferred deep link API](deep-links.md) already handed this install by click id | deterministic / `install_referrer`, `deep_link`, `click_id` |
+| 2 | Ad-network click id in the install's context. Matched to a click a LeanApp link recorded that carried the same id → deterministic. Otherwise only the install reports it: a touchpoint is created from the context (network from the click id, campaign from `utm_*`) → reported | deterministic or reported / `gclid`, `ttclid`, `ScCid`, `fbclid`, … |
+| 3 | `utm_source` captured from the link that installed or opened the app (Play referrer without a LeanApp click id, or deep link). Self-reported by the install; nothing LeanApp recorded verifies it | reported / `install_referrer`, `utm_parameters` |
+| 4 | **Probabilistic**, only when the app turns it on (off by default): the click a probabilistic deferred deep link lookup already handed this install, else an *unclaimed* Android link click from the same IP hash and Android major version within the probabilistic window (default 24 h, max 7 days) and the click lookback. Never used for iOS or unknown platforms. Reported separately everywhere | probabilistic / `ip_ua` (`ip_os` when it came from the deferred lookup) |
 | 5 | Nothing matched | organic |
 
+`deterministic` is kept for matches LeanApp verified itself: a click id that matches a click its own tracking link recorded. `reported` means the source comes only from what the install's context says (an ad-network click id or utm parameters with no recorded click behind them); it is counted as attributed but shown separately, and postbacks carry `match_type=reported`. Migration `0030_attribution_match_methods.sql` relabelled earlier context-only "deterministic" attributions as `reported`.
+
 When the Play referrer reports `referrer_click_timestamp_seconds` older than the lookback, steps 2–3 count as organic. Clicks from another environment or another organization never match.
+
+**One click, one install.** A click is claimed when it is first attributed or handed out by the deferred deep link API (`attribution_touchpoints.matched_at`). Probabilistic matching, in the engine and in the deferred API, only takes unclaimed clicks (row-locked while claiming, so the two paths can't race), and the engine gives an install the click the deferred API already handed it. A LeanApp click id the install itself carries still wins (step 1).
+
+### iOS paid installs
+
+iOS paid installs can't be attributed deterministically from the event stream: without App Tracking Transparency consent there is no IDFA, Apple forbids fingerprinting, and ad networks report iOS installs through SKAdNetwork / AdAttributionKit (aggregate, delayed, never per user) or, for Apple's own ads, Apple Search Ads attribution. LeanApp doesn't fake it: an iOS install is attributed only when it brings back a LeanApp click id (a universal link or a link the app passes on, step 1) or the opening URL's own parameters (reported, steps 2–3). Every other iOS install, paid or not, is **organic / unattributed**, and the Acquisition pages say so next to the numbers. SKAdNetwork / AdAttributionKit postback copies are reported separately (below) and never joined to installs; Apple Search Ads attribution isn't built.
 
 **Reinstall:** an install whose `context.device.id` or `user_id` already has an install in the environment is stored as `reinstall` (still matched as above). A second `app_installed` from the same `anonymous_id` is ignored.
 
@@ -52,7 +60,7 @@ Each attribution is one row in `attribution_events` with kind, match type and ke
 
 ### Why probabilistic is limited
 
-The design rule is "probabilistic only where allowed and disclosed; no fingerprinting on iOS". Apple's rules forbid fingerprinting for attribution on iOS, so iOS installs are only matched deterministically (SKAdNetwork / AdAttributionKit is planned). On Android, IP + OS matching is a common MMP fallback, but it is personal-data processing: it is off unless the customer turns it on in Settings after disclosing it, uses a keyed hash computed at ingestion (only for `app_installed` from public SDK keys; clients can't supply it), a short window, and each click can be claimed once.
+The design rule is "probabilistic only where allowed and disclosed; no fingerprinting on iOS". Apple's rules forbid fingerprinting for attribution on iOS, so iOS installs are never matched probabilistically (see [iOS paid installs](#ios-paid-installs)). On Android, IP + OS matching is a common MMP fallback, but it is personal-data processing: it is off unless the customer turns it on in Settings after disclosing it, uses a keyed hash computed at ingestion (only for `app_installed` from public SDK keys; clients can't supply it), a short window, and each click can be claimed once.
 
 ## Conversions
 
@@ -68,7 +76,7 @@ Deliveries are queued in the processing transaction (`attribution_postback_deliv
 
 | Network | Request | Needs | Status |
 | --- | --- | --- | --- |
-| Custom URL | `GET` (or `POST` with a JSON body) to the template, macros URL-encoded: `{click_id}` `{network_click_id}` `{network_click_param}` `{event}` `{event_id}` `{revenue}` `{currency}` `{timestamp}` `{event_time}` `{install_timestamp}` `{platform}` `{source}` `{medium}` `{campaign}` `{link_code}` `{match_type}` `{country}`; optional Authorization header | URL | ✓ tested against a local server |
+| Custom URL | `GET` (or `POST` with a JSON body) to the template, macros URL-encoded: `{click_id}` `{network_click_id}` `{network_click_param}` `{event}` `{event_id}` `{revenue}` `{currency}` `{timestamp}` `{event_time}` `{install_timestamp}` `{platform}` `{source}` `{medium}` `{campaign}` `{link_code}` `{match_type}` (`deterministic`, `reported`, `probabilistic` or `organic`) `{country}`; optional Authorization header | URL | ✓ tested against a local server |
 | TikTok | Events API 2.0 `POST business-api.tiktok.com/open_api/v1.3/event/track/`, `event_source: app`, `ttclid` | TikTok App ID, access token | built, **not verified with the live network** |
 | Snapchat | Conversions API v3 `POST tr.snapchat.com/v3/{snap_app_id}/events`, `sc_click_id` | Snap App ID, token | built, **not verified** |
 | Meta | Conversions API `POST graph.facebook.com/{v21.0}/{dataset_id}/events`, `action_source: app`, `fbc` from `fbclid` | Dataset ID, system user token | built, **not verified** (Meta app events usually also need `advertiser_id` / extinfo from the device, which the SDKs don't send yet) |
@@ -82,12 +90,12 @@ Credentials are encrypted at rest (AES-256-GCM, `INTEGRATIONS_ENCRYPTION_KEY`), 
 
 App → Acquisition (Beta), labelled Beta on every page with a "What Acquisition (Beta) measures" note:
 
-- **Overview** (`/acquisition`): clicks, installs, attributed and organic shares, installs per day, top 5 sources, top 5 links (click → install) and credited revenue.
-- **Sources & campaigns** (`/acquisition/sources`): installs by source and campaign (deterministic, probabilistic, re-engagements), and conversions and revenue by campaign per currency.
-- **Attribution** (`/acquisition/attribution`): how installs were matched (deterministic, probabilistic, organic, reinstalls), the matching rules in force (linking to Settings → Dev Ops → Attribution), SKAdNetwork postbacks by source identifier (linking to the SKAN setup), and what the Beta doesn't include.
+- **Overview** (`/acquisition`): clicks, installs, attributed (deterministic · reported · probabilistic) and organic / unattributed shares (with the iOS count), installs per day, top 5 sources, top 5 links (click → install) and credited revenue.
+- **Sources & campaigns** (`/acquisition/sources`): installs by source and campaign (deterministic, reported, probabilistic, re-engagements), and conversions and revenue by campaign per currency.
+- **Attribution** (`/acquisition/attribution`): how installs were matched (deterministic, reported, probabilistic, organic / unattributed, reinstalls) with the iOS paid-install note, the matching rules in force (linking to Settings → Dev Ops → Attribution), SKAdNetwork postbacks by source identifier (linking to the SKAN setup), and what the Beta doesn't include.
 - **Tracking links & QR** (`/acquisition/links`): links with clicks and installs, create / pause / resume, and each link's share URL with campaign / placement overrides and an SVG QR code (`?link={code}`). The old QR address on Deep links (`/acquisition/deep-links?link=…`) forwards here.
 
-The numbers: clicks, installs (attributed / organic / probabilistic / reinstalls), re-engagements, installs per day, installs by source and campaign, conversions and revenue by source and campaign (per currency), and per-link click → install rates, for 7 / 30 / 90 days per environment. `attribution.read` sees them; `attribution.manage` edits links, postbacks and settings (owner, admin, marketer; analysts read only; developers don't see attribution).
+The numbers: clicks, installs (deterministic / reported / probabilistic / organic, of which iOS / reinstalls), re-engagements, installs per day, installs by source and campaign, conversions and revenue by source and campaign (per currency), and per-link click → install rates, for 7 / 30 / 90 days per environment. `attribution.read` sees them; `attribution.manage` edits links, postbacks and settings (owner, admin, marketer; analysts read only; developers don't see attribution).
 
 ## SKAdNetwork / AdAttributionKit
 
@@ -112,7 +120,7 @@ See [SDK: attribution context](sdk.md#attribution-context): `app_installed` with
 ## Not built yet
 
 - iOS SDK support for conversion values (calling `SKAdNetwork.updatePostbackConversionValue` / AdAttributionKit per the schema).
-- View-through attribution: needs impression data from ad networks (`view_lookback_hours` is stored for it).
+- View-through attribution: needs impression data from ad networks. `attribution_settings.view_lookback_hours` exists but is **not used** by anything yet; the settings page says so.
 - Cost import and ROAS; FX conversion of revenue.
 - First-touch and linear models in reports (data supports them; last touch is what is computed).
 - Live verification of the TikTok, Snap, Meta and Google postbacks: needs a customer's ad accounts, app ids and tokens.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildRequest, networkEventName } from "./networks";
 import {
-  backoffSeconds, clickSignals, isOrganicUtm, mergeCampaignRows, destinationFor, expandMacros, extractRevenue, isBot, isPrefetch, MAX_POSTBACK_ATTEMPTS, networkOfSource,
+  backoffSeconds, clickSignals, isOrganicUtm, MATCH_TYPES, matchTypeFor, mergeCampaignRows, destinationFor, expandMacros, extractRevenue, isBot, isPrefetch, MAX_POSTBACK_ATTEMPTS, networkOfSource,
   parseQuery, parseUserAgent, retryable, unknownMacros, type LinkDestinations,
 } from "./pure";
 import { assertPostbackUrlShape, isPrivateAddress } from "./url-safety";
@@ -166,6 +166,17 @@ describe("isOrganicUtm", () => {
     expect(isOrganicUtm({ source: "tiktok", medium: "paid" })).toBe(false);
     expect(isOrganicUtm({ source: "google", medium: "cpc" })).toBe(false);
     expect(isOrganicUtm({})).toBe(false);
+  });
+});
+
+describe("matchTypeFor", () => {
+  it("calls only a click LeanApp recorded deterministic", () => {
+    expect(matchTypeFor("recorded_click")).toBe("deterministic");
+    // UTM parameters or an ad-network click id only the install's context reports are not verified.
+    expect(matchTypeFor("install_context")).toBe("reported");
+    expect(matchTypeFor("ip_os")).toBe("probabilistic");
+    expect(matchTypeFor("none")).toBe("organic");
+    expect([...MATCH_TYPES]).toEqual(["deterministic", "reported", "probabilistic", "organic"]);
   });
 });
 
