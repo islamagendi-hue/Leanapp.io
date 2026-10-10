@@ -157,18 +157,34 @@ export const PROVIDERS: ProviderDescriptor[] = [
   {
     id: "tiktok_ads", name: "TikTok Ads", category: "advertising", implementation: "built",
     docsUrl: "https://business-api.tiktok.com/portal/docs",
-    capabilities: adCapabilities("tiktok_ads", [msg("Ads management: read reports")], {
-      title: msg("TikTok Events API"), perms: [msg("Events API access token")],
-      requirements: [msg("TikTok App ID"), msg("Events API access token")],
-    }),
+    capabilities: [
+      ...adCapabilities("tiktok_ads", [msg("Ads management: read reports")], {
+        title: msg("TikTok Events API"), perms: [msg("Events API access token")],
+        requirements: [msg("TikTok App ID"), msg("Events API access token")],
+      }),
+      {
+        id: "web_conversions_outbound", direction: "outbound", title: msg("TikTok Pixel and Events API: website events"),
+        description: msg("Sends attributed website conversions with the page URL, browser user agent, the ttclid click id, the _ttp cookie and, if you allow it, hashed email, phone and user id. Uses the event's own id, so a browser TikTok Pixel sending the same event_id is counted once."),
+        requirements: [msg("A TikTok postback with Event source set to website or by platform"), msg("TikTok Pixel code and Events API access token"), msg("The web SDK sending the page URL and user agent")],
+        providerPermissions: [msg("Events API access token")], setupPath: postbacks, perm: "attribution.read",
+      },
+    ],
   },
   {
     id: "snapchat_ads", name: "Snapchat Ads", category: "advertising", implementation: "built",
     docsUrl: "https://developers.snap.com/api/marketing-api/Ads-API/introduction",
-    capabilities: adCapabilities("snapchat_ads", ["snapchat-marketing-api"], {
-      title: msg("Snap Conversions API"), perms: [msg("Conversions API token")],
-      requirements: [msg("Snap App ID"), msg("Conversions API token")],
-    }),
+    capabilities: [
+      ...adCapabilities("snapchat_ads", ["snapchat-marketing-api"], {
+        title: msg("Snap Conversions API"), perms: [msg("Conversions API token")],
+        requirements: [msg("Snap App ID"), msg("Conversions API token")],
+      }),
+      {
+        id: "web_conversions_outbound", direction: "outbound", title: msg("Snap Pixel and Conversions API: website events"),
+        description: msg("Sends attributed website conversions with the page URL, browser user agent, the ScCid click id, the _scid cookie and, if you allow it, hashed email, phone and user id. Uses the event's own id, so a browser Snap Pixel sending the same id for deduplication is counted once."),
+        requirements: [msg("A Snap postback with Event source set to website or by platform"), msg("Snap Pixel ID and Conversions API token"), msg("The web SDK sending the page URL and user agent")],
+        providerPermissions: [msg("Conversions API token")], setupPath: postbacks, perm: "attribution.read",
+      },
+    ],
   },
   {
     id: "apple_skan", name: "Apple SKAdNetwork", category: "attribution", implementation: "built",

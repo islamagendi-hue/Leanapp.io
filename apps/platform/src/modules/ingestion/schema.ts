@@ -59,7 +59,7 @@ export const contextSchema = z
     sdk: z.object({ name: z.string().max(50), version: z.string().max(30) }).optional(),
     network: z.object({ carrier: z.string().max(100).optional(), wifi: z.boolean().optional() }).partial().optional(),
     screen: z.object({ width: z.number().optional(), height: z.number().optional(), density: z.number().optional() }).partial().optional(),
-    // Well-known keys (UTMs, click ids, landing_url, referrer, campaign ids, fbp/fbc, adservices_token, touch): see attribution-context.ts and docs/events.md.
+    // Well-known keys (UTMs, click ids, landing_url, referrer, campaign ids, fbp/fbc, ttp, scid, adservices_token, touch): see attribution-context.ts and docs/events.md.
     attribution: attributionContextSchema.optional(),
     // Native SDKs: Play Install Referrer details (install_referrer, referrer_click_timestamp_seconds, …). See docs/sdk.md.
     campaign: z.record(z.string().max(60), z.union([z.string().max(1000), z.number().finite(), z.boolean(), z.null()])).optional(),

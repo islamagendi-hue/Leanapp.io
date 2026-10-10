@@ -98,7 +98,7 @@ Analytics.getConsent(); // { analytics: "granted", marketing: "denied", push: "g
 | `analytics` | `track`, `screen`, `identify`, `alias` | Events from a user/install whose latest decision is denied are not stored (`consent_denied` in the debugger) |
 | `push` | `registerPushToken` | Denied → automatic `push` suppression |
 | `attribution` | `captureAttribution`, `context.attribution` / `context.campaign` on events, the `landing_viewed` event's touch, the deferred deep link request, the iOS AdServices token | Denied → `context.attribution` removed at ingestion |
-| `marketing` | browsers: Meta's `fbp` / `fbc` in `context.attribution` (sent only when granted) | Denied → automatic `marketing` suppression; automation checks it before sending |
+| `marketing` | browsers: Meta's `fbp` / `fbc`, TikTok's `ttp` and Snap's `scid` in `context.attribution` (sent only when granted) | Denied → automatic `marketing` suppression; automation checks it before sending |
 
 - **Default.** `consentDefault` applies until `setConsent` records an answer, for all purposes (`"granted"`, `"pending"`, `"denied"`) or per purpose. It defaults to `"granted"`, so apps that don't use consent behave as before.
 - **Pending.** Events are kept in memory only: not written to storage, not sent. Granting sends them (with their original timestamps); denying or closing the app first discards them. The in-memory buffer is capped at `maxQueueSize`.
@@ -119,6 +119,7 @@ In browsers (`platform: "web"`) the SDK captures the page it starts on by itself
 - **Direct visits** (no campaign parameters, no external referrer) are not a touch: nothing is stored or overwritten, no `landing_viewed` is sent, and the session's first event carries only `context.attribution.landing_url`. A later direct session never carries an earlier paid source; the server's attribution engine decides credit from the touches it received.
 - **Other events:** the first event of the session that had the touch carries the same `context.attribution`; later events and sessions don't repeat it.
 - **Meta browser ids:** with `marketing` consent granted, events carry `context.attribution.fbp` / `fbc` read from Meta Pixel's `_fbp` / `_fbc` first-party cookies. When there is no `_fbc` cookie but the landing URL had an `fbclid`, the SDK sends `fbc` in Meta's documented `fb.1.<milliseconds>.<fbclid>` format. The SDK only reads these cookies, never sets any cookie. `metaBrowserIds: false` turns it off.
+- **TikTok and Snap browser ids:** with `marketing` consent granted, events also carry `context.attribution.ttp` (TikTok Pixel's `_ttp` cookie) and `scid` (Snap Pixel's `_scid` cookie) when those cookies exist, for TikTok's Events API and Snap's Conversions API website events. Read only; nothing is built or set when a cookie is missing. `tiktokBrowserId: false` / `snapBrowserId: false` turn them off.
 - **Consent:** with `attribution` denied nothing is captured and no `landing_viewed` is sent. While it is pending the touch is held in memory only and `landing_viewed` waits with the other events; granting attribution stores the touch and sends the event with it, while granting analytics alone sends the events without any attribution.
 - **`user_agent`:** browsers add `context.user_agent` (`navigator.userAgent`) to every event; Meta's Conversions API needs it for website events.
 
@@ -192,8 +193,9 @@ What every SDK must send so the [attribution engine](attribution.md) can match i
 | `context.attribution.campaign_id` / `adset_id` / `ad_id` | all | next to a source, never alone | joining to ad network spend |
 | `context.attribution.landing_url` / `referrer` / `touch` | web | on `landing_viewed` and the session's first event | web touches (`touch` is `first` or `latest`; anything else is dropped with a warning, as are non-http(s) URLs) |
 | `context.attribution.fbp` / `fbc` | web | every event, with `marketing` consent | Meta Conversions API matching |
+| `context.attribution.ttp` / `scid` | web | every event, with `marketing` consent, when the TikTok / Snap pixel set the cookie | TikTok Events API / Snap Conversions API website events |
 | `context.attribution.adservices_token` | iOS 14.3+ | once, on `app_installed`, unless attribution consent is denied | Apple Search Ads attribution lookup on the server |
-| `context.user_agent` | web | every event | Meta Conversions API website events |
+| `context.user_agent` | web | every event | Meta, TikTok and Snap website events |
 | `context.platform` + `context.os_version` | all | always | probabilistic matching (Android only, opt-in) needs `android` and the OS version |
 
 The JS SDK's `captureAttribution(url)` fills `utm_*`, the ad-network click ids, campaign ids and `click_id`; in browsers it also adds `landing_url`, `referrer` and Meta's ids (see [Web attribution](#web-attribution)). It does not set `deep_link_url` or read the Play referrer (React Native needs a native module for that). The native SDKs (Android, iOS, Flutter) send `context.campaign` from the Play Install Referrer API as listed above.

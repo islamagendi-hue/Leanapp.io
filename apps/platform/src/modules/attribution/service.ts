@@ -8,7 +8,7 @@ import { encryptionAvailable, encryptSecret, hashIp } from "@/lib/secret-box";
 import { audit } from "@/modules/audit/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { DEFAULT_SETTINGS, type AttributionSettings } from "./engine";
-import { NETWORK_SPECS, NETWORKS, type Network } from "./networks";
+import { configProblem, NETWORK_SPECS, NETWORKS, type Network } from "./networks";
 import { destinationFor, isBot, isPrefetch, NETWORK_CLICK_IDS, parseUserAgent, unknownMacros, type LinkDestinations } from "./pure";
 import { CLICK_LOOKBACK_RANGE, CONVERSION_WINDOW_RANGE, parseWindowOverrides, WINDOW_CHANNELS, type WindowOverrides } from "./pure-credit";
 import { assertPostbackUrlShape } from "./url-safety";
@@ -334,6 +334,8 @@ export async function createPostback(ctx: TenantContext, appId: string, input: u
     if (v) config[f.key] = v;
     else if (f.required) throw new ValidationError(`${f.label} is required for ${spec.label}.`);
   }
+  const problem = configProblem(p.network, config);
+  if (problem) throw new ValidationError(problem);
   const credentials: Record<string, string> = {};
   for (const f of spec.credentials) {
     const v = p.credentials[f.key]?.trim();

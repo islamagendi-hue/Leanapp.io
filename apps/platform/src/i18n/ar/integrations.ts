@@ -223,6 +223,58 @@ const ar: Record<string, string> = {
   "choose one of the listed values.": "اختر إحدى القيم المدرجة.",
   "Apple Search Ads installs are reported by Apple's AdServices API: LeanApp looks up the token the iOS SDK sends and stores Apple's answer (Settings → Integrations). A link only covers web traffic.":
     "تُبلِغ واجهة AdServices من Apple عن تثبيتات Apple Search Ads: يستعلم LeanApp عن الرمز الذي يرسله SDK الخاص بـ iOS ويخزّن ردّ Apple (الإعدادات ← التكاملات). الرابط يغطي حركة الويب فقط.",
+
+  // ── TikTok and Snap website events ─────────────────────────────────────────
+  "For app events. Required unless Event source is website.":
+    "لأحداث التطبيق. مطلوب ما لم يكن مصدر الحدث هو الموقع.",
+  "TikTok Pixel code":
+    "رمز TikTok Pixel",
+  "For website events: the pixel code from TikTok Events Manager. Required unless Event source is app.":
+    "لأحداث الموقع: رمز الـ Pixel من TikTok Events Manager. مطلوب ما لم يكن مصدر الحدث هو التطبيق.",
+  "App events":
+    "أحداث التطبيق",
+  "Website events (Pixel + Events API)":
+    "أحداث الموقع (Pixel مع Events API)",
+  "Hashed user data (website events)":
+    "بيانات المستخدم المجزّأة (أحداث الموقع)",
+  "SHA-256 hashes of the email and phone user properties and the user id, on website events only.":
+    "تجزئات SHA-256 لخاصيتَي البريد والهاتف للمستخدم ولمعرّف المستخدم، في أحداث الموقع فقط.",
+  "From TikTok Events Manager → your pixel → Test events. Remove it when done.":
+    "من TikTok Events Manager ← الـ Pixel الخاص بك ← Test events. احذفه عند الانتهاء.",
+  "Snap Pixel ID":
+    "معرّف Snap Pixel",
+  "For website events: the Pixel ID from Snap Events Manager. Required unless Event source is app.":
+    "لأحداث الموقع: معرّف الـ Pixel من Snap Events Manager. مطلوب ما لم يكن مصدر الحدث هو التطبيق.",
+  "TikTok App ID is required for app events.":
+    "معرّف تطبيق TikTok مطلوب لأحداث التطبيق.",
+  "TikTok Pixel code is required for website events.":
+    "رمز TikTok Pixel مطلوب لأحداث الموقع.",
+  "Snap App ID is required for app events.":
+    "معرّف تطبيق Snap مطلوب لأحداث التطبيق.",
+  "Snap Pixel ID is required for website events.":
+    "معرّف Snap Pixel مطلوب لأحداث الموقع.",
+  "TikTok Pixel code and access token are required for website events.":
+    "رمز TikTok Pixel ورمز الوصول مطلوبان لأحداث الموقع.",
+  "Snap Pixel ID and token are required for website events.":
+    "معرّف Snap Pixel والرمز مطلوبان لأحداث الموقع.",
+  "TikTok Pixel and Events API: website events":
+    "TikTok Pixel وEvents API: أحداث الموقع",
+  "Sends attributed website conversions with the page URL, browser user agent, the ttclid click id, the _ttp cookie and, if you allow it, hashed email, phone and user id. Uses the event's own id, so a browser TikTok Pixel sending the same event_id is counted once.":
+    "يرسل تحويلات الموقع المُسنَدة مع رابط الصفحة ووكيل المستخدم للمتصفح ومعرّف النقرة ttclid وملف تعريف الارتباط _ttp، ومع البريد والهاتف ومعرّف المستخدم مجزّأة إن سمحت بذلك. يستخدم معرّف الحدث نفسه، فإذا أرسل TikTok Pixel في المتصفح الـ event_id نفسه يُحتسَب الحدث مرة واحدة.",
+  "A TikTok postback with Event source set to website or by platform":
+    "Postback لـ TikTok مع ضبط مصدر الحدث على الموقع أو حسب المنصة",
+  "TikTok Pixel code and Events API access token":
+    "رمز TikTok Pixel ورمز وصول Events API",
+  "Snap Pixel and Conversions API: website events":
+    "Snap Pixel وConversions API: أحداث الموقع",
+  "Sends attributed website conversions with the page URL, browser user agent, the ScCid click id, the _scid cookie and, if you allow it, hashed email, phone and user id. Uses the event's own id, so a browser Snap Pixel sending the same id for deduplication is counted once.":
+    "يرسل تحويلات الموقع المُسنَدة مع رابط الصفحة ووكيل المستخدم للمتصفح ومعرّف النقرة ScCid وملف تعريف الارتباط _scid، ومع البريد والهاتف ومعرّف المستخدم مجزّأة إن سمحت بذلك. يستخدم معرّف الحدث نفسه، فإذا أرسل Snap Pixel في المتصفح المعرّف نفسه لإزالة التكرار يُحتسَب الحدث مرة واحدة.",
+  "A Snap postback with Event source set to website or by platform":
+    "Postback لـ Snap مع ضبط مصدر الحدث على الموقع أو حسب المنصة",
+  "Snap Pixel ID and Conversions API token":
+    "معرّف Snap Pixel ورمز Conversions API",
+  "Test event code set: TikTok shows these events under Test events in Events Manager.":
+    "رمز حدث الاختبار مضبوط: تعرض TikTok هذه الأحداث في Test events داخل Events Manager.",
 };
 
 export default ar;

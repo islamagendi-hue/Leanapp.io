@@ -6,7 +6,13 @@
  * docs/attribution.md say so.
  *
  *   tiktok    TikTok Events API 2.0   POST business-api.tiktok.com/open_api/v1.3/event/track/
- *   snapchat  Snap Conversions API v3 POST tr.snapchat.com/v3/{snap_app_id}/events
+ *             event_source "app" (event_source_id = TikTok App ID) or "web"
+ *             (event_source_id = pixel code: page.url, user.user_agent, ttclid,
+ *             _ttp, hashed email / phone / external_id), chosen per postback
+ *   snapchat  Snap Conversions API v3 POST tr.snapchat.com/v3/{snap_app_id | snap_pixel_id}/events
+ *             action_source "MOBILE_APP" or "WEB" (event_source_url,
+ *             client_user_agent, sc_click_id, sc_cookie1 from _scid, hashed
+ *             em / ph / external_id), chosen per postback
  *   meta      Meta Conversions API    POST graph.facebook.com/{version}/{dataset_id}/events
  *             action_source "app" (app events) or "website" (Pixel + Conversions API:
  *             event_source_url, client_user_agent, fbp / fbc), chosen per postback
@@ -18,7 +24,7 @@
  * before a delivery is queued.
  */
 import { expandMacros, type PostbackPayload } from "./pure";
-import { googleUserIdentifiers, metaActionSource, metaBrowserId, metaUserData, type RawUserData } from "./conversions";
+import { actionSourceOf, googleUserIdentifiers, metaBrowserId, metaUserData, pixelCookieId, snapUserData, tiktokUserData, type RawUserData } from "./conversions";
 import { msg } from "@/i18n/translate";
 
 export const NETWORKS = ["custom", "tiktok", "snapchat", "meta", "google"] as const;
@@ -38,6 +44,16 @@ const USER_DATA_OPTIONS = [
   { value: "with_consent", label: msg("Only when the user granted attribution consent") },
   { value: "unless_denied", label: msg("Unless the user denied attribution consent") },
 ];
+
+/** The app / website / by-platform setting of Meta, TikTok and Snap postbacks (config.action_source). */
+const actionSourceField = (app: string, website: string): ConfigField => ({
+  key: "action_source", label: msg("Event source"), required: false,
+  options: [
+    { value: "app", label: app },
+    { value: "website", label: website },
+    { value: "auto", label: msg("By platform: web SDK events as website, others as app") },
+  ],
+});
 
 export interface NetworkSpec {
   label: string;
@@ -60,14 +76,27 @@ export const NETWORK_SPECS: Record<Network, NetworkSpec> = {
   tiktok: {
     label: "TikTok Events API",
     verified: false,
-    config: [{ key: "tiktok_app_id", label: "TikTok App ID", required: true }],
+    config: [
+      { key: "tiktok_app_id", label: "TikTok App ID", required: false, help: msg("For app events. Required unless Event source is website.") },
+      { key: "tiktok_pixel_code", label: msg("TikTok Pixel code"), required: false, help: msg("For website events: the pixel code from TikTok Events Manager. Required unless Event source is app.") },
+      actionSourceField(msg("App events"), msg("Website events (Pixel + Events API)")),
+      { key: "send_user_data", label: msg("Hashed user data (website events)"), required: false, options: USER_DATA_OPTIONS,
+        help: msg("SHA-256 hashes of the email and phone user properties and the user id, on website events only.") },
+      { key: "test_event_code", label: msg("Test event code (optional)"), required: false, help: msg("From TikTok Events Manager → your pixel → Test events. Remove it when done.") },
+    ],
     credentials: [{ key: "access_token", label: msg("Events API access token"), required: true }],
     clickIdParam: "ttclid",
   },
   snapchat: {
     label: "Snap Conversions API",
     verified: false,
-    config: [{ key: "snap_app_id", label: "Snap App ID", required: true }],
+    config: [
+      { key: "snap_app_id", label: "Snap App ID", required: false, help: msg("For app events. Required unless Event source is website.") },
+      { key: "snap_pixel_id", label: msg("Snap Pixel ID"), required: false, help: msg("For website events: the Pixel ID from Snap Events Manager. Required unless Event source is app.") },
+      actionSourceField(msg("App events"), msg("Website events (Pixel + Conversions API)")),
+      { key: "send_user_data", label: msg("Hashed user data (website events)"), required: false, options: USER_DATA_OPTIONS,
+        help: msg("SHA-256 hashes of the email and phone user properties and the user id, on website events only.") },
+    ],
     credentials: [{ key: "access_token", label: msg("Conversions API token"), required: true }],
     clickIdParam: "ScCid",
   },
@@ -77,14 +106,7 @@ export const NETWORK_SPECS: Record<Network, NetworkSpec> = {
     config: [
       { key: "dataset_id", label: msg("Dataset (app) ID"), required: true, help: msg("For website events this is the dataset of your Meta Pixel (the Pixel ID).") },
       { key: "api_version", label: msg("Graph API version (default v21.0)"), required: false },
-      {
-        key: "action_source", label: msg("Event source"), required: false,
-        options: [
-          { value: "app", label: msg("App events (Conversions API for apps)") },
-          { value: "website", label: msg("Website events (Pixel + Conversions API)") },
-          { value: "auto", label: msg("By platform: web SDK events as website, others as app") },
-        ],
-      },
+      actionSourceField(msg("App events (Conversions API for apps)"), msg("Website events (Pixel + Conversions API)")),
       { key: "send_user_data", label: msg("Hashed user data (advanced matching)"), required: false, options: USER_DATA_OPTIONS,
         help: msg("SHA-256 hashes of the email and phone user properties and the user id.") },
       { key: "test_event_code", label: msg("Test event code (optional)"), required: false, help: msg("From Events Manager → Test events. Events sent with it appear there and are not used for ads; remove it when done.") },
@@ -113,6 +135,24 @@ export const NETWORK_SPECS: Record<Network, NetworkSpec> = {
   },
 };
 
+/**
+ * Settings that depend on each other, checked when a postback is saved:
+ * TikTok and Snap need the app id for app events and the pixel id for website
+ * events (both for "by platform"). Returns the problem, or null.
+ */
+export function configProblem(network: Network, config: Record<string, string | undefined>): string | null {
+  const ids: Partial<Record<Network, { app: string; web: string; appMsg: string; webMsg: string }>> = {
+    tiktok: { app: "tiktok_app_id", web: "tiktok_pixel_code", appMsg: msg("TikTok App ID is required for app events."), webMsg: msg("TikTok Pixel code is required for website events.") },
+    snapchat: { app: "snap_app_id", web: "snap_pixel_id", appMsg: msg("Snap App ID is required for app events."), webMsg: msg("Snap Pixel ID is required for website events.") },
+  };
+  const n = ids[network];
+  if (!n) return null;
+  const source = config.action_source ?? "app";
+  if (source !== "website" && !config[n.app]) return n.appMsg;
+  if (source !== "app" && !config[n.web]) return n.webMsg;
+  return null;
+}
+
 export interface PostbackRequest {
   url: string;
   method: "GET" | "POST";
@@ -124,12 +164,22 @@ export type BuildResult = { ok: true; request: PostbackRequest } | { ok: false; 
 
 type Cfg = Record<string, string | undefined>;
 
+/** LeanApp event names sent as the networks' "view content" website event (e.g. page_viewed, product_viewed, view_content). */
+const VIEW_EVENT = /(^|_)(viewed|view_content)$/;
+
 const isRevenue = (p: PostbackPayload) => p.revenue !== null && p.revenue !== undefined && p.revenue !== "" && Number(p.revenue) > 0;
 
 /** The network's standard event name for our event (overridable per postback with config.event_map). */
-export function networkEventName(network: Network, p: PostbackPayload, eventMap?: Record<string, string>): string {
+export function networkEventName(network: Network, p: PostbackPayload, eventMap?: Record<string, string>, source: "app" | "website" = "app"): string {
   const ev = String(p.event ?? "");
   if (eventMap?.[ev]) return eventMap[ev];
+  if (source === "website" && (network === "tiktok" || network === "snapchat")) {
+    // Website standard events. Installs and app opens have none: they keep their app name and fail validation.
+    const web = network === "tiktok" ? ["CompletePayment", "CompleteRegistration", "ViewContent"] : ["PURCHASE", "SIGN_UP", "VIEW_CONTENT"];
+    if (isRevenue(p)) return web[0];
+    if (/sign_?up|registration/.test(ev)) return web[1];
+    if (VIEW_EVENT.test(ev)) return web[2];
+  }
   const install = ev === "install" || ev === "reinstall";
   const reengage = ev === "re_engagement";
   const signup = /sign_?up|registration/.test(ev);
@@ -159,6 +209,10 @@ export interface WebContext {
   userAgent?: string | null;
   fbp?: string | null;
   fbc?: string | null;
+  /** TikTok's _ttp cookie (TikTok website events). */
+  ttp?: string | null;
+  /** Snap's _scid cookie, sent as sc_cookie1 (Snap website events). */
+  scid?: string | null;
 }
 
 export function buildRequest(
@@ -186,41 +240,73 @@ export function buildRequest(
       return { ok: true, request: { url, method: "GET", headers } };
     }
     case "tiktok": {
-      if (!s.access_token || !c.tiktok_app_id) return { ok: false, error: msg("TikTok App ID and access token are required.") };
+      const source = actionSourceOf(c.action_source, p.platform);
+      if (source === "website") {
+        if (!s.access_token || !c.tiktok_pixel_code) return { ok: false, error: msg("TikTok Pixel code and access token are required for website events.") };
+      } else if (!s.access_token || !c.tiktok_app_id) return { ok: false, error: msg("TikTok App ID and access token are required.") };
       const m = money(p);
-      const body = {
-        event_source: "app",
-        event_source_id: c.tiktok_app_id,
-        data: [{
-          event: networkEventName("tiktok", p, eventMap),
-          event_time: seconds(p),
-          event_id: p.event_id,
-          user: p.network_click_id && p.network_click_param === "ttclid" ? { ttclid: p.network_click_id } : {},
-          ...(m ? { properties: { value: m.value, currency: m.currency } } : {}),
-        }],
+      const ttclid = p.network_click_id && p.network_click_param === "ttclid" ? { ttclid: p.network_click_id } : {};
+      const event: Record<string, unknown> = {
+        event: networkEventName("tiktok", p, eventMap, source),
+        event_time: seconds(p),
+        event_id: p.event_id,
+        user: ttclid,
+        ...(m ? { properties: { value: m.value, currency: m.currency } } : {}),
       };
+      if (source === "website") {
+        const web = opts.web ?? {};
+        // Same event_id as the browser pixel's event_id, so TikTok counts the pair once.
+        if (web.eventId) event.event_id = web.eventId;
+        const ttp = pixelCookieId(web.ttp);
+        event.user = {
+          ...ttclid, ...(ttp ? { ttp } : {}), ...(opts.userData ? tiktokUserData(opts.userData) : {}),
+          ...(web.userAgent ? { user_agent: web.userAgent } : {}),
+        };
+        if (web.eventSourceUrl) event.page = { url: web.eventSourceUrl };
+      }
+      const body: Record<string, unknown> = {
+        event_source: source === "website" ? "web" : "app",
+        event_source_id: source === "website" ? c.tiktok_pixel_code : c.tiktok_app_id,
+        data: [event],
+      };
+      if (c.test_event_code) body.test_event_code = c.test_event_code;
       return { ok: true, request: { url: "https://business-api.tiktok.com/open_api/v1.3/event/track/", method: "POST", headers: { ...json, "Access-Token": s.access_token }, body: JSON.stringify(body) } };
     }
     case "snapchat": {
-      if (!s.access_token || !c.snap_app_id) return { ok: false, error: msg("Snap App ID and token are required.") };
+      const source = actionSourceOf(c.action_source, p.platform);
+      if (source === "website") {
+        if (!s.access_token || !c.snap_pixel_id) return { ok: false, error: msg("Snap Pixel ID and token are required for website events.") };
+      } else if (!s.access_token || !c.snap_app_id) return { ok: false, error: msg("Snap App ID and token are required.") };
       const m = money(p);
-      const body = {
-        data: [{
-          event_name: networkEventName("snapchat", p, eventMap),
-          event_time: seconds(p),
-          event_id: p.event_id,
-          action_source: "app",
-          user_data: p.network_click_id && p.network_click_param === "ScCid" ? { sc_click_id: p.network_click_id } : {},
-          ...(m ? { custom_data: { value: m.value, currency: m.currency } } : {}),
-        }],
+      const click = p.network_click_id && p.network_click_param === "ScCid" ? { sc_click_id: p.network_click_id } : {};
+      const event: Record<string, unknown> = {
+        event_name: networkEventName("snapchat", p, eventMap, source),
+        event_time: seconds(p),
+        event_id: p.event_id,
+        action_source: source === "website" ? "WEB" : "MOBILE_APP",
+        user_data: click,
+        ...(m ? { custom_data: { value: m.value, currency: m.currency } } : {}),
       };
-      const url = `https://tr.snapchat.com/v3/${encodeURIComponent(c.snap_app_id)}/events?access_token=${encodeURIComponent(s.access_token)}`;
+      if (source === "website") {
+        const web = opts.web ?? {};
+        // Same id as the browser Snap Pixel's client_dedup_id, so Snap counts the pair once.
+        if (web.eventId) event.event_id = web.eventId;
+        if (web.eventSourceUrl) event.event_source_url = web.eventSourceUrl;
+        const scid = pixelCookieId(web.scid);
+        event.user_data = {
+          ...(web.userAgent ? { client_user_agent: web.userAgent } : {}), ...click, ...(scid ? { sc_cookie1: scid } : {}),
+          ...(opts.userData ? snapUserData(opts.userData) : {}),
+        };
+      }
+      const body = { data: [event] };
+      const id = source === "website" ? c.snap_pixel_id! : c.snap_app_id!;
+      const url = `https://tr.snapchat.com/v3/${encodeURIComponent(id)}/events?access_token=${encodeURIComponent(s.access_token)}`;
       return { ok: true, request: { url, method: "POST", headers: json, body: JSON.stringify(body) } };
     }
     case "meta": {
       if (!s.access_token || !c.dataset_id) return { ok: false, error: msg("Dataset ID and access token are required.") };
       const m = money(p);
-      const source = metaActionSource(c.action_source, p.platform);
+      const source = actionSourceOf(c.action_source, p.platform);
       const web = opts.web ?? {};
       const fromClick = p.network_click_id && p.network_click_param === "fbclid" ? `fb.1.${seconds(p) * 1000}.${p.network_click_id}` : undefined;
       // The _fbc cookie set by the Pixel (or the SDK) wins over one rebuilt from the click id.

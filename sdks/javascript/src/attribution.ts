@@ -135,3 +135,17 @@ export function metaBrowserIds(fbclid: string | null | undefined, nowMs: number)
   if (fbc) out.fbc = fbc.slice(0, 1000);
   return out;
 }
+
+/**
+ * TikTok's and Snap's browser ids for their server-side APIs: the _ttp cookie the TikTok Pixel
+ * sets and the _scid cookie the Snap Pixel sets. Only read; nothing is built or set when a cookie
+ * is missing.
+ */
+export function pixelBrowserIds(opts: { tiktok: boolean; snap: boolean }): { ttp?: string; scid?: string } {
+  const out: { ttp?: string; scid?: string } = {};
+  const ttp = opts.tiktok ? readCookie("_ttp") : null;
+  const scid = opts.snap ? readCookie("_scid") : null;
+  if (ttp) out.ttp = ttp.slice(0, 1000);
+  if (scid) out.scid = scid.slice(0, 1000);
+  return out;
+}

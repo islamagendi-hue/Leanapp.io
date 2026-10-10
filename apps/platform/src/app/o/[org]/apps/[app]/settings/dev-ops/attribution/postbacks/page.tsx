@@ -69,7 +69,7 @@ export default async function PostbacksPage(props: PageProps<"/o/[org]/apps/[app
                     {NETWORK_SPECS[p.network].config.filter((f) => f.options && p.config[f.key] && p.config[f.key] !== f.options[0].value).map((f) => (
                       <div key={f.key} className="text-xs text-ink-2">{t(f.label)}: {t(f.options!.find((o) => o.value === p.config[f.key])?.label ?? p.config[f.key])}</div>
                     ))}
-                    {p.config.test_event_code && <div className="text-xs text-warn">{t("Test event code set: Meta shows these events under Test events only.")}</div>}
+                    {p.config.test_event_code && <div className="text-xs text-warn">{p.network === "tiktok" ? t("Test event code set: TikTok shows these events under Test events in Events Manager.") : t("Test event code set: Meta shows these events under Test events only.")}</div>}
                     {p.url_template && <code className="mt-1 block font-mono text-xs break-all text-ink-2" dir="ltr">{p.http_method} {p.url_template}</code>}
                     {p.network !== "custom" && !p.has_credentials && <div className="text-xs text-alert">{t("Not connected: no credentials stored.")}</div>}
                   </td>

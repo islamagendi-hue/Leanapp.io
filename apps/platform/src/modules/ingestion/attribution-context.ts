@@ -4,7 +4,7 @@
  * The map stays open (unknown string keys are still accepted, as before) so older SDKs and
  * custom keys keep working; the well-known keys below are typed and documented in
  * docs/events.md. The SDKs only send what they observed (URL parameters, the page's
- * referrer, cookies Meta's own Pixel set, Apple's AdServices token). Nothing here is
+ * referrer, cookies Meta's, TikTok's and Snap's own pixels set, Apple's AdServices token). Nothing here is
  * inferred: an event without these keys simply carries no attribution evidence.
  */
 import { z } from "zod";
@@ -55,6 +55,10 @@ export interface AttributionContext {
   /** Web: Meta's _fbp / _fbc cookies when Meta's Pixel set them (fbc may be built from an observed fbclid). */
   fbp?: string;
   fbc?: string;
+  /** Web: TikTok's _ttp cookie when the TikTok Pixel set it (read, never set, by the SDK; marketing consent). */
+  ttp?: string;
+  /** Web: Snap's _scid cookie when the Snap Pixel set it (read, never set, by the SDK; marketing consent). */
+  scid?: string;
   /** iOS, app_installed only: AAAttribution.attributionToken() (iOS 14.3+). */
   adservices_token?: string;
   /** Native SDKs: the deep link URL the touch came from. */

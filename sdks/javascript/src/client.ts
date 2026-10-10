@@ -1,4 +1,4 @@
-import { landingUrl, metaBrowserIds, parseAttribution, webTouch, type Attribution } from "./attribution.js";
+import { landingUrl, metaBrowserIds, parseAttribution, pixelBrowserIds, webTouch, type Attribution } from "./attribution.js";
 import { localStorageAdapter, memoryStorage, type StorageAdapter } from "./storage.js";
 
 export const SDK_NAME = "leanapp-js";
@@ -76,6 +76,16 @@ export interface AnalyticsOptions {
    * context.attribution, for the Conversions API. Needs attribution and marketing consent. Default true.
    */
   metaBrowserIds?: boolean;
+  /**
+   * Browsers: add TikTok's _ttp cookie value (set by the TikTok Pixel, never by LeanApp) to
+   * context.attribution.ttp, for TikTok's Events API. Needs marketing consent. Default true.
+   */
+  tiktokBrowserId?: boolean;
+  /**
+   * Browsers: add Snap's _scid cookie value (set by the Snap Pixel, never by LeanApp) to
+   * context.attribution.scid, for Snap's Conversions API. Needs marketing consent. Default true.
+   */
+  snapBrowserId?: boolean;
   /**
    * React Native: on the first launch of a new install, ask LeanApp once for the deferred deep link
    * (POST /v1/deep-links/deferred). Needs attribution consent. Default true on react_native, else false.
@@ -288,6 +298,8 @@ export class LeanAppClient {
       | "autoCapture"
       | "internalDomains"
       | "metaBrowserIds"
+      | "tiktokBrowserId"
+      | "snapBrowserId"
       | "deferredDeepLinks"
       | "onDeferredDeepLink"
     >
@@ -328,6 +340,7 @@ export class LeanAppClient {
   private readonly exposed = new Set<string>();
   private readonly internalDomains: string[];
   private readonly metaIds: boolean;
+  private readonly pixelIds: { tiktok: boolean; snap: boolean };
   private readonly deferredEnabled: boolean;
   private readonly onDeferred?: (result: DeferredDeepLink) => void;
   /** Browsers: the page URL and referrer when the client was created, captured once storage loaded. */
@@ -370,6 +383,7 @@ export class LeanAppClient {
     ) as ConsentState;
     this.internalDomains = options.internalDomains ?? [];
     this.metaIds = options.metaBrowserIds ?? true;
+    this.pixelIds = { tiktok: options.tiktokBrowserId ?? true, snap: options.snapBrowserId ?? true };
     this.deferredEnabled = options.deferredDeepLinks ?? platform === "react_native";
     this.onDeferred = options.onDeferredDeepLink;
     if (platform === "web" && options.autoCapture !== false) {
@@ -798,7 +812,7 @@ export class LeanAppClient {
    * Browsers: `touch` for a landing_viewed event; otherwise only the first event of a session carries
    * attribution: the touch that started this session, or just the landing page when the session
    * shows no source (so a direct visit is never reported as the earlier source). Meta's
-   * _fbp/_fbc go on every event when allowed.
+   * _fbp/_fbc, TikTok's _ttp and Snap's _scid go on every event when allowed.
    */
   private attributionFor(sessionId: string, touch: Attribution | undefined, at: number): Attribution | undefined {
     const stored = this.state.attribution ?? this.heldAttribution ?? undefined;
@@ -824,6 +838,12 @@ export class LeanAppClient {
       delete out.fbp;
       delete out.fbc;
     }
+    // TikTok's _ttp and Snap's _scid: read like _fbp, under marketing consent, never set.
+    const marketing = this.consentFor("marketing") === "granted";
+    const pixel = marketing ? pixelBrowserIds(this.pixelIds) : {};
+    if (pixel.ttp || pixel.scid) out = { ...out, ...pixel };
+    if (out && (!marketing || !this.pixelIds.tiktok)) delete out.ttp;
+    if (out && (!marketing || !this.pixelIds.snap)) delete out.scid;
     return out;
   }
 

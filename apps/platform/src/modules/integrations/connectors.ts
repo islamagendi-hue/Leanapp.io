@@ -73,14 +73,20 @@ export const CONNECTORS: Connector[] = [
     provider: "tiktok_ads",
     auth: { methods: ["oauth", "manual"], oauthScopes: [] },
     costImport: "tiktok_ads",
-    eventDelivery: [{ capability: "conversions_outbound", network: "tiktok", settings: {}, actionSource: "app" }],
+    eventDelivery: [
+      { capability: "conversions_outbound", network: "tiktok", settings: { action_source: ["app", "auto"] }, actionSource: "app" },
+      { capability: "web_conversions_outbound", network: "tiktok", settings: { action_source: ["website", "auto"] }, actionSource: "website" },
+    ],
     attributionLookup: null,
   },
   {
     provider: "snapchat_ads",
     auth: { methods: ["oauth", "manual"], oauthScopes: ["snapchat-marketing-api"] },
     costImport: "snapchat_ads",
-    eventDelivery: [{ capability: "conversions_outbound", network: "snapchat", settings: {}, actionSource: "app" }],
+    eventDelivery: [
+      { capability: "conversions_outbound", network: "snapchat", settings: { action_source: ["app", "auto"] }, actionSource: "app" },
+      { capability: "web_conversions_outbound", network: "snapchat", settings: { action_source: ["website", "auto"] }, actionSource: "website" },
+    ],
     attributionLookup: null,
   },
   {

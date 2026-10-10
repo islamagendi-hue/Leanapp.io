@@ -241,6 +241,45 @@ describe("Meta browser ids", () => {
     expect(landing.context.attribution).not.toHaveProperty("fbc");
     expect(a.context.attribution).toBeUndefined();
   });
+
+  it("adds TikTok's _ttp and Snap's _scid cookie values to every event with marketing consent, never setting them", async () => {
+    const cookie = "_ttp=2Qx8mJf1nT0aBcDeFgHiJkLmNoP; _scid=0e8b4a2c-3f1d-4c55-9a77-1b2c3d4e5f60; other=1";
+    page("https://shop.example/?ttclid=E.C.P.abc", "", cookie);
+    const s = server();
+    const c = make(s);
+    c.track("a");
+    await c.flush();
+    const [landing, a] = s.events();
+    expect(landing.context.attribution).toMatchObject({ ttclid: "E.C.P.abc", ttp: "2Qx8mJf1nT0aBcDeFgHiJkLmNoP", scid: "0e8b4a2c-3f1d-4c55-9a77-1b2c3d4e5f60" });
+    expect(a.context.attribution).toEqual({ ttp: "2Qx8mJf1nT0aBcDeFgHiJkLmNoP", scid: "0e8b4a2c-3f1d-4c55-9a77-1b2c3d4e5f60" });
+    expect((globalThis as unknown as { document: { cookie: string } }).document.cookie).toBe(cookie);
+  });
+
+  it("sends neither _ttp nor _scid without marketing consent, or when turned off", async () => {
+    page("https://shop.example/?ttclid=E.C.P.abc", "", "_ttp=2Qx8mJf1nT0aBcDeFgHiJkLmNoP; _scid=0e8b4a2c-3f1d-4c55");
+    let s = server();
+    let c = make(s, { consentDefault: { marketing: "denied" } });
+    c.track("a");
+    await c.flush();
+    for (const e of s.events()) {
+      expect(e.context.attribution ?? {}).not.toHaveProperty("ttp");
+      expect(e.context.attribution ?? {}).not.toHaveProperty("scid");
+    }
+    await c.shutdown();
+
+    s = server();
+    c = make(s, { tiktokBrowserId: false });
+    c.track("a");
+    await c.flush();
+    expect(named(s.events(), "a")[0].context.attribution).toEqual({ scid: "0e8b4a2c-3f1d-4c55" });
+    await c.shutdown();
+
+    s = server();
+    c = make(s, { snapBrowserId: false, tiktokBrowserId: false });
+    c.track("a");
+    await c.flush();
+    expect(named(s.events(), "a")[0].context.attribution).toBeUndefined();
+  });
 });
 
 describe("web attribution and consent", () => {

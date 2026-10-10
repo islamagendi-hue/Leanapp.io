@@ -35,6 +35,28 @@ describe("connector architecture", () => {
     expect(caps("google", {})).toEqual(["google"]);
     expect(caps("google", { send_user_data: "with_consent" })).toEqual(["google", "google:enhanced"]);
     expect(caps("custom", {})).toEqual([]);
+    for (const n of ["tiktok", "snapchat"]) {
+      expect(caps(n, {})).toEqual([n]);
+      expect(caps(n, { action_source: "website" })).toEqual([`${n}:website`]);
+      expect(caps(n, { action_source: "auto" })).toEqual([n, `${n}:website`]);
+    }
+  });
+
+  it("gives TikTok and Snap website events their own capability, apart from app events", () => {
+    for (const provider of ["tiktok_ads", "snapchat_ads"]) {
+      const c = connectorFor(provider)!;
+      expect(c.eventDelivery.map((d) => [d.capability, d.actionSource])).toEqual([["conversions_outbound", "app"], ["web_conversions_outbound", "website"]]);
+      const p = providerById(provider)!;
+      const app = p.capabilities.find((x) => x.id === "conversions_outbound")!;
+      const webCap = p.capabilities.find((x) => x.id === "web_conversions_outbound")!;
+      expect(webCap.setupPath).toBe(app.setupPath);
+      const network = provider === "tiktok_ads" ? "tiktok" : "snapchat";
+      const pb = { postbacks: 1, active: 1, withCredentials: 1, lastSuccessAt: new Date("2026-10-01"), lastFailureAt: null, recentErrors: [], skipped: 0 };
+      const only = { ...empty, postbacks: { [`${network}:website`]: pb } };
+      expect(capabilityState(p, webCap, only).status).toBe("verified");
+      expect(capabilityState(p, app, only).status).toBe("not_configured");
+      expect(capabilityState(p, webCap, { ...empty, postbacks: { [`${network}:website`]: { ...pb, withCredentials: 0 } } }).status).toBe("credentials_missing");
+    }
   });
 });
 

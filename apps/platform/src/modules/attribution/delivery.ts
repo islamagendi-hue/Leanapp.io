@@ -6,7 +6,7 @@ import { decryptSecret } from "@/lib/secret-box";
 import { effectiveConsent, loadStateRows, userKeysOf, type StateRow } from "@/modules/privacy/consent";
 import { runAdServicesJobs } from "./adservices";
 import {
-  eligibility, eventSourceUrl, metaActionSource, metaBrowserId, parseProviderError, requestSummary, userDataAllowed, userDataMode, validateConversionBody,
+  actionSourceOf, eligibility, eventSourceUrl, hasWebEvents, metaBrowserId, parseProviderError, pixelCookieId, requestSummary, userDataAllowed, userDataMode, validateConversionBody,
   type ActionSource, type RawUserData, type SkipReason,
 } from "./conversions";
 import { buildRequest, googleAccessToken, type Network, type WebContext } from "./networks";
@@ -27,15 +27,16 @@ import { assertSafeDestination } from "./url-safety";
  * marked `skipped` with the reason, and never sent. Each attempt records the
  * provider's error code and trace id and a token-free summary of the request.
  *
- * Meta website events and hashed user data (Meta advanced matching, Google
- * Enhanced Conversions) are read at send time from the stored event behind
- * the delivery and the user's profile (loadSendContext): the page URL, user
- * agent, Meta's _fbp / _fbc browser ids, and the `email` / `phone` user
- * properties. None of it is copied onto the delivery row.
+ * Website events (Meta, TikTok, Snap) and hashed user data (Meta advanced
+ * matching, TikTok / Snap website events, Google Enhanced Conversions) are
+ * read at send time from the stored event behind the delivery and the user's
+ * profile (loadSendContext): the page URL, user agent, the network's browser
+ * cookie ids (Meta _fbp / _fbc, TikTok _ttp, Snap _scid), and the `email` /
+ * `phone` user properties. None of it is copied onto the delivery row.
  */
 const LEASE_SECONDS = 120;
 const TIMEOUT_MS = 10_000;
-/** How far back an earlier event of the same visitor may supply _fbp / _fbc. Meta's _fbp cookie lives 90 days. */
+/** How far back an earlier event of the same visitor may supply a browser cookie id (_fbp / _fbc, _ttp, _scid). Meta's _fbp cookie lives 90 days; the same bound is used for all. */
 const BROWSER_ID_LOOKBACK_DAYS = 90;
 
 interface Claimed {
@@ -62,10 +63,18 @@ interface SendContext {
   userData: RawUserData | null;
 }
 
+/** Each network's browser cookie ids in context.attribution (set by its own pixel; the web SDK only reads them). */
+const BROWSER_ID_KEYS: Record<"meta" | "tiktok" | "snapchat", ("fbp" | "fbc" | "ttp" | "scid")[]> = {
+  meta: ["fbp", "fbc"],
+  tiktok: ["ttp"],
+  snapchat: ["scid"],
+};
+const browserIdOf = (key: string, v: unknown) => (key === "fbp" || key === "fbc" ? metaBrowserId(v) : pixelCookieId(v));
+
 const str = (v: unknown, max = 1000) => (typeof v === "string" && v.trim() && v.length <= max ? v.trim() : null);
 
 /**
- * What a Meta / Google request needs beyond the queued payload, read from the
+ * What a Meta / TikTok / Snap / Google request needs beyond the queued payload, read from the
  * event behind the delivery (the conversion's event, else the attribution
  * event's) and the user's profile. User data is only read when the postback
  * may send it (send_user_data and the user's consent).
@@ -80,43 +89,43 @@ async function loadSendContext(db: Db, d: Claimed, attributionConsent: boolean |
     [d.environment_id, d.conversion_id, d.attribution_event_id],
   );
   const platform = ev?.platform ?? d.payload.platform ?? null;
-  const actionSource: ActionSource = d.network === "meta" ? metaActionSource(d.config.action_source, platform) : "app";
+  const actionSource: ActionSource = hasWebEvents(d.network) ? actionSourceOf(d.config.action_source, platform) : "app";
   let web: WebContext | null = null;
-  if (d.network === "meta" && actionSource === "website" && ev) {
+  if (hasWebEvents(d.network) && actionSource === "website" && ev) {
     const ctx = ev.context ?? {};
     const attr = (ctx.attribution ?? {}) as Record<string, unknown>;
     const page = (ctx.page ?? {}) as Record<string, unknown>;
     const props = ev.properties ?? {};
-    let fbp = metaBrowserId(attr.fbp);
-    let fbc = metaBrowserId(attr.fbc);
+    // The network's own browser cookie ids, as the web SDK read them (context.attribution).
+    const keys = BROWSER_ID_KEYS[d.network];
+    const ids: Record<string, string | null> = {};
+    for (const k of keys) ids[k] = browserIdOf(k, attr[k]);
     const anon = ev.anonymous_id ?? d.anonymous_id;
-    if ((!fbp || !fbc) && anon) {
+    const missing = keys.filter((k) => !ids[k]);
+    if (missing.length && anon) {
       // The web SDK sends attribution context on a session's first event, not on every event.
-      const earlier = await db.one<{ fbp: string | null; fbc: string | null }>(
-        `select (select context->'attribution'->>'fbp' from platform.events
-                  where environment_id = $1 and anonymous_id = $2 and context->'attribution' ? 'fbp'
+      // Keys come from the fixed BROWSER_ID_KEYS list, never from input.
+      const earlier = await db.one<Record<string, string | null>>(
+        `select ${missing.map((k) => `(select context->'attribution'->>'${k}' from platform.events
+                  where environment_id = $1 and anonymous_id = $2 and context->'attribution' ? '${k}'
                     and "timestamp" between $3::timestamptz - make_interval(days => $4) and $3::timestamptz + interval '5 minutes'
-                  order by "timestamp" desc limit 1) as fbp,
-                (select context->'attribution'->>'fbc' from platform.events
-                  where environment_id = $1 and anonymous_id = $2 and context->'attribution' ? 'fbc'
-                    and "timestamp" between $3::timestamptz - make_interval(days => $4) and $3::timestamptz + interval '5 minutes'
-                  order by "timestamp" desc limit 1) as fbc`,
+                  order by "timestamp" desc limit 1) as ${k}`).join(",\n                ")}`,
         [d.environment_id, anon, ev.timestamp, BROWSER_ID_LOOKBACK_DAYS],
       );
-      fbp = fbp ?? metaBrowserId(earlier?.fbp);
-      fbc = fbc ?? metaBrowserId(earlier?.fbc);
+      for (const k of missing) ids[k] = browserIdOf(k, earlier?.[k]);
     }
     web = {
       eventId: ev.event_id,
       eventSourceUrl: eventSourceUrl(props.url) ?? eventSourceUrl(props.page_url) ?? eventSourceUrl(page.url) ?? eventSourceUrl(attr.landing_url),
       userAgent: str(ctx.user_agent) ?? str(ctx.userAgent),
-      fbp,
-      fbc,
+      ...ids,
     };
   }
   let userData: RawUserData | null = null;
   const userId = ev?.user_id ?? d.user_id;
-  if (userDataAllowed(userDataMode(d.config.send_user_data), attributionConsent) && userId) {
+  // TikTok and Snap get hashed user data on website events only.
+  const userDataApplies = d.network === "meta" || d.network === "google" || actionSource === "website";
+  if (userDataApplies && userDataAllowed(userDataMode(d.config.send_user_data), attributionConsent) && userId) {
     const profile = await db.one<{ properties: Record<string, unknown> }>(
       "select properties from platform.app_users where environment_id = $1 and external_id = $2",
       [d.environment_id, userId],
@@ -172,9 +181,14 @@ export async function deliverPostbacks(opts: { limit?: number; deadline?: number
       if (d.network !== "custom") {
         const keys = userKeysOf({ userId: d.user_id, anonymousId: d.anonymous_id });
         consent = effectiveConsent(consentRows.get(d.environment_id) ?? [], keys, "attribution");
-        if (consent !== false && (d.network === "meta" || d.network === "google")) send = await withSystem((db) => loadSendContext(db, d, consent));
+        if (consent !== false && (hasWebEvents(d.network) || d.network === "google")) send = await withSystem((db) => loadSendContext(db, d, consent));
         const match = send
-          ? { actionSource: send.actionSource, browserIds: Boolean(send.web?.fbp || send.web?.fbc), userData: Boolean(send.userData?.email || send.userData?.phone || (d.network === "meta" && send.userData?.externalId)) }
+          ? {
+              actionSource: send.actionSource,
+              browserIds: Boolean(send.web?.fbp || send.web?.fbc || send.web?.ttp || send.web?.scid),
+              // Google's user identifiers are email and phone only; the others also match on the hashed user id.
+              userData: Boolean(send.userData?.email || send.userData?.phone || (d.network !== "google" && send.userData?.externalId)),
+            }
           : {};
         skip = eligibility(d.network, d.payload, { anonymousId: d.anonymous_id, userId: d.user_id }, consent, match);
       }

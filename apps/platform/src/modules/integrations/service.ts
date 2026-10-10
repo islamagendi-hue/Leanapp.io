@@ -450,13 +450,13 @@ export interface PostbackNetworkStatus {
 
 /**
  * The status keys each postback reports under (see center.ts POSTBACK_KEY):
- * its network, plus "meta:website" for Meta website events (action_source
+ * its network, plus "<network>:website" for Meta, TikTok and Snap website events (action_source
  * website, or auto which sends both) and "google:enhanced" for Google
  * postbacks with Enhanced Conversions (send_user_data) on.
  */
 const POSTBACK_KEYS_SQL = `case
-    when p.network = 'meta' and p.config->>'action_source' = 'website' then array['meta:website']
-    when p.network = 'meta' and p.config->>'action_source' = 'auto' then array['meta', 'meta:website']
+    when p.network in ('meta', 'tiktok', 'snapchat') and p.config->>'action_source' = 'website' then array[p.network || ':website']
+    when p.network in ('meta', 'tiktok', 'snapchat') and p.config->>'action_source' = 'auto' then array[p.network, p.network || ':website']
     when p.network = 'google' and p.config->>'send_user_data' in ('with_consent', 'unless_denied') then array['google', 'google:enhanced']
     else array[p.network] end`;
 

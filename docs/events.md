@@ -51,6 +51,7 @@ Optional, backward compatible: any string key (1–60 chars, ≤64 keys) with a 
 | `touch` | Web: `first` or `latest`; any other value is dropped with a warning |
 | `deep_link_url` | Native SDKs: the URL that opened the app |
 | `fbp`, `fbc` | Web: Meta's browser ids from the `_fbp` / `_fbc` cookies (sent only with marketing consent) |
+| `ttp`, `scid` | Web: TikTok's `_ttp` and Snap's `_scid` cookie values, set by their pixels (sent only with marketing consent; never set by LeanApp) |
 | `adservices_token` | iOS: Apple's AdServices attribution token, on `app_installed`; ≤4,096 chars |
 
 The web SDK sends a `landing_viewed` track event (`properties.landing_url`, `referrer`) when a visit starts from a campaign or an external referrer, with the touch in `context.attribution`. A direct visit sends no `landing_viewed`, and its first event carries only `landing_url`. See [SDKs](sdk.md#web-attribution).
