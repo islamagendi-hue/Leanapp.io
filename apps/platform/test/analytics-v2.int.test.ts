@@ -17,6 +17,7 @@ import { archiveAudience, createAudience, getAudience, listAudiences, previewAud
 import { ingest } from "@/modules/ingestion/service";
 import { processPendingEvents } from "@/modules/processing/processor";
 import { ROLE_PERMISSIONS, ROLES } from "@/modules/rbac/permissions";
+import { saveSpend } from "@/modules/attribution/spend";
 import { makeTenant } from "./helpers";
 
 type T = Awaited<ReturnType<typeof makeTenant>>;
@@ -97,7 +98,107 @@ describe("revenue", () => {
       { key: "(none)", currency: "SAR", gross: 7, refunds: 0, net: 7, payingUsers: 1 },
     ]);
     const byProduct = await revenueReport(A.ctx, scope, { days: 30, breakdown: "property:product" });
+    expect(byProduct.properties).toContain("product"); // offered in the breakdown picker
+    expect(byProduct.properties).not.toContain("currency");
     expect(byProduct.breakdown!.filter((g) => g.currency === "SAR").map((g) => [g.key, g.net])).toEqual([["shoes", 100], ["(none)", -43], ["bag", 50]].sort((a, b) => Number(b[1]) - Number(a[1])));
+  });
+
+  it("breaks down by acquisition channel: the person's latest install before each purchase", async () => {
+    await withSystem(async (db) => {
+      await db.query("delete from platform.attribution_events where environment_id = $1", [A.dev.id]);
+      const env = (await db.one<{ organization_id: string; app_id: string }>("select organization_id, app_id from platform.environments where id = $1", [A.dev.id]))!;
+      const install = (anon: string, n: number, matchType: string, source: string | null) =>
+        db.query(
+          `insert into platform.attribution_events (organization_id, app_id, environment_id, kind, anonymous_id, occurred_at, match_type, source, match_key)
+           values ($1, $2, $3, 'install', $4, $5, $6, $7, case when $6 = 'organic' then 'store_organic' end)`, // organic = the store's organic referrer
+          [env.organization_id, env.app_id, A.dev.id, anon, daysAgo(n, 11), matchType, source],
+        );
+      await install("a1", 6, "deterministic", "tiktok"); // u1 through the stitched install
+      await install("a2", 5, "organic", null); // u2
+      await install("a3", 0, "deterministic", "meta"); // after a3's tip, so it doesn't count
+    });
+    const r = await revenueReport(A.ctx, scope, { days: 30, breakdown: "channel" });
+    const rows = r.breakdown!.map((g) => [g.currency, g.key, g.net]);
+    expect(rows).toEqual(expect.arrayContaining([
+      ["SAR", "tiktok", 100],
+      ["SAR", "(no install on record)", 7],
+      ["USD", "tiktok", 10],
+      ["USD", "organic", 20],
+      [NO_CURRENCY, "(no install on record)", 5],
+    ]));
+    expect(rows).toHaveLength(5);
+  });
+
+  it("splits a funnel by acquisition channel, and runs a one-step funnel", async () => {
+    const f = await funnel(A.ctx, scope, { steps: ["purchase_completed"], days: 30, breakdown: "channel" });
+    expect(f.steps).toHaveLength(1);
+    expect(Object.fromEntries(f.breakdown!.map((g) => [g.key, g.people[0]]))).toEqual({ tiktok: 1, organic: 1, "(no install on record)": 1 });
+  });
+
+  it("splits an event trend by acquisition channel too", async () => {
+    const r = await eventTrend(A.ctx, scope, { event: "purchase_completed", days: 30, breakdown: "channel" });
+    expect(r.series.map((s) => s.key).sort()).toEqual(["(no install on record)", "organic", "tiktok"]);
+    expect(r.series.find((s) => s.key === "(no install on record)")!.total).toBe(1); // the shared tablet's purchase
+  });
+
+  it("puts entered ad spend next to each channel's revenue, per currency, with return and ROAS", async () => {
+    const spendScope = { appId: A.app.id, environmentId: A.dev.id, timezone: "UTC" };
+    const day = (n: number) => daysAgo(n).slice(0, 10);
+    await saveSpend(A.ctx, spendScope, { date: day(6), source: "tiktok", currency: "SAR", amount: "30" });
+    await saveSpend(A.ctx, spendScope, { date: day(5), source: "tiktok", campaign: "eid", currency: "SAR", amount: "20" });
+    await saveSpend(A.ctx, spendScope, { date: day(5), source: "tiktok", currency: "USD", amount: "4" });
+    await saveSpend(A.ctx, spendScope, { date: day(40), source: "tiktok", currency: "SAR", amount: "1000" }); // outside the range
+    await saveSpend(A.ctx, spendScope, { date: day(3), source: "meta", currency: "SAR", amount: "25" }); // spend, no revenue
+    await saveSpend(A.ctx, spendScope, { date: day(3), source: "google", currency: "EUR", amount: "5" }); // a currency with no revenue
+    const r = await revenueReport(A.ctx, scope, { days: 30, breakdown: "channel" });
+    expect(r.spendIncluded).toBe(true);
+    const row = (currency: string, key: string) => r.breakdown!.find((g) => g.currency === currency && g.key === key);
+    // Gross, not net: 150 SAR of tiktok revenue against 50 SAR of spend; never mixed with the USD spend.
+    expect(row("SAR", "tiktok")).toMatchObject({ gross: 150, net: 100, spend: 50, return: 100, roas: 3 });
+    expect(row("USD", "tiktok")).toMatchObject({ gross: 10, spend: 4, return: 6, roas: 2.5 });
+    expect(row("SAR", "meta")).toMatchObject({ gross: 0, net: 0, payingUsers: 0, spend: 25, return: -25, roas: 0 });
+    expect(row("EUR", "google")).toMatchObject({ spend: 5, return: -5, roas: 0 });
+    expect(row("USD", "organic")).toMatchObject({ spend: null, return: null, roas: null });
+    expect(r.breakdown!.at(-1)).toMatchObject({ currency: "EUR" }); // currencies without revenue come last
+    expect(r.breakdown).toHaveLength(7);
+    // Only the channel breakdown carries spend.
+    const byPlatform = await revenueReport(A.ctx, scope, { days: 30, breakdown: "platform" });
+    expect(byPlatform.breakdown!.every((g) => g.spend === undefined && g.roas === undefined)).toBe(true);
+    expect(byPlatform.spendIncluded).toBeUndefined();
+  });
+});
+
+describe("MRR", () => {
+  it("counts subscriptions whose paid period covers the moment, as monthly amounts per currency", async () => {
+    const M = await makeTenant("mrr");
+    const sdk = (await authenticateIngestionKey(M.sdkKey))!;
+    const sub = (name: string, n: number, sid: string, o: Record<string, unknown> = {}) =>
+      track(name, n, { anonymous_id: `p-${sid}`, properties: { subscription_id: sid, plan_id: "pro_monthly", currency: "USD", billing_period: "monthly", ...o } });
+    const batch = [
+      sub("subscription_started", 28, "s1", { price: 30 }), // paid up through both ends of the week
+      sub("subscription_started", 5, "s2", { price: 120, billing_period: "yearly", plan_id: "pro_yearly" }), // 10 a month
+      sub("subscription_started", 5, "s3", { price: 7, billing_period: "weekly", currency: "SAR" }),
+      sub("subscription_started", 15, "s4", { price: 50 }), sub("subscription_expired", 2, "s4"), // ended inside the week
+      sub("subscription_started", 20, "s5", { price: 5, billing_period: "weekly" }), // never renewed: lapsed before the week
+      sub("subscription_started", 3, "s6", { price: 100, billing_period: "lifetime" }), // left out
+      sub("subscription_started", 10, "s7", { price: 9 }), sub("subscription_cancelled", 5, "s7"), // cancelled, still paid up
+      sub("subscription_started", 12, "s8", { price: 7, billing_period: "weekly", plan_id: "pro_weekly" }), sub("subscription_renewed", 5, "s8", { price: 7, billing_period: "weekly", plan_id: "pro_weekly" }),
+    ];
+    await ingest(sdk, { batch }, { mode: "batch" });
+    await processPendingEvents({ environmentId: M.dev.id, limit: 100 });
+    const r = await revenueReport(M.ctx, { environmentId: M.dev.id, timezone: "UTC" }, { days: 7 });
+    const usd = r.mrr.find((m) => m.currency === "USD")!;
+    expect(usd).toMatchObject({ mrr: 79.33, startMrr: 119.33, activeSubscriptions: 4 });
+    expect(usd.plans).toEqual([
+      { plan: "pro_monthly", mrr: 39, subscriptions: 2 },
+      { plan: "pro_weekly", mrr: 30.33, subscriptions: 1 },
+      { plan: "pro_yearly", mrr: 10, subscriptions: 1 },
+    ]);
+    expect(usd.series.at(-1)).toBe(79.33);
+    expect(usd.series).toHaveLength(r.days.length);
+    expect(r.mrr.find((m) => m.currency === "SAR")).toMatchObject({ mrr: 30.33, startMrr: 0, activeSubscriptions: 1 });
+    // The main tenant's subscription has no billing period, so it has no MRR.
+    expect((await revenueReport(A.ctx, scope, { days: 30 })).mrr).toEqual([]);
   });
 });
 

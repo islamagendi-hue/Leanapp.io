@@ -5,6 +5,8 @@ import { createLink, createPostback, setLinkStatus, setPostbackStatus, updateSet
 import { toActionError, type ActionState } from "@/server/action-result";
 import { publicBaseUrl } from "@/server/env";
 import { loadApp } from "@/server/session";
+import { getT } from "@/i18n/server";
+import { msg } from "@/i18n/translate";
 
 const text = (form: FormData, k: string) => (typeof form.get(k) === "string" ? (form.get(k) as string) : undefined);
 
@@ -25,7 +27,8 @@ export async function createLinkAction(orgSlug: string, appSlug: string, _: Acti
       deepLinkPath: text(form, "deepLinkPath"),
     });
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition/links`);
-    return { ok: true, message: `Link created: ${publicBaseUrl()}/l/${link.code}` };
+    const t = await getT();
+    return { ok: true, message: t("Link created: {url}", { url: `${publicBaseUrl()}/l/${link.code}` }) };
   } catch (err) {
     return toActionError(err);
   }
@@ -42,6 +45,19 @@ export async function setLinkStatusAction(orgSlug: string, appSlug: string, link
   }
 }
 
+/** Windows per channel from fields named override.<channel>.click / override.<channel>.conversion (blank = app-wide window). */
+function windowOverridesFrom(form: FormData): Record<string, { click_lookback_days?: string; conversion_window_days?: string }> | undefined {
+  if (!form.has("windowOverridesPresent")) return undefined;
+  const out: Record<string, { click_lookback_days?: string; conversion_window_days?: string }> = {};
+  for (const [k, v] of form.entries()) {
+    const m = /^override\.([a-z0-9_]{1,60})\.(click|conversion)$/.exec(k);
+    if (!m || typeof v !== "string" || !v.trim()) continue;
+    out[m[1]] ??= {};
+    out[m[1]][m[2] === "click" ? "click_lookback_days" : "conversion_window_days"] = v.trim();
+  }
+  return out;
+}
+
 export async function updateSettingsAction(orgSlug: string, appSlug: string, _: ActionState, form: FormData): Promise<ActionState> {
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
@@ -51,9 +67,11 @@ export async function updateSettingsAction(orgSlug: string, appSlug: string, _: 
       probabilisticWindowHours: text(form, "probabilisticWindowHours"),
       conversionWindowDays: text(form, "conversionWindowDays"),
       reengagementEnabled: text(form, "reengagementEnabled"),
+      reportingModel: text(form, "reportingModel"),
+      windowOverrides: windowOverridesFrom(form),
     });
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution`);
-    return { ok: true, message: "Saved. New installs and conversions use these settings; past attributions are not recomputed." };
+    return { ok: true, message: msg("Saved. New installs and conversions use these settings; past attributions are not recomputed.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -77,7 +95,7 @@ export async function createPostbackAction(orgSlug: string, appSlug: string, _: 
       credentials: prefixed("secret."),
     });
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/attribution/postbacks`);
-    return { ok: true, message: "Postback saved. Deliveries are sent by the scheduled worker (every 5 minutes)." };
+    return { ok: true, message: msg("Postback saved. Deliveries are sent by the scheduled worker (every 5 minutes).") };
   } catch (err) {
     return toActionError(err);
   }

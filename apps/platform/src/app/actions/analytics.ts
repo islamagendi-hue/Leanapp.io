@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { msg } from "@/i18n/translate";
 import { deleteSavedReport, saveReport } from "@/modules/analytics/saved-reports";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requireTenant } from "@/server/session";
@@ -15,7 +16,7 @@ export async function saveReportAction(
     const ctx = await requireTenant(org);
     await saveReport(ctx, environmentId, { name: form.get("name"), kind, query: new URLSearchParams(query) });
     revalidatePath(base(org, app));
-    return { ok: true, message: "Saved. It's listed on the analytics overview." };
+    return { ok: true, message: msg("Saved. It's listed on the analytics overview.") };
   } catch (err) {
     return toActionError(err);
   }

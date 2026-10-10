@@ -114,6 +114,11 @@ function population(seed: number) {
   events.push({ type: "identify", anonymous_id: shared, user_id: `sa-${seed}`, at: now - 19 * DAY });
   events.push({ type: "identify", anonymous_id: shared, user_id: `sb-${seed}`, at: now - 18 * DAY });
   events.push({ type: "track", event_name: "order_completed", anonymous_id: shared, at: now - 17 * DAY, properties: { revenue: 5, currency: "SAR" } });
+  // Someone who comes back exactly 7 days later at the same time of day, so a day-7 return
+  // exists whatever the clock says when the test runs.
+  const steady = `steady-${seed}`;
+  events.push({ type: "track", event_name: "item_viewed", anonymous_id: steady, at: now - 20 * DAY });
+  events.push({ type: "track", event_name: "item_viewed", anonymous_id: steady, at: now - 13 * DAY });
   // Events in a random order, so many arrive before earlier ones (late or offline events).
   return events.sort(() => rnd() - 0.5);
 }

@@ -6,6 +6,7 @@
  * definition and back. Pure.
  */
 import { z } from "zod";
+import { msg } from "@/i18n/translate";
 import { AutomationDefinitionError, parseAutomation, type AutomationDefinition, type Step } from "@/modules/automation/definition";
 import { localParts, zonedTime } from "@/modules/automation/time";
 import { CHANNELS, SCHEDULES, type CampaignForm, type Channel } from "./options";
@@ -20,15 +21,20 @@ const lines = (v: string | undefined) => (v ?? "").split("\n").map((l) => l.trim
 function messageStep(channel: Channel, f: CampaignForm): Step {
   switch (channel) {
     case "push":
-      return { type: "push", title: f.title ?? "", body: f.body ?? "", deepLink: f.deepLink } as Step;
+      return { type: "push", title: f.title ?? "", body: f.body ?? "", deepLink: f.deepLink, imageAssetId: f.imageAssetId } as Step;
     case "in_app":
-      return { type: "in_app", title: f.title ?? "", body: f.body ?? "", buttonText: f.buttonText, deepLink: f.deepLink, expiresInHours: 72 } as Step;
+      return { type: "in_app", title: f.title ?? "", body: f.body ?? "", buttonText: f.buttonText, deepLink: f.deepLink, imageAssetId: f.imageAssetId, expiresInHours: 72 } as Step;
     case "email":
       return (f.emailTemplateId ? { type: "email", templateId: f.emailTemplateId } : { type: "email", subject: f.subject, body: f.body }) as Step;
     case "whatsapp": {
       const [template, language] = (f.whatsappTemplate ?? "").split("|");
-      return { type: "whatsapp", template: template ?? "", language: language ?? "", bodyParams: lines(f.whatsappParams), headerParams: [], phoneProperty: f.phoneProperty || "phone" } as Step;
+      return {
+        type: "whatsapp", template: template ?? "", language: language ?? "", bodyParams: lines(f.whatsappParams), headerParams: lines(f.whatsappHeaderParams),
+        phoneProperty: f.phoneProperty || "phone", provider: f.whatsappProvider || "whatsapp_cloud", mediaAssetId: f.mediaAssetId || undefined,
+      } as unknown as Step;
     }
+    case "sms":
+      return { type: "sms", text: f.body ?? "", mediaAssetId: f.mediaAssetId || undefined, phoneProperty: f.phoneProperty || "phone", provider: "twilio" } as Step;
   }
 }
 
@@ -38,9 +44,9 @@ function trigger(f: CampaignForm, timezone: string, now: Date): AutomationDefini
   if (mode === "now") return { type: "once", audienceId, at: now.toISOString() };
   if (mode === "later") {
     const m = LOCAL_DATETIME.exec(f.sendAt ?? "");
-    if (!m) throw new CampaignError("Choose the date and time to send.");
+    if (!m) throw new CampaignError(msg("Choose the date and time to send."));
     const at = zonedTime(Number(m[1]), Number(m[2]), Number(m[3]), Number(m[4]), Number(m[5]), timezone);
-    if (at.getTime() < now.getTime() - 60_000) throw new CampaignError("The send time has passed. Choose a later time, or Send now.");
+    if (at.getTime() < now.getTime() - 60_000) throw new CampaignError(msg("The send time has passed. Choose a later time, or Send now."));
     return { type: "once", audienceId, at: at.toISOString() };
   }
   return { type: "schedule", audienceId, every: mode === "daily" ? "day" : "week", at: f.time ?? "", weekday: mode === "weekly" ? Number(f.weekday ?? 0) : undefined };
@@ -49,8 +55,8 @@ function trigger(f: CampaignForm, timezone: string, now: Date): AutomationDefini
 /** The automation definition of a campaign; throws CampaignError with a message for the form. */
 export function buildCampaign(f: CampaignForm, timezone: string, now = new Date()): AutomationDefinition {
   const channel = CHANNELS.find((c) => c === f.channel);
-  if (!channel) throw new CampaignError("Choose a channel.");
-  if (!z.uuid().safeParse(f.audienceId).success) throw new CampaignError("Choose an audience.");
+  if (!channel) throw new CampaignError(msg("Choose a channel."));
+  if (!z.uuid().safeParse(f.audienceId).success) throw new CampaignError(msg("Choose an audience."));
   const cap = f.capMessages ? { messages: f.capMessages, hours: f.capHours || 24 } : null;
   try {
     return parseAutomation({
@@ -119,9 +125,15 @@ export function formOf(d: AutomationDefinition, timezone: string, now = new Date
     capHours: d.frequencyCap ? String(d.frequencyCap.hours) : undefined,
     quietHours: d.quietHours ? "on" : undefined,
   };
-  if (s?.type === "push" || s?.type === "in_app") Object.assign(f, { title: s.title, body: s.body, deepLink: s.deepLink, buttonText: s.type === "in_app" ? s.buttonText : undefined });
+  if (s?.type === "push" || s?.type === "in_app") Object.assign(f, { title: s.title, body: s.body, deepLink: s.deepLink, buttonText: s.type === "in_app" ? s.buttonText : undefined, imageAssetId: s.imageAssetId });
   if (s?.type === "email") Object.assign(f, { emailTemplateId: s.templateId, subject: s.subject, body: s.body });
-  if (s?.type === "whatsapp") Object.assign(f, { whatsappTemplate: `${s.template}|${s.language}`, whatsappParams: s.bodyParams.join("\n"), phoneProperty: s.phoneProperty });
+  if (s?.type === "whatsapp") {
+    Object.assign(f, {
+      whatsappTemplate: `${s.template}|${s.language}`, whatsappParams: s.bodyParams.join("\n"), whatsappHeaderParams: s.headerParams.join("\n") || undefined,
+      phoneProperty: s.phoneProperty, whatsappProvider: s.provider, mediaAssetId: s.mediaAssetId,
+    });
+  }
+  if (s?.type === "sms") Object.assign(f, { body: s.text, phoneProperty: s.phoneProperty, mediaAssetId: s.mediaAssetId });
   // An unsent one-time campaign whose time has passed was (or now is) "Send now".
   if (c.schedule?.mode === "once") Object.assign(f, Date.parse(c.schedule.at) <= now.getTime() ? { schedule: "now" } : { schedule: "later", sendAt: localInputValue(new Date(c.schedule.at), timezone) });
   else if (c.schedule) Object.assign(f, { schedule: c.schedule.mode, time: c.schedule.at, weekday: c.schedule.weekday === undefined ? undefined : String(c.schedule.weekday) });

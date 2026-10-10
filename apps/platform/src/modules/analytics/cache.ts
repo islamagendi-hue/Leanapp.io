@@ -1,6 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { sha256 } from "@/lib/crypto";
+import type { Db } from "@/lib/db";
 import { log } from "@/lib/log";
 import type { TenantContext } from "@/modules/tenancy/context";
 import { analyticsTx } from "./service";
@@ -9,11 +10,17 @@ import { analyticsTx } from "./service";
  * Short-lived cache of finished report results (platform.report_cache).
  *
  * Postgres stays the source of truth: a cached result is reused for at most
- * REPORT_CACHE_TTL_SECONDS and then computed again from the events. The key
+ * REPORT_CACHE_TTL_SECONDS and then computed again from the events. Event
+ * processing drops an environment's cached results older than a minute as
+ * soon as new events land (modules/processing), so numbers never lag new
+ * data by more than that. The key
  * hashes everything the result depends on: environment, report kind, the
  * report's input (configuration, range, filters, comparison, interval),
  * timezone, and the audience filter's last change, so editing the audience
- * computes the report again at once. Reading the cache needs analytics.read,
+ * computes the report again at once. Anything else that changes or removes
+ * events already counted (privacy deletions, re-mapping, growth rebuilds,
+ * mapping changes, enforced retention) drops the environment's cached
+ * results at once with purgeReportCache. Reading the cache needs analytics.read,
  * like the report itself, and RLS keeps every row inside its organization.
  *
  * The cache never makes a report fail: if reading or writing it fails, the
@@ -22,9 +29,10 @@ import { analyticsTx } from "./service";
 export const REPORT_CACHE_TTL_SECONDS = 600;
 /** Results bigger than this aren't cached (they are rare and cheap to keep out). */
 const MAX_BYTES = 512 * 1024;
-const VERSION = 1;
+/** Bumped when a report's result shape changes (2: revenue channel rows carry spend; 3: revenue carries MRR; 4: channel economics use a first-purchase LTV cohort). */
+const VERSION = 4;
 
-export type ReportKind = "trend" | "kpi" | "funnel" | "retention" | "revenue" | "top_events" | "audience_size";
+export type ReportKind = "trend" | "kpi" | "funnel" | "retention" | "revenue" | "top_events" | "audience_size" | "channel_economics" | "churn" | "rfm";
 
 export interface CachedResult<T> {
   value: T;
@@ -102,4 +110,21 @@ export async function cachedReport<T>(
     }
   }
   return { value, computedAt, fromCache: false };
+}
+
+/**
+ * Drops cached report results of these environments so the next read is
+ * computed from Postgres again. Runs in the caller's transaction, under
+ * system or tenant scope (RLS keeps a tenant to its own rows).
+ * `keepNewerThanSeconds` keeps very recent results (event processing uses it
+ * so a busy environment still gets a short cache). Returns the rows dropped.
+ */
+export async function purgeReportCache(db: Db, environmentIds: string | readonly string[], opts: { keepNewerThanSeconds?: number } = {}): Promise<number> {
+  const ids = typeof environmentIds === "string" ? [environmentIds] : [...environmentIds];
+  if (!ids.length) return 0;
+  const rows = await db.query(
+    "delete from platform.report_cache where environment_id = any($1::uuid[]) and created_at <= now() - make_interval(secs => $2) returning 1",
+    [ids, opts.keepNewerThanSeconds ?? 0],
+  );
+  return rows.length;
 }

@@ -4,9 +4,13 @@ import { getProject, implementationReport, listVersions } from "@/modules/implem
 import { getAppFeatures } from "@/modules/apps/features";
 import { growthOverview } from "@/modules/growth/service";
 import { can } from "@/modules/rbac/authorize";
+import { getLang, getT } from "@/i18n/server";
+import { dateLocale, msg } from "@/i18n/translate";
 import { loadApp } from "@/server/session";
 
-export const metadata = { title: "Get started" };
+export async function generateMetadata() {
+  return { title: (await getT())("Get started") };
+}
 
 export default async function GetStartedPage(props: PageProps<"/o/[org]/apps/[app]/settings/dev-ops/get-started">) {
   const { org, app } = await props.params;
@@ -19,23 +23,25 @@ export default async function GetStartedPage(props: PageProps<"/o/[org]/apps/[ap
   const reports = await Promise.all(environments.map(async (e) => ({ env: e, report: await implementationReport(ctx, a.id, e.id) })));
   const firstEvent = reports.find((r) => r.report.lastEventAt);
   const devReport = reports.find((r) => r.env.id === dev.id)!.report;
+  const t = await getT();
+  const lang = await getLang();
 
   const steps = [
-    { label: "Create the app", done: true, href: `${base}/settings/dev-ops/get-started` },
-    { label: `Answer questions about your business (${q.answered}/${q.total})`, done: q.complete, href: `${base}/settings/dev-ops/implementation/questions` },
-    { label: "Generate your tracking plan", done: versions.length > 0, href: `${base}/settings/dev-ops/implementation/plan` },
-    { label: "Review and approve it", done: versions.some((v) => v.status === "approved" || v.status === "published" || (v.status === "archived" && v.approved_at)), href: `${base}/settings/dev-ops/implementation/plan` },
-    { label: "Publish it", done: !!project.publishedVersionId, href: `${base}/settings/dev-ops/implementation/plan` },
-    { label: "Install the SDK", done: !!firstEvent, href: `${base}/settings/dev-ops/sdk?env=development` },
-    { label: "Send your first event", done: !!firstEvent, href: `${base}/settings/dev-ops/debugger?env=development` },
-    { label: "Reach a healthy implementation score", done: (devReport.score?.overall ?? 0) >= 80, href: `${base}/settings/dev-ops/events?env=development` },
+    { label: t("Create the app"), short: msg("Create the app"), done: true, href: `${base}/settings/dev-ops/get-started` },
+    { label: t("Answer business questions ({answered}/{total})", { answered: q.answered, total: q.total }), short: msg("Answer business questions"), done: q.complete, href: `${base}/settings/dev-ops/implementation/questions` },
+    { label: t("Generate your tracking plan"), short: msg("Generate your tracking plan"), done: versions.length > 0, href: `${base}/settings/dev-ops/implementation/plan` },
+    { label: t("Review and approve it"), short: msg("Review and approve it"), done: versions.some((v) => v.status === "approved" || v.status === "published" || (v.status === "archived" && v.approved_at)), href: `${base}/settings/dev-ops/implementation/plan` },
+    { label: t("Publish it"), short: msg("Publish it"), done: !!project.publishedVersionId, href: `${base}/settings/dev-ops/implementation/plan` },
+    { label: t("Install the SDK"), short: msg("Install the SDK"), done: !!firstEvent, href: `${base}/settings/dev-ops/sdk?env=development` },
+    { label: t("Send your first event"), short: msg("Send your first event"), done: !!firstEvent, href: `${base}/settings/dev-ops/debugger?env=development` },
+    { label: t("Reach a healthy score"), short: msg("Reach a healthy score"), done: (devReport.score?.overall ?? 0) >= 80, href: `${base}/settings/dev-ops/events?env=development` },
   ];
   // With the growth model on, setup ends on the growth summary.
   if ((await getAppFeatures(ctx, a.id)).growth_model && can(ctx.role, "growth.read")) {
     const growth = await growthOverview(ctx, a.id, dev.id);
     steps.push(
-      { label: "Define activation, core action and revenue", done: !!growth.definitions.published && (growth.definitions.published.saved || !!growth.definitions.published.definition.activation), href: `${base}/growth/setup` },
-      { label: "See your growth summary", done: (growth.summary?.people ?? 0) > 0, href: `${base}/growth` },
+      { label: t("Define activation, core action and revenue"), short: msg("Define activation, core action and revenue"), done: !!growth.definitions.published && (growth.definitions.published.saved || !!growth.definitions.published.definition.activation), href: `${base}/growth/setup` },
+      { label: t("See your growth summary"), short: msg("See your growth summary"), done: (growth.summary?.people ?? 0) > 0, href: `${base}/growth` },
     );
   }
   const next = steps.find((s) => !s.done);
@@ -43,8 +49,8 @@ export default async function GetStartedPage(props: PageProps<"/o/[org]/apps/[ap
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="h1">Get started</h1>
-        <p className="mt-1 text-ink-2">From business model to production-ready tracking. The first event is the moment it all connects.</p>
+        <h1 className="h1">{t("Get started")}</h1>
+        <p className="mt-1 text-ink-2">{t("From business model to production-ready tracking. The first event is the moment it all connects.")}</p>
       </div>
       <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
         <ol className="card space-y-1">
@@ -61,18 +67,18 @@ export default async function GetStartedPage(props: PageProps<"/o/[org]/apps/[ap
         </ol>
         <div className="space-y-4">
           <div className="card">
-            <p className="font-mono text-xs uppercase tracking-wide text-ink-3">Implementation score · development</p>
+            <p className="eyebrow">{t("Score · development")}</p>
             <p className="mt-2 text-4xl font-bold">{devReport.score ? `${devReport.score.overall}%` : "–"}</p>
-            <p className="mt-1 text-sm text-ink-3">{devReport.score ? `${devReport.score.validated}/${devReport.score.expected} planned events validated` : "Publish a tracking plan to start scoring."}</p>
+            <p className="mt-1 text-sm text-ink-3">{devReport.score ? t("{validated}/{expected} planned events validated", { validated: devReport.score.validated, expected: devReport.score.expected }) : t("Publish a tracking plan to start scoring.")}</p>
           </div>
-          {next && <Link href={next.href} className="btn w-full">Next: {next.label.replace(/ \(.*\)$/, "")}</Link>}
+          {next && <Link href={next.href} className="btn w-full">{t("Next: {step}", { step: t(next.short) })}</Link>}
           <div className="card text-sm">
-            <p className="font-mono text-xs uppercase tracking-wide text-ink-3">Environments</p>
+            <p className="eyebrow">{t("Environments")}</p>
             <ul className="mt-2 space-y-1">
               {reports.map(({ env, report }) => (
                 <li key={env.id} className="flex justify-between">
-                  <span className="capitalize">{env.type}</span>
-                  <span className="text-ink-3">{report.lastEventAt ? `last event ${new Date(report.lastEventAt).toLocaleString("en-GB")}` : "no events"}</span>
+                  <span className="capitalize">{t(env.type)}</span>
+                  <span className="text-ink-3">{report.lastEventAt ? t("last event {date}", { date: new Date(report.lastEventAt).toLocaleString(dateLocale(lang)) }) : t("no events")}</span>
                 </li>
               ))}
             </ul>

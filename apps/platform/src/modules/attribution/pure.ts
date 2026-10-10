@@ -5,6 +5,8 @@
  * backoff. Unit-tested in pure.test.ts.
  */
 
+import { CLICK_ID_NETWORKS, networkOfSource as registryNetworkOfSource } from "@/modules/channels/registry";
+
 /** Events that mark an install (first open after install). */
 export const INSTALL_EVENTS: ReadonlySet<string> = new Set(["app_installed"]);
 /** Server-side context the ingestion API adds (clients can't set it; it is stripped from input). */
@@ -39,22 +41,13 @@ export function isPrefetch(headers: Headers): boolean {
   return /prefetch|preview|prerender/.test(purpose) || headers.has("next-router-prefetch");
 }
 
-/** Ad-network click id parameters and the network each belongs to. */
-export const NETWORK_CLICK_IDS: Record<string, string> = {
-  gclid: "google",
-  gbraid: "google",
-  wbraid: "google",
-  fbclid: "meta",
-  ttclid: "tiktok",
-  ScCid: "snapchat",
-  sccid: "snapchat",
-  twclid: "x",
-  msclkid: "microsoft",
-  li_fat_id: "linkedin",
-};
+/** Ad-network click id parameters and the network each belongs to (from the channel registry). */
+export const NETWORK_CLICK_IDS: Record<string, string> = CLICK_ID_NETWORKS;
 
-/** The ad network a source name refers to, for postback routing. */
+/** The ad network a source name refers to, for postback routing: the channel registry first, then loose spellings. */
 export function networkOfSource(source: string | null | undefined): string | null {
+  const known = registryNetworkOfSource(source);
+  if (known) return known;
   const s = (source ?? "").toLowerCase().replace(/[^a-z]/g, "");
   if (!s) return null;
   if (s.includes("tiktok")) return "tiktok";
@@ -196,6 +189,61 @@ export function clickSignals(context: Record<string, unknown>): ClickSignals {
   return { clickId, networkClickId, utm, deepLinkUrl, installReferrer };
 }
 
+/**
+ * Campaign parameters that say the install was not driven by a campaign: the
+ * Play Store's own organic referrer ("utm_source=google-play&utm_medium=organic")
+ * and the "direct / none" values web tools write. Such installs are organic.
+ */
+export function isOrganicUtm(utm: { source?: string; medium?: string }): boolean {
+  const norm = (v: string | undefined) => v?.trim().toLowerCase().replace(/^\((.*)\)$/, "$1");
+  const source = norm(utm.source);
+  const medium = norm(utm.medium);
+  return medium === "organic" || medium === "none" || source === "organic" || source === "direct" || source === "not set";
+}
+
+/**
+ * Why an organic-looking install is organic, stored as its match_key so
+ * reports can keep it apart from "nothing matched" (unattributed):
+ *   store_organic  the store's own referrer says organic (Play: utm_source=google-play&utm_medium=organic)
+ *   organic_other  organic per the parameters, from a source that isn't a store (reported as unknown)
+ *   direct         the parameters say direct / none
+ * Null when the parameters aren't organic.
+ */
+export function organicReason(utm: { source?: string; medium?: string }): "store_organic" | "organic_other" | "direct" | null {
+  if (!isOrganicUtm(utm)) return null;
+  const norm = (v: string | undefined) => v?.trim().toLowerCase().replace(/^\((.*)\)$/, "$1");
+  const source = (norm(utm.source) ?? "").replace(/[^a-z]/g, "");
+  if (norm(utm.medium) === "organic" || source === "organic") {
+    return ["googleplay", "playstore", "appstore", "apple", "organic", ""].includes(source) ? "store_organic" : "organic_other";
+  }
+  return "direct";
+}
+
+/**
+ * How an install or re-engagement was matched, stored as `attribution_events.match_type`:
+ *   deterministic  a click id the install carried matches a click LeanApp's own link recorded
+ *   reported       only the install's context says where it came from (an ad-network click id
+ *                  or utm_* parameters with no recorded click of ours behind them): self-reported
+ *   probabilistic      opt-in Android IP-hash + OS match to an unclaimed click
+ *   organic            nothing matched (includes paid iOS installs without a click id: see docs)
+ *   provider_reported  a provider attributed it on its side: Apple's AdServices API answered that
+ *                      an Apple Search Ads campaign drove this iOS install (match_key adservices)
+ */
+export const MATCH_TYPES = ["deterministic", "reported", "probabilistic", "organic", "provider_reported"] as const;
+export type MatchType = (typeof MATCH_TYPES)[number];
+
+/** What a match rests on, and the match type that is honest for it. */
+export type MatchEvidence = "recorded_click" | "install_context" | "ip_os" | "provider" | "none";
+export function matchTypeFor(evidence: MatchEvidence): MatchType {
+  switch (evidence) {
+    case "recorded_click": return "deterministic";
+    case "install_context": return "reported";
+    case "ip_os": return "probabilistic";
+    case "provider": return "provider_reported";
+    case "none": return "organic";
+  }
+}
+
 /** Revenue and currency of a conversion event, from the catalog's property names. Refunds count negative. */
 export function extractRevenue(eventName: string, props: Record<string, unknown>): { revenue: number | null; currency: string | null } {
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v)) ? Number(v) : null);
@@ -240,4 +288,24 @@ export function backoffSeconds(attempt: number): number | null {
 /** HTTP outcomes worth retrying: network errors (null), 408, 425, 429, 5xx. */
 export function retryable(status: number | null): boolean {
   return status === null || status === 408 || status === 425 || status === 429 || status >= 500;
+}
+
+/**
+ * One row per source and campaign from per-currency conversion rows: the
+ * conversions add up (a conversion with no amount has no currency), the
+ * revenue stays per currency because amounts are never converted.
+ */
+export function mergeCampaignRows<R extends { source: string; campaign: string | null; currency: string | null; conversions: number; revenue: number }>(
+  rows: R[],
+): { source: string; campaign: string | null; conversions: number; revenue: { currency: string; amount: number }[] }[] {
+  const out = new Map<string, { source: string; campaign: string | null; conversions: number; revenue: { currency: string; amount: number }[] }>();
+  for (const r of rows) {
+    const key = `${r.source}\u0000${r.campaign ?? ""}`;
+    const row = out.get(key) ?? { source: r.source, campaign: r.campaign, conversions: 0, revenue: [] };
+    row.conversions += r.conversions;
+    if (r.currency && r.revenue) row.revenue.push({ currency: r.currency, amount: r.revenue });
+    out.set(key, row);
+  }
+  const total = (r: { revenue: { amount: number }[] }) => r.revenue.reduce((n, x) => n + x.amount, 0);
+  return [...out.values()].sort((a, b) => total(b) - total(a) || b.conversions - a.conversions);
 }

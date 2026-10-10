@@ -2,15 +2,16 @@ import "server-only";
 import { z } from "zod";
 import type { Db } from "@/lib/db";
 import { ValidationError } from "@/lib/errors";
+import { msg } from "@/i18n/translate";
 import type { Permission } from "@/modules/rbac/permissions";
-import { compileAudience, DefinitionError, parseDefinition, peopleCtes, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
+import { compileAudienceIn, DefinitionError, parseDefinition, peopleCtes, propertyFilterSchema, propertyPredicate, type AudienceNode, type PropertyFilter } from "@/modules/audiences/definition";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { measurable } from "./retention-rule";
 import {
-  bucketKeys, bucketSql, change, datesBetween, defaultInterval, intervalField, localDate, previousRange, rangeDays, rangeFields, resolveRange,
+  bucketKeys, bucketSql, change, datesBetween, defaultInterval, intervalField, comparisonRange, localDate, rangeDays, type Compare, rangeFields, resolveRange,
   type Interval, type ReportRange,
 } from "./range";
-import { ANY_EVENT, evCte, Params } from "./sql";
+import { ANY_EVENT, channelSql, evCte, Params } from "./sql";
 
 /**
  * Analytics on Postgres (ADR-002): event trends, funnels and retention for
@@ -25,8 +26,9 @@ import { ANY_EVENT, evCte, Params } from "./sql";
  *   the install is linked to exactly one user (identity_links), otherwise it
  *   stays its own anonymous person. Shared devices are never merged.
  * - Days are calendar days in the app's timezone. A range is a preset (last
- *   7, 30 or 90 days, ending now) or custom calendar days (./range.ts); any
- *   report can compare with the period of the same length just before it.
+ *   7, 15, 30 or 90 days, ending now) or custom calendar days (./range.ts); any
+ *   report can compare with the period just before it, the same days a year
+ *   earlier, or custom days (comparisonRange).
  * - Any report can be limited to the people of an audience (`cohortId`, the
  *   name saved reports have always used; see modules/audiences). Audiences
  *   are the one segmentation layer: the same condition tree and SQL compiler
@@ -36,7 +38,7 @@ import { ANY_EVENT, evCte, Params } from "./sql";
 
 export { RANGES, type RangeDays } from "./range";
 export const RANGE_SCHEMA = z.unknown().transform(rangeDays);
-export const BREAKDOWNS = ["platform", "app_version", "country"] as const;
+export const BREAKDOWNS = ["platform", "app_version", "country", "channel"] as const;
 
 const STATEMENT_TIMEOUT = "15s";
 const MAX_GROUPS = 5;
@@ -64,12 +66,15 @@ export interface RangeInfo {
   to: string;
   label: string;
   preset: number | null;
-  previous: { from: string; to: string; label: string } | null;
+  /** `kind` is the comparison asked for, as its search param value. */
+  previous: { from: string; to: string; label: string; kind: CompareParam } | null;
 }
 
-function rangeInfo(range: ReportRange, timezone: string, compare: boolean | undefined): RangeInfo {
-  const prev = compare ? previousRange(range, timezone) : null;
-  return { from: range.from, to: range.to, label: range.label, preset: range.preset, previous: prev && { from: prev.from, to: prev.to, label: prev.label } };
+export type CompareParam = "1" | "year" | "custom";
+
+export function rangeInfo(range: ReportRange, prev: ReportRange | null, compare?: Compare): RangeInfo {
+  const kind: CompareParam = compare === "year" || compare === "custom" ? compare : "1";
+  return { from: range.from, to: range.to, label: range.label, preset: range.preset, previous: prev && { from: prev.from, to: prev.to, label: prev.label, kind } };
 }
 
 /** A tenant transaction (RLS + permission check) with the analytics statement timeout. */
@@ -83,12 +88,12 @@ const query = analyticsTx;
 
 /** An audience's definition; it must be in the report's environment and not archived (RLS keeps it in the organization). */
 export async function loadAudienceDefinition(db: Db, environmentId: string, id: string): Promise<AudienceNode> {
-  if (!z.uuid().safeParse(id).success) throw new ValidationError("That audience doesn't exist in this environment.");
+  if (!z.uuid().safeParse(id).success) throw new ValidationError(msg("That audience doesn't exist in this environment."));
   const row = await db.one<{ definition: unknown }>(
     "select definition from platform.audiences where id = $1 and environment_id = $2 and status <> 'archived'",
     [id, environmentId],
   );
-  if (!row) throw new ValidationError("That audience doesn't exist in this environment.");
+  if (!row) throw new ValidationError(msg("That audience doesn't exist in this environment."));
   try {
     return parseDefinition(row.definition);
   } catch (e) {
@@ -100,7 +105,7 @@ export async function loadAudienceDefinition(db: Db, environmentId: string, id: 
 /** SELECT of an audience's people (column `person`), its values added to `p`, whose $1 must be the environment id. */
 export async function audienceSql(db: Db, scope: { environmentId: string; timezone?: string }, id: string, p: Params): Promise<string> {
   const def = await loadAudienceDefinition(db, scope.environmentId, id);
-  return compileAudience(def, scope.environmentId, { params: p, timezone: scope.timezone ?? "UTC" }).sql;
+  return (await compileAudienceIn(db, def, scope.environmentId, { params: p, timezone: scope.timezone ?? "UTC" })).sql;
 }
 
 /**
@@ -200,6 +205,7 @@ function groupExpr(breakdown: string | undefined, p: Params): string {
   if (breakdown === "platform") return "coalesce(platform, '(none)')";
   if (breakdown === "app_version") return "coalesce(app_version, '(none)')";
   if (breakdown === "country") return "coalesce(context->'location'->>'country', context->>'country', '(none)')";
+  if (breakdown === "channel") return channelSql("ev");
   return `coalesce(properties->>${p.add(breakdown.slice("property:".length))}, '(none)')`;
 }
 
@@ -210,8 +216,8 @@ function groupExpr(breakdown: string | undefined, p: Params): string {
  */
 export async function eventTrend(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Trend> {
   const r = trendSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose an event.");
-  const { event, breakdown, cohortId: cohort, compare } = r.data;
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Choose an event."));
+  const { event, breakdown, cohortId: cohort } = r.data;
   const where = r.data.where ?? [];
   const range = resolveRange(r.data, scope.timezone);
   const interval = defaultInterval(range, r.data.interval);
@@ -240,7 +246,8 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
     );
     const only = event === ANY_EVENT ? null : event;
     const total = await totalsIn(db, scope, cohort, range, only, where);
-    const previous = compare ? await totalsIn(db, scope, cohort, previousRange(range, scope.timezone), only, where) : null;
+    const prevRange = comparisonRange(range, scope.timezone, r.data);
+    const previous = prevRange ? await totalsIn(db, scope, cohort, prevRange, only, where) : null;
     const keys = bucketKeys(range, interval);
     const series = new Map<string, TrendSeries>();
     for (const row of rows) {
@@ -261,7 +268,7 @@ export async function eventTrend(ctx: TenantContext, scope: { environmentId: str
       previous,
       breakdown: breakdown ?? null,
       where,
-      range: rangeInfo(range, scope.timezone, compare),
+      range: rangeInfo(range, prevRange, r.data.compare),
     };
   });
 }
@@ -279,7 +286,7 @@ export const kpiSchema = z
     where: eventFilters,
     cohortId,
   })
-  .refine((k) => !(k.metric === "events" || k.metric === "people") || k.event, "Choose an event.");
+  .refine((k) => !(k.metric === "events" || k.metric === "people") || k.event, msg("Choose an event."));
 
 export interface Kpi {
   metric: KpiMetric;
@@ -298,8 +305,8 @@ export interface Kpi {
  */
 export async function kpi(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Kpi> {
   const r = kpiSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid metric.");
-  const { metric, cohortId: cohort, compare } = r.data;
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid metric."));
+  const { metric, cohortId: cohort } = r.data;
   const event = metric === "events" || metric === "people" ? (r.data.event === ANY_EVENT ? null : r.data.event!) : null;
   const where = r.data.where ?? [];
   const range = resolveRange(r.data, scope.timezone);
@@ -310,8 +317,9 @@ export async function kpi(ctx: TenantContext, scope: { environmentId: string; ti
       return metric === "events" || metric === "all_events" ? t.count : t.people;
     };
     const value = await measure(range);
-    const previous = compare ? await measure(previousRange(range, scope.timezone)) : null;
-    return { metric, event, value, previous, change: change(value, previous), range: rangeInfo(range, scope.timezone, compare) };
+    const prevRange = comparisonRange(range, scope.timezone, r.data);
+    const previous = prevRange ? await measure(prevRange) : null;
+    return { metric, event, value, previous, change: change(value, previous), range: rangeInfo(range, prevRange, r.data.compare) };
   });
 }
 
@@ -334,10 +342,10 @@ async function newPeopleIn(db: Db, scope: { environmentId: string; timezone?: st
 
 // ── Funnel ──────────────────────────────────────────────────────────────────
 export const funnelSchema = z.object({
-  steps: z.array(eventName).min(2, "A funnel needs at least two steps.").max(6, "Use at most six steps."),
+  steps: z.array(eventName).min(1, msg("Choose at least one step.")).max(10, msg("Use at most ten steps.")),
   windowDays: z.coerce.number().int().min(1).max(30).catch(7),
   ...rangeFields,
-  breakdown: z.enum(["platform"]).optional().catch(undefined),
+  breakdown: z.enum(["platform", "channel"]).optional().catch(undefined),
   cohortId,
 });
 
@@ -367,17 +375,18 @@ export interface Funnel {
  * converts on each later step done after the previous one, within the window
  * from entering (later steps may fall after the range ends).
  */
-export async function funnel(ctx: TenantContext, scope: { environmentId: string; timezone?: string }, input: unknown): Promise<Funnel> {
-  const r = funnelSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid funnel.");
-  const { steps, windowDays, breakdown, cohortId: cohort, compare } = r.data;
-  const timezone = scope.timezone ?? "UTC";
-  const range = resolveRange(r.data, timezone);
-  // $1 env, $2 range start, $3 window (days), $4 range end, $5.. step names.
+/**
+ * The step CTEs s0…sN of a funnel over `ev`: one row per person who reached
+ * that step, with the time they did it. Parameters: $1 env, $2 range start,
+ * $3 window (days), $4 range end, $5.. step names.
+ */
+function funnelCtes(steps: string[], breakdown?: "platform" | "channel"): string[] {
   const stepParam = (i: number) => `$${5 + i}`;
-  const ctes = [
-    `s0 as (select distinct on (person) person, ts as t, id, ts as t0, ${breakdown ? "coalesce(platform, '(none)')" : "'all'"} as g
-            from ev where name = ${stepParam(0)} and ts < $4 order by person, ts, id)`,
+  const g = breakdown === "platform" ? "coalesce(platform, '(none)')" : breakdown === "channel" ? channelSql("ev") : "'all'";
+  return [
+    // $3 (the window) is unused by a one-step funnel; naming it keeps its type known.
+    `s0 as (select distinct on (person) person, ts as t, id, ts as t0, ${g} as g
+            from ev where name = ${stepParam(0)} and ts < $4 and $3::int > 0 order by person, ts, id)`,
     // Each step is the earliest matching event strictly after the previous step's
     // event (ties on timestamp broken by id), so a repeated step needs a second event.
     ...steps.slice(1).map(
@@ -388,6 +397,61 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
          order by p.person, ev.ts, ev.id)`,
     ),
   ];
+}
+
+export const FUNNEL_PEOPLE_LIMIT = 100;
+
+/** A person behind a funnel number: their user ID, or the install's anonymous ID when they never signed in. */
+export interface FunnelPerson { userId: string | null; anonymousId: string | null; at: Date }
+
+/**
+ * The people behind one bar of a funnel: those who reached step `step`, or
+ * (`dropped`) those who reached the step before it and never reached it,
+ * using exactly the funnel's own rules. The most recent first, at most
+ * FUNNEL_PEOPLE_LIMIT; `total` is the full count.
+ */
+export async function funnelPeople(
+  ctx: TenantContext,
+  scope: { environmentId: string; timezone?: string },
+  input: unknown,
+  pick: { step: number; dropped?: boolean },
+): Promise<{ people: FunnelPerson[]; total: number }> {
+  const r = funnelSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid funnel."));
+  const { steps, windowDays, cohortId: cohort } = r.data;
+  const k = Math.trunc(pick.step);
+  if (!(k >= 0 && k < steps.length) || (pick.dropped && k === 0)) throw new ValidationError(msg("Choose a step of this funnel."));
+  const range = resolveRange(r.data, scope.timezone ?? "UTC");
+  const set = pick.dropped
+    ? `select p.person, p.t from s${k - 1} p where not exists (select 1 from s${k} q where q.person = p.person)`
+    : `select person, t from s${k}`;
+  return query(ctx, async (db) => {
+    const src = await eventsSource(db, scope, cohort, [scope.environmentId, range.start, windowDays, range.end, ...steps]);
+    const limit = src.p.add(FUNNEL_PEOPLE_LIMIT);
+    const rows = await db.query<{ person: string; t: Date; total: string }>(
+      `with ${src.sql}, ${funnelCtes(steps).join(", ")}, picked as (${set})
+       select person, t, count(*) over () as total from picked order by t desc, person limit ${limit}`,
+      src.p.values,
+    );
+    return {
+      total: Number(rows[0]?.total ?? 0),
+      people: rows.map((x) => ({
+        userId: x.person.startsWith("anon:") ? null : x.person,
+        anonymousId: x.person.startsWith("anon:") ? x.person.slice(5) : null,
+        at: x.t,
+      })),
+    };
+  });
+}
+
+export async function funnel(ctx: TenantContext, scope: { environmentId: string; timezone?: string }, input: unknown): Promise<Funnel> {
+  const r = funnelSchema.safeParse(input);
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid funnel."));
+  const { steps, windowDays, breakdown, cohortId: cohort } = r.data;
+  const timezone = scope.timezone ?? "UTC";
+  const range = resolveRange(r.data, timezone);
+  // $1 env, $2 range start, $3 window (days), $4 range end, $5.. step names.
+  const ctes = funnelCtes(steps, breakdown);
   const select = steps
     .map((_, k) =>
       k === 0
@@ -403,8 +467,9 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
   return query(ctx, async (db) => {
     const rows = await run(db, range);
     let previous: Funnel["previous"] = null;
-    if (compare) {
-      const prev = await run(db, previousRange(range, timezone));
+    const prevRange = comparisonRange(range, timezone, r.data);
+    if (prevRange) {
+      const prev = await run(db, prevRange);
       const at = (k: number) => prev.filter((x) => Number(x.step) === k).reduce((n, x) => n + Number(x.people), 0);
       previous = { entered: at(0), converted: at(steps.length - 1) };
     }
@@ -427,7 +492,7 @@ export async function funnel(ctx: TenantContext, scope: { environmentId: string;
         .map((key) => ({ key, people: steps.map((_, k) => Number(rows.find((x) => Number(x.step) === k && x.g === key)?.people ?? 0)) }))
         .sort((a, b) => b.people[0] - a.people[0]);
     }
-    return { steps: out, windowDays, days: range.preset ?? datesBetween(range.from, range.to).length, breakdown: groups, previous, range: rangeInfo(range, timezone, compare) };
+    return { steps: out, windowDays, days: range.preset ?? datesBetween(range.from, range.to).length, breakdown: groups, previous, range: rangeInfo(range, prevRange, r.data.compare) };
   });
 }
 
@@ -466,13 +531,14 @@ export interface Retention {
  */
 export async function retention(ctx: TenantContext, scope: { environmentId: string; timezone: string }, input: unknown): Promise<Retention> {
   const r = retentionSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Choose a start and a return event.");
-  const { cohortId: cohort, compare } = r.data;
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Choose a start and a return event."));
+  const { cohortId: cohort } = r.data;
   const range = resolveRange(r.data, scope.timezone);
+  const prevRange = comparisonRange(range, scope.timezone, r.data);
   return query(ctx, async (db) => {
     const current = await retentionIn(db, scope, cohort, r.data, range);
-    const previous = compare ? (await retentionIn(db, scope, cohort, r.data, previousRange(range, scope.timezone))).overall : null;
-    return { ...current, previous, range: rangeInfo(range, scope.timezone, compare) };
+    const previous = prevRange ? (await retentionIn(db, scope, cohort, r.data, prevRange)).overall : null;
+    return { ...current, previous, range: rangeInfo(range, prevRange, r.data.compare) };
   });
 }
 

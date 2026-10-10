@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { ENV_COOKIE, ENV_COOKIE_MAX_AGE, isEnvironmentName } from "@/lib/environment";
+import { marketingOnly, servedInMarketingOnly } from "@/lib/marketing-only";
 
 /**
  * Runs before every request:
@@ -44,8 +45,15 @@ export function proxy(request: NextRequest) {
     url.pathname = path.replace(/\/+$/, "") || "/";
     return NextResponse.redirect(url, 308);
   }
+  // A marketing-only deployment has no app behind it: pages outside the public site go home, APIs are not found.
+  if (marketingOnly() && !servedInMarketingOnly(path)) {
+    if (path.startsWith("/v1/") || path.startsWith("/api/") || path.startsWith("/.well-known/")) return new NextResponse(null, { status: 404 });
+    return NextResponse.redirect(new URL("/", request.url), 307);
+  }
   // Link redirects set their own headers (the in-app browser page carries its own nonce CSP); well-known files are JSON.
-  const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.startsWith("/l/") && !path.startsWith("/.well-known/") && !path.endsWith("/export");
+  // Media files (the library's file route and public /m/ links) carry their own sandboxing CSP.
+  const isMediaFile = path.startsWith("/m/") || /^\/o\/[^/]+\/apps\/[^/]+\/engage\/media\/[^/]+\/file$/.test(path);
+  const isPage = !path.startsWith("/v1/") && !path.startsWith("/api/") && !path.startsWith("/l/") && !path.startsWith("/.well-known/") && !path.endsWith("/export") && !isMediaFile;
   const https = request.nextUrl.protocol === "https:" || request.headers.get("x-forwarded-proto") === "https";
   let csp: string | null = null;
   if (isPage) {

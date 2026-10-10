@@ -2,15 +2,26 @@ package io.leanapp.analytics
 
 import java.net.URLDecoder
 
+/** UTM parameters. */
+val UTM_PARAMS: List<String> = listOf("utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content", "utm_id")
+
+/** Ad-network click ids (Snapchat's is ScCid; sccid is read too). */
+val CLICK_ID_PARAMS: List<String> = listOf("gclid", "gbraid", "wbraid", "fbclid", "ttclid", "ScCid", "twclid", "li_fat_id", "msclkid", "click_id")
+
+/** Campaign / ad set / ad ids from ad-network URL macros. Kept only next to a UTM or click id. */
+val CAMPAIGN_ID_PARAMS: List<String> = listOf("campaign_id", "adset_id", "ad_id")
+
 /** Campaign parameters and ad-network click ids captured from deep links, landing URLs and the Play install referrer. */
-val ATTRIBUTION_PARAMS: List<String> = listOf(
-    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
-    "gclid", "gbraid", "wbraid", "fbclid", "ttclid", "ScCid", "twclid", "li_fat_id", "msclkid", "click_id",
-)
+val ATTRIBUTION_PARAMS: List<String> = UTM_PARAMS + CLICK_ID_PARAMS + CAMPAIGN_ID_PARAMS
+
+/** True when the map has a UTM or a click id: evidence of where the user came from. */
+fun hasSourceParams(a: Map<String, String>?): Boolean =
+    a != null && (UTM_PARAMS + CLICK_ID_PARAMS).any { !a[it].isNullOrEmpty() }
 
 /**
  * Extracts attribution parameters from a URL or query string; returns null when there are none.
- * Same rules as the JavaScript SDK: case-insensitive names, values capped at 1,000 characters.
+ * Same rules as the JavaScript SDK: case-insensitive names, values capped at 1,000 characters, and
+ * campaign / ad set / ad ids alone (often an app's own parameters) are not attribution.
  */
 fun parseAttribution(url: String): Map<String, String>? {
     var search = url
@@ -35,7 +46,7 @@ fun parseAttribution(url: String): Map<String, String>? {
         val match = ATTRIBUTION_PARAMS.firstOrNull { it.equals(k, ignoreCase = true) }
         if (match != null && v.isNotEmpty()) out[match] = v.take(1000)
     }
-    return if (out.isEmpty()) null else out
+    return if (hasSourceParams(out)) out else null
 }
 
 /** Google Play Install Referrer details, as returned by the Play Install Referrer library. */

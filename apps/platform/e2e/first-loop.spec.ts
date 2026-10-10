@@ -48,8 +48,8 @@ async function answerQuestionnaire(page: Page) {
 }
 
 test("sign up, create an organization and an app", async ({ page }) => {
-  await page.goto("/");
-  await page.getByRole("link", { name: "Get started" }).first().click();
+  await page.goto("/?lang=en");
+  await page.getByRole("link", { name: "Start now" }).first().click();
   await page.fill('[name="name"]', "Sara Ali");
   await page.fill('[name="email"]', email);
   await page.fill('[name="password"]', password);
@@ -69,6 +69,16 @@ test("sign up, create an organization and an app", async ({ page }) => {
 test("questionnaire → tracking plan → approve → publish", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}/settings/dev-ops/implementation/questions`);
+  // The project switcher doesn't stay open once the pointer moves away, or on Escape.
+  const switcher = page.locator("details", { has: page.locator('summary[title="Switch project"]') });
+  await switcher.locator("summary").click();
+  await expect(switcher).toHaveAttribute("open", "");
+  await page.mouse.move(600, 500);
+  await expect(switcher).not.toHaveAttribute("open");
+  await switcher.locator("summary").click();
+  await expect(switcher).toHaveAttribute("open", "");
+  await page.keyboard.press("Escape");
+  await expect(switcher).not.toHaveAttribute("open");
   await answerQuestionnaire(page);
   await page.getByRole("button", { name: "Generate my tracking plan" }).click();
   await page.waitForURL(/implementation\/plan/);
@@ -84,6 +94,8 @@ test("events sent with the SDK key show up in the debugger and the score", async
   await signIn(page);
   await page.goto(`${appBase}/settings/dev-ops/debugger?env=development`);
   await expect(page.getByText("Waiting for first event")).toBeVisible();
+  await expect(page.getByTestId("failed-count")).toHaveText("0");
+  await expect(page.getByText("No failed events.")).toBeVisible();
   const ctx = { platform: "ios", app_version: "2.3.0", sdk: { name: "leanapp-js", version: "0.1.0" }, attribution: { utm_source: "tiktok" } };
   const res = await request.post("/v1/events/batch", {
     headers: { Authorization: `Bearer ${sdkKey}` },
@@ -103,7 +115,7 @@ test("events sent with the SDK key show up in the debugger and the score", async
   await expect(page.getByText(/^\d+%$/).first()).toBeVisible();
 
   await page.goto(`${appBase}/analytics/events?env=development&event=order_completed`);
-  await expect(page.getByRole("img", { name: "order_completed per day" })).toBeVisible();
+  await expect(page.getByRole("img", { name: "Order Completed per day" })).toBeVisible();
   await page.goto(`${appBase}/analytics/funnels?env=development&step=app_installed&step=order_completed`);
   await expect(page.getByText(/of 1 people who started in the last 30 days completed all 2 steps/)).toBeVisible();
 });
@@ -160,7 +172,7 @@ test("growth: turn on, define, preview, publish, see the summary", async ({ page
   expect(cron.status()).toBe(200);
   await page.goto(`${appBase}/growth?env=development`);
   await expect(page.getByText("80 SAR")).toBeVisible();
-  await expect(page.locator(".card", { hasText: "Paying" })).toContainText("100%");
+  await expect(page.locator(".stat", { hasText: "Paying" })).toContainText("100%");
   await page.goto(`${appBase}/settings/dev-ops/get-started`);
   await expect(page.getByText("See your growth summary")).toBeVisible();
 });
@@ -194,6 +206,36 @@ test("account, settings and privacy pages", async ({ page }) => {
   }).toPass({ timeout: 15_000 });
 });
 
+test("account menu: profile, team, API keys per environment, and Sign out", async ({ page }) => {
+  await signIn(page);
+  await page.goto(appBase);
+  const menu = page.getByRole("banner").getByLabel("Your account");
+  await menu.click();
+  for (const item of ["Your profile", "Organization settings", "Members & invitations", "API keys", "Billing & plan"]) {
+    await expect(page.getByRole("banner").getByRole("link", { name: item, exact: true })).toBeVisible();
+  }
+  await page.getByRole("banner").getByRole("link", { name: "Your profile" }).click();
+  await expect(page.getByRole("heading", { name: "Your profile" })).toBeVisible();
+  await page.getByRole("region", { name: "Profile" }).getByLabel("Name").fill("Sara Admin");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText("Saved.")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Your organizations" }).getByText("Owner")).toBeVisible();
+
+  await menu.click();
+  await expect(page.getByRole("banner").getByText("Sara Admin")).toBeVisible();
+  await page.getByRole("banner").getByRole("link", { name: "API keys" }).click();
+  await expect(page.getByRole("heading", { name: "API keys" })).toBeVisible();
+  for (const env of ["Production", "Staging", "Development"]) await expect(page.getByRole("cell", { name: env, exact: true }).first()).toBeVisible();
+  await page.getByRole("link", { name: "Manage" }).first().click();
+  await expect(page.getByRole("navigation", { name: "Environment" }).getByRole("link", { name: "Production" })).toHaveAttribute("aria-current", "page");
+  await page.getByRole("navigation", { name: "Environment" }).getByRole("link", { name: "Staging" }).click();
+  await expect(page).toHaveURL(/env=staging/);
+
+  await menu.click();
+  await page.getByRole("banner").getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/login/);
+});
+
 test("product shell: Overview home, Dev Ops in Settings, old addresses and the remembered environment", async ({ page }) => {
   await signIn(page);
   // A project opens on Overview; with no production events it points to Get started.
@@ -201,8 +243,17 @@ test("product shell: Overview home, Dev Ops in Settings, old addresses and the r
   await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Connect your app" })).toBeVisible();
   const menu = page.getByRole("navigation", { name: "Food Express" });
-  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Flows", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
+  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Flows", "A/B experiments", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
   for (const name of ["SDK & API keys", "Debugger", "Tracking plan"]) await expect(menu.getByRole("link", { name })).toHaveCount(0);
+  // Menu sections fold and unfold, and stay folded on the next page.
+  const engagement = menu.getByRole("button", { name: "Engage Lab" });
+  await engagement.click();
+  await expect(engagement).toHaveAttribute("aria-expanded", "false");
+  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeHidden();
+  await page.reload();
+  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeHidden();
+  await menu.getByRole("button", { name: "Engage Lab" }).click();
+  await expect(menu.getByRole("link", { name: "Flows", exact: true })).toBeVisible();
   await page.getByRole("link", { name: "Get started" }).click();
   await page.waitForURL(/settings\/dev-ops\/get-started/);
   await expect(page.getByRole("navigation", { name: "Settings" }).getByRole("link", { name: "SDK & API keys" })).toBeVisible();
@@ -215,14 +266,22 @@ test("product shell: Overview home, Dev Ops in Settings, old addresses and the r
   await page.goto(`${appBase}/attribution/links`);
   await expect(page).toHaveURL(/\/acquisition\/links$/);
 
-  // The environment chosen in the top bar is remembered on the next page.
-  await page.goto(`${appBase}/analytics/events`);
+  // The environment chosen in project settings is remembered on every page, and the top bar says so.
+  await page.goto(`${appBase}/settings/project/environments`);
   const env = page.getByRole("radiogroup", { name: "Environment" });
   await env.getByRole("radio", { name: "staging" }).click();
   await page.waitForURL(/env=staging/);
   await page.goto(`${appBase}/analytics/funnels`);
-  await expect(env.getByRole("radio", { name: "staging" })).toHaveAttribute("aria-checked", "true");
   await expect(page.getByText("Showing staging data.", { exact: false })).toBeVisible();
+  await page.getByRole("banner").getByRole("link", { name: "Viewing Staging data" }).click();
+  await page.waitForURL(/settings\/project\/environments/);
+  await expect(env.getByRole("radio", { name: "staging" })).toHaveAttribute("aria-checked", "true");
+  await env.getByRole("radio", { name: "production" }).click();
+  await page.waitForURL(/env=production/);
+  await expect(page.getByRole("banner").getByRole("link", { name: /Viewing .* data/ })).toHaveCount(0);
+  // Later tests expect staging to be the remembered environment.
+  await env.getByRole("radio", { name: "staging" }).click();
+  await page.waitForURL(/env=staging/);
 });
 
 test("project settings: rename, timezone, environments, archive and restore", async ({ page }) => {
@@ -261,8 +320,9 @@ test("project settings: rename, timezone, environments, archive and restore", as
   await expect(page.getByText("This project is archived, so it receives no events.", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "Restore project" }).click();
   await expect(page.getByText("Project restored.", { exact: false })).toBeVisible();
+  // With one project and none archived, the workspace opens straight into it.
   await page.goto(`/o/${org}`);
-  await expect(page.getByRole("link", { name: /Food Express Pro/ }).filter({ visible: true })).toBeVisible();
+  await page.waitForURL(appBase);
 });
 
 test("a viewer sees reports and people, and can change nothing", async ({ page, browser }) => {
@@ -296,10 +356,16 @@ test("a viewer sees reports and people, and can change nothing", async ({ page, 
   await expect(v.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(v.getByRole("link", { name: "Get started" })).toHaveCount(0);
   const menu = v.getByRole("navigation", { name: "Food Express Pro" });
-  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
-  for (const name of ["Flows", "Tracking links & QR"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
+  for (const name of ["Events & trends", "Funnels", "Users", "Audiences", "CAC & LTV", "Ad spend", "Tracking links & QR", "Settings"]) await expect(menu.getByRole("link", { name, exact: true })).toBeVisible();
+  for (const name of ["Flows", "A/B experiments"]) await expect(menu.getByRole("link", { name, exact: true })).toHaveCount(0);
   await v.goto(`${appBase}/analytics/events`);
   await expect(v.getByRole("heading", { name: "Events", level: 1 })).toBeVisible();
+  // Acquisition and attribution are read-only: no spend entry, CSV import or link creation.
+  await v.goto(`${appBase}/acquisition/spend`);
+  await expect(v.getByRole("button", { name: "Save spend" })).toHaveCount(0);
+  await expect(v.getByRole("button", { name: "Import" })).toHaveCount(0);
+  await v.goto(`${appBase}/acquisition/links`);
+  await expect(v.getByRole("button", { name: "Create link" })).toHaveCount(0);
 
   await v.goto(`${appBase}/settings/project`);
   await expect(v.getByRole("button", { name: "Save changes" })).toHaveCount(0);
@@ -339,10 +405,10 @@ test("property catalog: Attributes lists what the app sends, and Users filter by
   await page.goto(`${appBase}/analytics/users?env=development`);
   await page.getByRole("combobox", { name: "Property 1" }).selectOption("city");
   await page.getByLabel("Value 1").fill("Riyadh");
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByRole("link", { name: "u-77" })).toBeVisible();
   await page.getByLabel("Value 1").fill("Jeddah");
-  await page.getByRole("button", { name: "Search" }).click();
+  await page.getByRole("button", { name: "Search", exact: true }).click();
   await expect(page.getByText("No user matches these filters.")).toBeVisible();
 });
 
@@ -450,8 +516,44 @@ test("campaigns: audience, channel, message, schedule; the audience must be acti
   await page.getByRole("button", { name: "Send now" }).click();
   await expect(page.getByText(/Activate the audience "Riyadh people" first/)).toBeVisible();
 
-  await page.getByRole("link", { name: "Campaigns" }).first().click();
+  await page.getByRole("link", { name: "Campaigns", exact: true }).first().click();
   await expect(page.getByRole("row").filter({ hasText: "Riyadh weekend" }).getByText("In-app")).toBeVisible();
+});
+
+test("experiments: create and start one, get a variant from the API, and see the exposure on the results page", async ({ page, request }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/engage/campaigns?env=development`);
+  await page.getByRole("navigation", { name: "Food Express" }).getByRole("link", { name: "A/B experiments", exact: true }).click();
+  await expect(page.getByRole("heading", { name: /Experiments/, level: 1 })).toBeVisible();
+  await expect(page.getByRole("region", { name: "What works today" })).toContainText("A/B tests of campaign messages");
+  await page.getByRole("link", { name: "New experiment" }).click();
+  await page.getByLabel("Experiment name").fill("Checkout button");
+  await page.getByLabel("Key used in your app's code").fill("checkout_button");
+  await page.getByLabel("Goal event").fill("order_completed");
+  await page.getByRole("button", { name: "Save draft" }).click();
+  await expect(page.getByRole("heading", { name: /Checkout button/, level: 1 })).toBeVisible();
+  await expect(page.getByText("draft", { exact: true })).toBeVisible();
+  page.once("dialog", (d) => d.accept());
+  await page.getByRole("button", { name: "Start experiment" }).click();
+  await expect(page.getByText(/^Running\. The assignment API now returns/)).toBeVisible();
+  await page.reload();
+  await expect(page.getByText(/No one has been exposed yet/)).toBeVisible();
+
+  const res = await request.post("/v1/experiments/assignments", { headers: { Authorization: `Bearer ${sdkKey}` }, data: { user_id: "u-exp-1", anonymous_id: "dev-exp-1" } });
+  expect(res.status()).toBe(200);
+  const a = (await res.json()).assignments.find((x: { experiment: string }) => x.experiment === "checkout_button");
+  expect(["control", "treatment"]).toContain(a.variant);
+  const sent = await request.post("/v1/events/batch", {
+    headers: { Authorization: `Bearer ${sdkKey}` },
+    data: { batch: [{ type: "track", event_name: "experiment_exposure", event_id: crypto.randomUUID(), anonymous_id: "dev-exp-1", user_id: "u-exp-1", properties: { experiment: "checkout_button", experiment_id: a.experiment_id, variant: a.variant } }] },
+  });
+  expect(await sent.json()).toMatchObject({ accepted: 1, rejected: [] });
+  await expect(async () => {
+    await page.reload();
+    await expect(page.getByRole("region", { name: "Experiment summary" })).toContainText("People exposed1", { timeout: 1000 });
+  }).toPass({ timeout: 20_000 });
+  await expect(page.getByText(/Not enough data yet\. Each variant needs 100 exposed people/)).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: a.variant === "control" ? "Control" : "Treatment" }).getByRole("cell").nth(1)).toHaveText("1");
 });
 
 test("channels & delivery: health, honest numbers, and a test send", async ({ page }) => {
@@ -501,18 +603,64 @@ test("flow builder: trigger, steps with an insert menu, goal and exit event", as
   await expect(page.getByText(/Exit event: app_uninstalled/)).toBeVisible();
 });
 
+test("flows library: filter, preview the steps, and create a filled-in draft in one click", async ({ page }) => {
+  await signIn(page);
+  await page.goto(`${appBase}/engage/automations?env=development`);
+  const library = page.getByRole("region", { name: "Flows library" });
+  await library.getByRole("combobox", { name: "Category" }).selectOption("conversion");
+  await library.getByRole("searchbox", { name: "Search" }).fill("cart");
+  await library.getByRole("button", { name: "Apply" }).click();
+  await expect(page).toHaveURL(/category=conversion/);
+  await expect(library.getByText(/^Showing \d+ of \d+ flows$/)).toBeVisible();
+  await expect(library.locator('[data-flow-template="welcome_series"]')).toHaveCount(0);
+  const card = library.locator('[data-flow-template="abandoned_cart"]');
+  // The purchase slot is mapped to the event this app already sends, and push shows as not connected yet.
+  await expect(card.getByLabel("Purchase event")).toHaveValue("order_completed");
+  await expect(card.getByText("sent by your app")).toBeVisible();
+  await expect(card.getByText("Push isn't connected in development.")).toBeVisible();
+  await expect(card.getByRole("link", { name: "Connect Push" })).toHaveAttribute("href", /settings\/dev-ops\/channels/);
+  await card.getByText("Preview the steps").click();
+  await expect(card.getByText("You left something in your cart")).toBeVisible();
+  await card.getByRole("button", { name: "Use this flow" }).click();
+  await expect(page.getByRole("heading", { name: /Abandoned cart/, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Goal: order_completed within 3 days" })).toBeVisible();
+});
+
 test("acquisition (beta): overview, sources, attribution, and a tracking link with its QR code", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}/acquisition?env=development`);
   await expect(page.getByRole("heading", { name: "Acquisition Beta", level: 1 })).toBeVisible();
   await expect(page.getByText("What Acquisition (Beta) measures")).toBeVisible();
-  await expect(page.getByRole("region", { name: "Acquisition numbers" }).getByText("Installs", { exact: true })).toBeVisible();
+  const numbers = page.getByRole("region", { name: "Acquisition numbers" });
+  await expect(numbers.getByText("Installs", { exact: true })).toBeVisible();
+  // Every key number says where it comes from; CAC and ROAS are never shown as plain numbers without a label.
+  for (const label of ["New users", "Sign-ups", "Activated", "Purchases", "Revenue", "Spend", "CAC", "ROAS"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
+  await expect(numbers.locator('[data-provenance="observed"]').first()).toBeVisible();
+  await expect(numbers.locator("[data-provenance]")).toHaveCount(9);
+  await expect(page.getByRole("region", { name: "Data coverage" }).getByRole("heading", { name: "Data coverage" })).toBeVisible();
+  await expect(page.getByText("What observed, imported, modeled and unavailable mean")).toBeVisible();
   const tabs = page.getByRole("navigation", { name: "Acquisition" });
   await tabs.getByRole("link", { name: "Sources & campaigns" }).click();
   await expect(page.getByRole("heading", { name: "Sources & campaigns Beta", level: 1 })).toBeVisible();
-  await expect(page.getByText(/no cost, CPI or ROAS/)).toBeVisible();
+  await expect(page.getByText(/CPI: spend ÷ installs\. CPA: spend ÷ purchases\./)).toBeVisible();
+  // Ad spend: entered by hand or by CSV; a CSV with a wrong row saves nothing and names the line.
+  await tabs.getByRole("link", { name: "Ad spend" }).click();
+  await expect(page.getByRole("heading", { name: "Ad spend Beta", level: 1 })).toBeVisible();
+  await page.getByRole("combobox", { name: "Source" }).fill("tiktok");
+  await page.getByRole("textbox", { name: "Amount" }).fill("1250.50");
+  await page.getByRole("button", { name: "Save spend" }).click();
+  await expect(page.getByText("Spend saved.")).toBeVisible();
+  await expect(page.getByTestId("spend-entries").getByRole("row", { name: /tiktok/ })).toContainText("1,250.5");
+  await page.getByRole("textbox", { name: "Paste CSV" }).fill("2026-01-02,snap,,SAR,10\n2026-01-03,snap,,SAR,ten");
+  await page.getByRole("button", { name: "Import", exact: true }).click();
+  await expect(page.getByText(/^Line 2: /)).toBeVisible();
+  await expect(page.getByTestId("spend-entries").getByRole("row", { name: /snap/ })).toHaveCount(0);
+  await expect(page.locator('a[href*="/analytics/revenue?env=development&by=channel"]')).toHaveText("Revenue");
   await tabs.getByRole("link", { name: "Attribution" }).click();
   await expect(page.getByRole("heading", { name: "How installs were matched" })).toBeVisible();
+  // Honest labels: self-reported sources are not "deterministic", and paid iOS installs are unattributed.
+  await expect(page.getByRole("cell", { name: "Reported", exact: true })).toBeVisible();
+  await expect(page.getByTestId("ios-attribution-note")).toContainText("can't be attributed deterministically without SKAdNetwork / AdAttributionKit or Apple Search Ads");
   await expect(page.getByRole("link", { name: "SKAdNetwork setup" })).toHaveAttribute("href", /settings\/dev-ops\/attribution\/skan$/);
   await expect(page.getByText("Multi-touch and view-through attribution")).toBeVisible();
 
@@ -546,7 +694,7 @@ test("SDK & API keys: real quickstarts for every SDK, and an honest release stat
   await page.goto(`${appBase}/settings/dev-ops/sdk?env=development`);
   const status = page.getByRole("region", { name: "SDK release status" });
   for (const sdk of ["JavaScript / React Native", "Android (Kotlin)", "iOS (Swift)", "Flutter (Dart)"]) await expect(status.getByRole("cell", { name: sdk })).toBeVisible();
-  await expect(status.getByText("Not published: add from the repository")).toHaveCount(4);
+  await expect(status.getByText("Not published", { exact: true })).toHaveCount(4);
   await page.getByRole("tab", { name: "Android (Kotlin)" }).click();
   await expect(page.getByText(/AnalyticsOptions\(endpoint = /)).toBeVisible();
   await expect(page.getByText("Not published to Maven Central yet", { exact: false })).toBeVisible();
@@ -557,26 +705,195 @@ test("SDK & API keys: real quickstarts for every SDK, and an honest release stat
 test("overview: key numbers for the selected environment, and Connect your app while production is empty", async ({ page }) => {
   await signIn(page);
   await page.goto(`${appBase}?env=development`);
-  await expect(page.getByRole("heading", { name: "Connect your app" })).toBeVisible();
+  // Development has data, so the setup reminder is one line above the numbers.
+  await expect(page.getByText("Production isn't receiving events yet", { exact: false })).toBeVisible();
   const numbers = page.getByRole("region", { name: "Key numbers" });
-  for (const label of ["Active users", "New users", "Events"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
-  for (const heading of ["Active users per day", "Activation", "Retention", "Key funnel", "Top events"]) await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "order_completed" })).toBeVisible();
-  await page.getByRole("link", { name: "Last 30 days" }).click();
-  await expect(page).toHaveURL(/days=30/);
-  await expect(page.getByText(/compared with the 30 days before/)).toBeVisible();
+  for (const label of ["New users", "Active users", "Orders", "Revenue"]) await expect(numbers.getByText(label, { exact: true })).toBeVisible();
+  for (const heading of ["Orders per day", "Conversion funnel", "Acquisition by source", "Activation", "Retention", "Top events"]) await expect(page.getByRole("heading", { name: heading, exact: true })).toBeVisible();
+  await page.screenshot({ path: "test-results/overview.png", fullPage: true });
+  await expect(page.getByRole("cell", { name: /Order Completed/ })).toBeVisible();
+  const range = page.getByRole("form", { name: "Range" });
+  await range.getByLabel("Range").selectOption("15");
+  await expect(page).toHaveURL(/days=15/);
+  await expect(page.getByText(/last 15 days, compared with/)).toBeVisible();
+  await range.getByLabel("Compare with").selectOption("year");
+  await expect(page).toHaveURL(/compare=year/);
+  await expect(page.getByText(/compared with \d+ \w+ 2025/)).toBeVisible();
+  await range.getByLabel("Range").selectOption("custom");
+  await range.getByLabel("From", { exact: true }).fill("2026-09-01");
+  await range.getByLabel("To", { exact: true }).fill("2026-09-10");
+  await expect(page).toHaveURL(/from=2026-09-01&to=2026-09-10/);
+  // The test data is all from the last few days, so this range is empty.
+  await expect(page.getByText(/No events in development in 1 Sept 2026 – 10 Sept 2026 yet/)).toBeVisible();
 });
 
-test("landing page: positioning, the product flow with honest labels, and noindex", async ({ page }) => {
-  await page.goto("/");
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Affordable product analytics and growth infrastructure for mobile apps.");
+test("charts: the trend chart answers the pointer and keys, and key numbers count up to their real value", async ({ page }) => {
+  const errors: string[] = [];
+  page.on("console", (m) => m.type() === "error" && errors.push(m.text()));
+  page.on("pageerror", (e) => errors.push(e.message));
+  await signIn(page);
+  const url = `${appBase}?env=development`;
+  await page.goto(url);
+  // The number ends at the value the server rendered, and the server HTML already holds it.
+  const tile = page.getByRole("region", { name: "Key numbers" }).locator("[data-count]").first();
+  const final = (await tile.getAttribute("data-count"))!;
+  expect(final).toMatch(/[1-9]/);
+  await expect(tile).toHaveText(final);
+  expect(await (await page.request.get(url)).text()).toMatch(new RegExp(`data-count="${final}"[^>]*>${final}<`));
+
+  const chart = page.locator("[data-chart-hover]").first();
+  const tip = chart.locator("[data-chart-tooltip]");
+  await expect(tip).toHaveCount(0);
+  const box = (await chart.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.95, box.y + box.height / 2);
+  await expect(tip).toBeVisible();
+  await expect(tip).toContainText("Orders");
+  await expect(tip).toContainText(/\d{1,2} \w{3,} \d{4}/);
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height + 200);
+  await expect(tip).toHaveCount(0);
+  // Keyboard: focus the chart and move through the days.
+  await chart.focus();
+  await page.keyboard.press("Home");
+  await expect(tip).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(tip).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test("reports apply as you change them, funnel bars open their people, and Ctrl+K jumps anywhere", async ({ page, request }) => {
+  const ctx = { platform: "android", app_version: "2.3.0" };
+  const sent = await request.post("/v1/events/batch", {
+    headers: { Authorization: `Bearer ${sdkKey}` },
+    data: { batch: [
+      { type: "track", event_name: "app_installed", event_id: crypto.randomUUID(), anonymous_id: "dev-funnel", user_id: "u-funnel", context: ctx },
+      { type: "track", event_name: "order_completed", event_id: crypto.randomUUID(), anonymous_id: "dev-funnel", user_id: "u-funnel", properties: { order_id: "of1", value: 50, currency: "SAR" }, context: ctx },
+    ] },
+  });
+  expect(sent.status()).toBe(200);
+  await request.get("/api/internal/process-events", { headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? "e2e-cron-secret-0123456789"}` } });
+  await signIn(page);
+  await page.goto(`${appBase}/analytics/funnels?env=development&step=app_installed&step=order_completed&fresh=1`);
+  await expect(page.getByRole("button", { name: "Show funnel" })).toBeHidden();
+  await page.getByRole("link", { name: "See who reached it" }).last().click();
+  const panel = page.getByRole("region", { name: "People behind this step" });
+  await expect(panel.getByRole("heading", { name: /Reached step 2 \(Order Completed\)/ })).toBeVisible();
+  await expect(panel.getByRole("link", { name: "u-funnel" })).toBeVisible();
+  // Changing a setting re-runs the report: no button to press.
+  await page.getByLabel("Converted within").selectOption("1");
+  await expect(page).toHaveURL(/window=1/);
+
+  await page.goto(`${appBase}/analytics/retention?env=development`);
+  await expect(page.getByLabel("Return event")).toHaveValue("$any");
+
+  await page.keyboard.press("Control+k");
+  const search = page.getByRole("dialog", { name: "Quick search" });
+  await search.getByRole("textbox").fill("funnels");
+  await page.keyboard.press("Enter");
+  await expect(page).toHaveURL(/\/analytics\/funnels/);
+  await page.keyboard.press("Control+k");
+  await search.getByRole("textbox").fill("order completed");
+  await expect(search.getByRole("option", { name: /Order Completed/ })).toBeVisible();
+});
+
+test("retention: Churn and RFM segments, and a group saved as an audience", async ({ page, request }) => {
+  const ctx = { platform: "android", app_version: "2.3.0" };
+  const order = (user: string, n: number, revenue: number) =>
+    ({ type: "track", event_name: "order_completed", event_id: crypto.randomUUID(), anonymous_id: `dev-${user}`, user_id: user, properties: { order_id: `${user}-${n}`, revenue, price: revenue, currency: "SAR" }, context: ctx });
+  const sent = await request.post("/v1/events/batch", {
+    headers: { Authorization: `Bearer ${sdkKey}` },
+    data: { batch: [order("u-rfm-1", 1, 120), order("u-rfm-1", 2, 80), order("u-rfm-2", 1, 30)] },
+  });
+  expect(sent.status()).toBe(200);
+  await request.get("/api/internal/process-events", { headers: { Authorization: `Bearer ${process.env.CRON_SECRET ?? "e2e-cron-secret-0123456789"}` } });
+  await signIn(page);
+  await page.goto(`${appBase}?env=development`);
+  const menu = page.getByRole("navigation", { name: "Food Express Pro" });
+  await menu.getByRole("link", { name: "Churn", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Churn", level: 1 })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Retention" }).getByRole("link", { name: "Churn" })).toHaveAttribute("aria-current", "page");
+  await expect(page.getByTestId("churn-buckets")).toContainText("At risk");
+  await page.getByLabel("Churn window").selectOption("60");
+  await expect(page).toHaveURL(/window=60/);
+  await page.getByTestId("churn-buckets").getByRole("row", { name: /Churned/ }).getByRole("button", { name: "Save as audience" }).click();
+  await expect(page.getByRole("heading", { name: /Churned: not seen in 60 days/, level: 1 })).toBeVisible();
+  await expect(page.getByText("last seen more than 60 days ago").first()).toBeVisible();
+
+  await menu.getByRole("link", { name: "RFM segments", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "RFM segments", level: 1 })).toBeVisible();
+  await expect(page.getByTestId("rfm-grid")).toBeVisible();
+  await expect(page.getByTestId("rfm-segments").locator("article")).toHaveCount(11);
+  await page.getByTestId("rfm-segments").locator('[data-segment="champions"]').getByRole("button", { name: "Save as audience" }).click();
+  await expect(page.getByRole("heading", { name: /RFM: Champions \(SAR, last 365 days\)/, level: 1 })).toBeVisible();
+  await expect(page.getByText("in RFM segment Champions (SAR, last 365 days)").first()).toBeVisible();
+  await menu.getByRole("link", { name: "Retention", exact: true }).click();
+  await expect(page.getByLabel("Return event")).toBeVisible();
+});
+
+test("landing page: Arabic and English, honest labels, comparison, pricing, and noindex", async ({ page }) => {
+  await page.goto("/?lang=ar");
+  await expect(page.locator("div[dir=rtl][lang=ar]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("اعرف مستخدميك، وطوّر تطبيقك.");
+  await page.getByRole("link", { name: "English" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Know your users. Grow your app.");
+  // The home page is short: features, pricing and about are their own pages, opened from the top tabs.
+  await expect(page.getByRole("heading", { name: "What's in it" })).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "Pricing" })).toHaveCount(0);
+  const compare = page.getByRole("table");
+  await expect(compare.getByRole("columnheader")).toHaveText(["What you need", "LeanApp", "Mixpanel", "Adjust", "MoEngage"]);
+  await expect(compare.getByRole("row", { name: /Install attribution/ }).getByRole("cell").first()).toContainText("Beta");
+  const tabs = page.getByRole("navigation", { name: "Sections" }).first();
+  await tabs.getByRole("link", { name: "Features" }).click();
+  await expect(page).toHaveURL(/\/features\?lang=en$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("What's in it");
   await expect(page.getByRole("list", { name: "Product flow" }).getByRole("link")).toHaveText(["Connect", "Collect", "Understand", "Funnels", "Retention", "Audiences", "Act"]);
   const connect = page.getByRole("article", { name: "Connect your app" });
   await expect(connect.getByRole("listitem").filter({ hasText: "Android, iOS and Flutter SDKs" }).getByText("Beta", { exact: true })).toBeVisible();
   const act = page.getByRole("article", { name: "Act on it" });
   await expect(act.getByRole("listitem").filter({ hasText: "Acquisition" })).toContainText("Not a full mobile measurement partner");
   await expect(page.getByRole("heading", { name: "Coming next" })).toBeVisible();
+  await tabs.getByRole("link", { name: "Pricing" }).click();
+  await expect(page.getByRole("listitem", { name: "Growth" })).toContainText("$599");
+  await expect(page.getByRole("listitem", { name: "Enterprise" })).toContainText("Contact sales");
+  await tabs.getByRole("link", { name: "About us" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Who we are");
+  await expect(tabs.getByRole("link", { name: "About us" })).toHaveAttribute("aria-current", "page");
   await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", /noindex/);
+});
+
+test("developer guide: public, Arabic and English, the four SDKs and an honest release status", async ({ page }) => {
+  await page.goto("/?lang=ar");
+  await page.getByRole("navigation", { name: "الأقسام" }).first().getByRole("link", { name: "للمطوّرين" }).click();
+  await expect(page).toHaveURL(/\/developers\?lang=ar$/);
+  await expect(page.locator("div[dir=rtl][lang=ar]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("أضف LeanApp إلى تطبيقك");
+  const sdks = ["JavaScript / React Native", "Android (Kotlin)", "iOS (Swift)", "Flutter (Dart)"];
+  await expect(page.locator("#sdks").getByRole("heading", { level: 3 })).toHaveText(sdks);
+  await expect(page.locator("#code pre").first()).toHaveAttribute("dir", "ltr");
+
+  await page.goto("/developers?lang=en");
+  await expect(page.locator("div[dir=ltr][lang=en]").first()).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Add LeanApp to your app");
+  await expect(page.locator("#sdks").getByRole("heading", { level: 3 })).toHaveText(sdks);
+  await expect(page.getByRole("listitem", { name: "Android (Kotlin)" })).toContainText("Not public yet: available from us during onboarding.");
+  await expect(page.getByRole("heading", { name: "Notes and recommendations" })).toBeVisible();
+  await expect(page.locator("#deep-links")).toContainText("not called by the SDKs yet");
+  await page.getByRole("link", { name: "العربية" }).click();
+  await expect(page).toHaveURL(/\/developers$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("أضف LeanApp إلى تطبيقك");
+  await page.getByRole("link", { name: "English" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Add LeanApp to your app");
+});
+
+test("the app switches to Arabic, right to left, and back", async ({ page }) => {
+  await page.goto("/login");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in");
+  await page.getByRole("link", { name: "العربية" }).click();
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("تسجيل الدخول");
+  await expect(page).toHaveURL(/\/login$/);
+  await page.getByRole("link", { name: "English" }).click();
+  await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign in");
 });
 
 test("pages carry a CSP and the app has no console errors on load", async ({ page }) => {

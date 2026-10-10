@@ -6,6 +6,7 @@
  * north-star candidates depend on the business model). The UI asks one
  * section at a time; `nextQuestions` returns what to show next.
  */
+import { msg } from "@/i18n/translate";
 import { classifyBusiness } from "./classifier";
 import {
   ATTRIBUTION_CHANNELS, BUSINESS_MODELS, CHANNEL_LABELS, FEATURE_LABELS, FEATURES, MODEL_LABELS, MODELS,
@@ -42,12 +43,12 @@ export interface Question {
 }
 
 export const SECTIONS = [
-  { key: "business", title: "Your business", intro: "Let's understand your app." },
-  { key: "app", title: "Your app", intro: "What people do in the app." },
-  { key: "monetization", title: "How you make money", intro: "So revenue is tracked from the right place." },
-  { key: "journey", title: "Customer journey", intro: "In your own words." },
-  { key: "attribution", title: "Where users come from", intro: "So every install and conversion keeps its source." },
-  { key: "value", title: "Activation and value", intro: "The moments that matter most." },
+  { key: "business", title: msg("Your business"), intro: msg("Let's understand your app.") },
+  { key: "app", title: msg("Your app"), intro: msg("What people do in the app.") },
+  { key: "monetization", title: msg("How you make money"), intro: msg("So revenue is tracked from the right place.") },
+  { key: "journey", title: msg("Customer journey"), intro: msg("In your own words.") },
+  { key: "attribution", title: msg("Where users come from"), intro: msg("So every install and conversion keeps its source.") },
+  { key: "value", title: msg("Activation and value"), intro: msg("The moments that matter most.") },
 ] as const;
 export type SectionKey = (typeof SECTIONS)[number]["key"];
 
@@ -56,8 +57,8 @@ const has = (a: Answers, key: string, value: string) => Array.isArray(a[key]) &&
 const model = (a: Answers): BusinessModel => classifyBusiness(a).primary;
 
 const COUNTRIES = opts([
-  ["SA", "Saudi Arabia"], ["AE", "UAE"], ["EG", "Egypt"], ["KW", "Kuwait"], ["QA", "Qatar"], ["BH", "Bahrain"], ["OM", "Oman"],
-  ["JO", "Jordan"], ["LB", "Lebanon"], ["IQ", "Iraq"], ["MA", "Morocco"], ["OTHER", "Other countries"],
+  ["SA", msg("Saudi Arabia")], ["AE", msg("UAE")], ["EG", msg("Egypt")], ["KW", msg("Kuwait")], ["QA", msg("Qatar")], ["BH", msg("Bahrain")], ["OM", msg("Oman")],
+  ["JO", msg("Jordan")], ["LB", msg("Lebanon")], ["IQ", msg("Iraq")], ["MA", msg("Morocco")], ["OTHER", msg("Other countries")],
 ]);
 const COUNTRY_CURRENCY: Record<string, string> = { SA: "SAR", AE: "AED", EG: "EGP", KW: "KWD", QA: "QAR", BH: "BHD", OM: "OMR", JO: "JOD", LB: "LBP", IQ: "IQD", MA: "MAD" };
 const CURRENCIES = opts([
@@ -71,44 +72,44 @@ function eventOptions(names: string[]): Option[] {
 
 export const QUESTIONS: Question[] = [
   // ── Business ──────────────────────────────────────────────────────────────
-  { key: "business.description", section: "business", type: "longtext", required: true, prompt: "What does your company do?", placeholder: "We are a food delivery app in Riyadh and Jeddah…", help: "A sentence or two is enough. Arabic or English." },
-  { key: "business.problem", section: "business", type: "longtext", required: false, prompt: "What problem does the app solve for its users?" },
+  { key: "business.description", section: "business", type: "longtext", required: true, prompt: msg("What does your company do?"), placeholder: msg("We are a food delivery app in Riyadh and Jeddah…"), help: msg("A sentence or two is enough. Arabic or English.") },
+  { key: "business.problem", section: "business", type: "longtext", required: false, prompt: msg("What problem does the app solve?") },
   {
-    key: "business.model", section: "business", type: "single", required: true, prompt: "Which business model fits best?",
+    key: "business.model", section: "business", type: "single", required: true, prompt: msg("Which business model fits best?"),
     options: BUSINESS_MODELS.map((m) => ({ value: m, label: MODEL_LABELS[m] })),
     suggest: (a) => (a["business.description"] ? classifyBusiness({ ...a, "business.model": null }).primary : null),
-    help: "We pre-selected one from your description. Change it if it's wrong.",
+    help: msg("We picked one from your description. Change it if it's wrong."),
   },
-  { key: "business.customer_type", section: "business", type: "single", required: true, prompt: "Who is the customer?", options: opts([["b2c", "Consumers (B2C)"], ["b2b", "Businesses (B2B)"], ["marketplace", "Both sides of a marketplace"], ["hybrid", "Hybrid"]]), suggest: (a) => (a["business.model"] === "marketplace" ? "marketplace" : a["business.model"] === "saas" ? "b2b" : "b2c") },
-  { key: "business.countries", section: "business", type: "multi", required: true, prompt: "Which countries do you operate in?", options: COUNTRIES },
+  { key: "business.customer_type", section: "business", type: "single", required: true, prompt: msg("Who is the customer?"), options: opts([["b2c", msg("Consumers (B2C)")], ["b2b", msg("Businesses (B2B)")], ["marketplace", msg("Both sides of a marketplace")], ["hybrid", msg("Hybrid")]]), suggest: (a) => (a["business.model"] === "marketplace" ? "marketplace" : a["business.model"] === "saas" ? "b2b" : "b2c") },
+  { key: "business.countries", section: "business", type: "multi", required: true, prompt: msg("Which countries do you operate in?"), options: COUNTRIES },
   {
-    key: "business.currencies", section: "business", type: "multi", required: true, prompt: "Which currencies do customers pay in?", options: CURRENCIES,
+    key: "business.currencies", section: "business", type: "multi", required: true, prompt: msg("Which currencies do customers pay in?"), options: CURRENCIES,
     suggest: (a) => {
       const c = ((a["business.countries"] as string[]) ?? []).map((x) => COUNTRY_CURRENCY[x]).filter(Boolean);
       return c.length ? [...new Set(c)] : null;
     },
   },
-  { key: "business.value", section: "business", type: "longtext", required: false, prompt: "What is the main value users get?", placeholder: "Hot food delivered in under 40 minutes." },
+  { key: "business.value", section: "business", type: "longtext", required: false, prompt: msg("What is the main value users get?"), placeholder: msg("Hot food delivered in under 40 minutes.") },
 
   // ── App ───────────────────────────────────────────────────────────────────
-  { key: "app.primary_action", section: "app", type: "text", required: true, prompt: "What does a user primarily do in the app?", placeholder: "Order food from nearby restaurants" },
-  { key: "app.first_action", section: "app", type: "text", required: false, prompt: "What should a new user do first?", placeholder: "Set their delivery address and browse restaurants" },
-  { key: "app.has_signup", section: "app", type: "boolean", required: true, prompt: "Do users create an account?" },
-  { key: "app.has_onboarding", section: "app", type: "boolean", required: true, prompt: "Is there an onboarding flow after install or signup?" },
+  { key: "app.primary_action", section: "app", type: "text", required: true, prompt: msg("What does a user primarily do in the app?"), placeholder: msg("Order food from nearby restaurants") },
+  { key: "app.first_action", section: "app", type: "text", required: false, prompt: msg("What should a new user do first?"), placeholder: msg("Set their delivery address and browse restaurants") },
+  { key: "app.has_signup", section: "app", type: "boolean", required: true, prompt: msg("Do users create an account?") },
+  { key: "app.has_onboarding", section: "app", type: "boolean", required: true, prompt: msg("Is there an onboarding flow after install or signup?") },
   {
-    key: "app.features", section: "app", type: "multi", required: true, prompt: "Which of these does your app have?",
+    key: "app.features", section: "app", type: "multi", required: true, prompt: msg("Which of these does your app have?"),
     options: FEATURES.filter((f) => f !== "onboarding").map((f) => ({ value: f, label: FEATURE_LABELS[f] })),
     suggest: (a) => MODELS[model(a)].defaultFeatures.filter((f) => f !== "onboarding"),
   },
-  { key: "app.multiple_user_types", section: "app", type: "boolean", required: true, prompt: "Are there different kinds of users (e.g. buyers and sellers, students and teachers)?", suggest: (a) => (a["business.model"] === "marketplace" ? true : null) },
-  { key: "app.user_types", section: "app", type: "text", required: true, prompt: "List the user types, separated by commas.", placeholder: "buyer, seller", when: (a) => a["app.multiple_user_types"] === true },
-  { key: "app.return_driver", section: "app", type: "text", required: false, prompt: "What makes users come back?", placeholder: "Weekly offers and reordering favourites" },
-  { key: "app.churn_causes", section: "app", type: "text", required: false, prompt: "Why do users stop using the app, if you know?" },
+  { key: "app.multiple_user_types", section: "app", type: "boolean", required: true, prompt: msg("Are there different kinds of users (e.g. buyers and sellers, students and teachers)?"), suggest: (a) => (a["business.model"] === "marketplace" ? true : null) },
+  { key: "app.user_types", section: "app", type: "text", required: true, prompt: msg("List the user types, separated by commas."), placeholder: msg("buyer, seller"), when: (a) => a["app.multiple_user_types"] === true },
+  { key: "app.return_driver", section: "app", type: "text", required: false, prompt: msg("What makes users come back?"), placeholder: msg("Weekly offers and reordering favourites") },
+  { key: "app.churn_causes", section: "app", type: "text", required: false, prompt: msg("Why do users stop using the app, if you know?") },
 
   // ── Monetization ──────────────────────────────────────────────────────────
   {
-    key: "monetization.streams", section: "monetization", type: "multi", required: true, prompt: "How do you make money?",
-    options: opts([["one_time", "One-time purchases / orders"], ["subscriptions", "Subscriptions"], ["commission", "Commissions / service fees"], ["iap", "In-app purchases (store billing)"], ["ads", "Advertising"], ["leads", "Selling or qualifying leads"], ["none", "Not monetised yet"]]),
+    key: "monetization.streams", section: "monetization", type: "multi", required: true, prompt: msg("How do you make money?"),
+    options: opts([["one_time", msg("One-time purchases / orders")], ["subscriptions", msg("Subscriptions")], ["commission", msg("Commissions / service fees")], ["iap", msg("In-app purchases (store billing)")], ["ads", msg("Advertising")], ["leads", msg("Selling or qualifying leads")], ["none", msg("Not monetised yet")]]),
     suggest: (a) => {
       const m = model(a);
       return ({ ecommerce: ["one_time"], delivery: ["one_time", "commission"], marketplace: ["commission"], subscription: ["subscriptions"], saas: ["subscriptions"], gaming: ["iap"], advertising: ["ads"], lead_generation: ["leads"], fintech: ["commission"], booking: ["one_time"], healthcare: ["one_time"] } as Partial<Record<BusinessModel, string[]>>)[m] ?? null;
@@ -116,47 +117,47 @@ export const QUESTIONS: Question[] = [
   },
   {
     key: "monetization.payment_confirmation", section: "monetization", type: "single", required: true,
-    prompt: "Where is a payment confirmed?",
-    help: "Revenue should come from the system that knows the payment succeeded.",
-    options: opts([["backend", "Our backend / payment provider webhook"], ["store", "App Store / Google Play (store billing)"], ["client_only", "Only in the app (no server confirmation)"], ["cash", "Cash on delivery, confirmed by our ops"]]),
+    prompt: msg("Where is a payment confirmed?"),
+    help: msg("Revenue should come from the system that knows the payment succeeded."),
+    options: opts([["backend", msg("Our backend / payment provider webhook")], ["store", msg("App Store / Google Play (store billing)")], ["client_only", msg("Only in the app (no server confirmation)")], ["cash", msg("Cash on delivery, confirmed by our ops")]]),
     when: (a) => Array.isArray(a["monetization.streams"]) && !has(a, "monetization.streams", "none") && (a["monetization.streams"] as string[]).some((s) => ["one_time", "subscriptions", "commission", "iap"].includes(s)),
   },
-  { key: "monetization.billing_periods", section: "monetization", type: "multi", required: true, prompt: "Which billing periods do you offer?", options: opts([["weekly", "Weekly"], ["monthly", "Monthly"], ["quarterly", "Quarterly"], ["yearly", "Yearly"], ["lifetime", "Lifetime"]]), when: (a) => has(a, "monetization.streams", "subscriptions") },
-  { key: "monetization.has_trial", section: "monetization", type: "boolean", required: true, prompt: "Do you offer a free trial?", when: (a) => has(a, "monetization.streams", "subscriptions") },
-  { key: "monetization.has_refunds", section: "monetization", type: "boolean", required: true, prompt: "Do you issue refunds or partial refunds?", when: (a) => has(a, "monetization.streams", "one_time") || has(a, "monetization.streams", "commission") },
+  { key: "monetization.billing_periods", section: "monetization", type: "multi", required: true, prompt: msg("Which billing periods do you offer?"), options: opts([["weekly", msg("Weekly")], ["monthly", msg("Monthly")], ["quarterly", msg("Quarterly")], ["yearly", msg("Yearly")], ["lifetime", msg("Lifetime")]]), when: (a) => has(a, "monetization.streams", "subscriptions") },
+  { key: "monetization.has_trial", section: "monetization", type: "boolean", required: true, prompt: msg("Do you offer a free trial?"), when: (a) => has(a, "monetization.streams", "subscriptions") },
+  { key: "monetization.has_refunds", section: "monetization", type: "boolean", required: true, prompt: msg("Do you issue refunds or partial refunds?"), when: (a) => has(a, "monetization.streams", "one_time") || has(a, "monetization.streams", "commission") },
 
   // ── Journey ───────────────────────────────────────────────────────────────
   {
     key: "journey.description", section: "journey", type: "longtext", required: true,
-    prompt: "How does someone go from discovering your app to becoming a customer?",
-    placeholder: "Users see a TikTok ad, install the app, register, browse products, add products to cart, checkout and pay.",
-    help: "Describe it step by step in plain language. We turn it into events.",
+    prompt: msg("How does someone go from discovering your app to becoming a customer?"),
+    placeholder: msg("Users see a TikTok ad, install the app, register, browse products, add products to cart, checkout and pay."),
+    help: msg("Describe it step by step in plain language. We turn it into events."),
   },
 
   // ── Attribution ───────────────────────────────────────────────────────────
-  { key: "attribution.channels", section: "attribution", type: "multi", required: true, prompt: "Where do your users come from?", options: ATTRIBUTION_CHANNELS.map((c) => ({ value: c, label: CHANNEL_LABELS[c] })) },
-  { key: "attribution.main_channel", section: "attribution", type: "single", required: false, prompt: "Which one brings the most users?", options: (a) => ((a["attribution.channels"] as string[]) ?? []).map((c) => ({ value: c, label: CHANNEL_LABELS[c as keyof typeof CHANNEL_LABELS] ?? c })), when: (a) => Array.isArray(a["attribution.channels"]) && (a["attribution.channels"] as string[]).length > 1 },
-  { key: "attribution.existing_mmp", section: "attribution", type: "single", required: true, prompt: "Do you already use a mobile measurement partner?", options: opts([["none", "No"], ["appsflyer", "AppsFlyer"], ["adjust", "Adjust"], ["branch", "Branch"], ["other", "Another one"]]) },
+  { key: "attribution.channels", section: "attribution", type: "multi", required: true, prompt: msg("Where do your users come from?"), options: ATTRIBUTION_CHANNELS.map((c) => ({ value: c, label: CHANNEL_LABELS[c] })) },
+  { key: "attribution.main_channel", section: "attribution", type: "single", required: false, prompt: msg("Which one brings the most users?"), options: (a) => ((a["attribution.channels"] as string[]) ?? []).map((c) => ({ value: c, label: CHANNEL_LABELS[c as keyof typeof CHANNEL_LABELS] ?? c })), when: (a) => Array.isArray(a["attribution.channels"]) && (a["attribution.channels"] as string[]).length > 1 },
+  { key: "attribution.existing_mmp", section: "attribution", type: "single", required: true, prompt: msg("Do you already use a mobile measurement partner?"), options: opts([["none", msg("No")], ["appsflyer", "AppsFlyer"], ["adjust", "Adjust"], ["branch", "Branch"], ["other", msg("Another one")]]) },
   {
-    key: "attribution.authoritative", section: "attribution", type: "single", required: true, prompt: "Which should be the source of truth for attribution?",
-    help: "You don't have to remove your MMP. We can receive its attribution and use it as authoritative.",
-    options: opts([["mmp", "Keep my MMP as source of truth"], ["native", "Use this platform's native attribution"]]),
+    key: "attribution.authoritative", section: "attribution", type: "single", required: true, prompt: msg("Which should be the source of truth for attribution?"),
+    help: msg("You don't have to remove your MMP. We can receive its attribution and use it as authoritative."),
+    options: opts([["mmp", msg("Keep my MMP as source of truth")], ["native", msg("Use this platform's native attribution")]]),
     when: (a) => typeof a["attribution.existing_mmp"] === "string" && a["attribution.existing_mmp"] !== "none",
   },
 
   // ── Value ─────────────────────────────────────────────────────────────────
   {
     key: "value.activation_event", section: "value", type: "single", required: true,
-    prompt: "What action proves a user received value from your product?",
-    help: "This is your activation moment. Signup alone usually isn't it.",
+    prompt: msg("What action proves a user received value from your product?"),
+    help: msg("This is your activation moment. Signup alone usually isn't it."),
     options: (a) => eventOptions([...MODELS[model(a)].activationCandidates, "signup_completed", "onboarding_completed"]),
     suggest: (a) => MODELS[model(a)].activationCandidates[0] ?? null,
     allowOther: true,
   },
   {
     key: "value.north_star_event", section: "value", type: "single", required: true,
-    prompt: "Which repeated behaviour best represents the value your product creates?",
-    help: "Your north star. We'll use it across analytics.",
+    prompt: msg("Which repeated behaviour best represents the value your product creates?"),
+    help: msg("Your north star. We'll use it across analytics."),
     options: (a) => eventOptions([...MODELS[model(a)].northStarCandidates, ...MODELS[model(a)].activationCandidates]),
     suggest: (a) => MODELS[model(a)].northStarCandidates[0] ?? null,
     allowOther: true,
@@ -222,13 +223,13 @@ export function coerceAnswers(section: SectionKey, raw: Record<string, unknown>,
       const s = typeof v === "string" ? v.trim() : "";
       const allowed = new Set(optionsFor(q, merged).map((o) => o.value));
       if (s && (allowed.has(s) || (q.allowOther && /^[a-z][a-z0-9_]{1,63}$/.test(s)))) value = s;
-      else if (s) errors[q.key] = q.allowOther ? "Choose an option or enter an event name in snake_case." : "Choose an option.";
+      else if (s) errors[q.key] = q.allowOther ? msg("Choose an option or enter an event name in snake_case.") : msg("Choose an option.");
     } else {
       const s = typeof v === "string" ? v.trim().slice(0, 2000) : "";
       value = s || null;
     }
     const empty = value === null || (Array.isArray(value) && value.length === 0);
-    if (q.required && empty && !errors[q.key]) errors[q.key] = "This question needs an answer.";
+    if (q.required && empty && !errors[q.key]) errors[q.key] = msg("This question needs an answer.");
     out[q.key] = value;
     merged[q.key] = value;
   }

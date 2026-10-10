@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { archiveApp, createApp, restoreApp, setEnvironmentStatus, updateApp, updateAppLocale } from "@/modules/apps/service";
 import { createApiKey, createSdkKey, revokeApiKey, revokeSdkKey, rotateSdkKey } from "@/modules/credentials/service";
+import { msg } from "@/i18n/translate";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { requireTenant } from "@/server/session";
 
@@ -38,7 +39,7 @@ export async function updateAppAction(orgSlug: string, appId: string, _: ActionS
       category: form.get("category") || undefined,
     });
     refreshWorkspace(orgSlug);
-    return { ok: true, message: "Saved." };
+    return { ok: true, message: msg("Saved.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -48,7 +49,7 @@ export async function updateAppLocaleAction(orgSlug: string, appId: string, _: A
   try {
     await updateAppLocale(await requireTenant(orgSlug), appId, { timezone: form.get("timezone"), defaultCurrency: form.get("currency") });
     refreshWorkspace(orgSlug);
-    return { ok: true, message: "Saved. Reports use the new timezone and currency from now on." };
+    return { ok: true, message: msg("Saved. Reports use the new timezone and currency from now on.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -68,7 +69,7 @@ export async function restoreAppAction(orgSlug: string, appId: string, _: Action
   try {
     await restoreApp(await requireTenant(orgSlug), appId);
     refreshWorkspace(orgSlug);
-    return { ok: true, message: "Project restored. Its SDK keys work again." };
+    return { ok: true, message: msg("Project restored. Its SDK keys work again.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -78,7 +79,7 @@ export async function setEnvironmentStatusAction(orgSlug: string, environmentId:
   try {
     await setEnvironmentStatus(await requireTenant(orgSlug), environmentId, status);
     refreshWorkspace(orgSlug);
-    return { ok: true, message: status === "active" ? "Environment resumed." : "Environment paused." };
+    return { ok: true, message: status === "active" ? msg("Environment resumed.") : msg("Environment paused.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -90,7 +91,7 @@ export async function createSdkKeyAction(orgSlug: string, appSlug: string, envir
   try {
     await createSdkKey(await requireTenant(orgSlug), environmentId, "Additional");
     revalidatePath(keysPath(orgSlug, appSlug));
-    return { ok: true, message: "Key created." };
+    return { ok: true, message: msg("Key created.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -100,7 +101,7 @@ export async function rotateSdkKeyAction(orgSlug: string, appSlug: string, keyId
   try {
     await rotateSdkKey(await requireTenant(orgSlug), keyId, Number(form.get("graceHours") ?? 72));
     revalidatePath(keysPath(orgSlug, appSlug));
-    return { ok: true, message: "New key issued. The old key keeps working until its grace period ends." };
+    return { ok: true, message: msg("New key issued. The old key keeps working until its grace period ends.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -110,7 +111,7 @@ export async function revokeSdkKeyAction(orgSlug: string, appSlug: string, keyId
   try {
     await revokeSdkKey(await requireTenant(orgSlug), keyId);
     revalidatePath(keysPath(orgSlug, appSlug));
-    return { ok: true, message: "Key revoked." };
+    return { ok: true, message: msg("Key revoked.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -134,7 +135,7 @@ export async function revokeApiKeyAction(orgSlug: string, appSlug: string, keyId
   try {
     await revokeApiKey(await requireTenant(orgSlug), keyId);
     revalidatePath(keysPath(orgSlug, appSlug));
-    return { ok: true, message: "Key revoked." };
+    return { ok: true, message: msg("Key revoked.") };
   } catch (err) {
     return toActionError(err);
   }

@@ -8,6 +8,8 @@ import { LIMITS } from "./schema";
 import { ingest } from "./service";
 import { log } from "@/lib/log";
 import { envNumber } from "@/lib/env-number";
+import { hashIp } from "@/lib/secret-box";
+import { createHash } from "node:crypto";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -18,6 +20,18 @@ const CORS = {
 };
 
 const PER_MINUTE = envNumber("INGEST_EVENTS_PER_MINUTE", 6000);
+/** Per API key, so one leaked or misused key cannot use an environment's whole budget when it has several keys. */
+const PER_KEY_PER_MINUTE = envNumber("INGEST_EVENTS_PER_KEY_PER_MINUTE", 6000);
+/**
+ * Per client IP, for public SDK keys only: a server sending with a secret key is one IP for many
+ * users. Generous by default because mobile carriers put many users behind one IP.
+ */
+const PER_IP_PER_MINUTE = envNumber("INGEST_EVENTS_PER_IP_PER_MINUTE", 1200);
+
+/** The rate-limit table never holds a raw IP: the keyed attribution hash, or a plain hash when no secret is set. */
+function ipBucket(appId: string, ip: string): string {
+  return hashIp(appId, ip) ?? createHash("sha256").update(ip).digest("base64url").slice(0, 32);
+}
 
 function json(status: number, body: unknown, extra: Record<string, string> = {}) {
   return new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json", ...CORS, ...extra } });
@@ -54,7 +68,8 @@ export async function handleIngest(req: Request, mode: "single" | "batch"): Prom
       return json(413, { error: errorCode, message: `Body exceeds ${max} bytes.` });
     }
     const text = await req.text();
-    if (text.length > max) {
+    // The limit is in bytes: text.length counts UTF-16 code units, which undercounts non-ASCII bodies.
+    if (Buffer.byteLength(text, "utf8") > max) {
       status = 413;
       errorCode = "payload_too_large";
       return json(413, { error: errorCode, message: `Body exceeds ${max} bytes.` });
@@ -68,13 +83,21 @@ export async function handleIngest(req: Request, mode: "single" | "batch"): Prom
       return json(400, { error: errorCode, message: "Body is not valid JSON." });
     }
     const count = mode === "batch" && Array.isArray((payload as { batch?: unknown[] })?.batch) ? (payload as { batch: unknown[] }).batch.length : 1;
-    const wait = await consumeRateLimit(`ingest:${principal.environmentId}`, PER_MINUTE, 60, Math.max(1, count));
-    if (wait) {
-      status = 429;
-      errorCode = "rate_limited";
-      return json(429, { error: errorCode, message: "Event rate limit exceeded for this environment." }, { "Retry-After": String(wait) });
-    }
+    const cost = Math.max(1, count);
     const clientIp = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || req.headers.get("x-real-ip") || null;
+    const limits: [key: string, limit: number, scope: string][] = [
+      [`ingest:${principal.environmentId}`, PER_MINUTE, "this environment"],
+      [`ingest:key:${principal.keyId}`, PER_KEY_PER_MINUTE, "this API key"],
+    ];
+    if (principal.kind === "sdk" && clientIp) limits.push([`ingest:ip:${principal.environmentId}:${ipBucket(principal.appId, clientIp)}`, PER_IP_PER_MINUTE, "this IP address"]);
+    for (const [key, limit, scope] of limits) {
+      const wait = await consumeRateLimit(key, limit, 60, cost);
+      if (wait) {
+        status = 429;
+        errorCode = "rate_limited";
+        return json(429, { error: errorCode, message: `Event rate limit exceeded for ${scope}.` }, { "Retry-After": String(wait) });
+      }
+    }
     const result = await ingest(principal, payload, { mode, idempotencyKey: req.headers.get("idempotency-key"), clientIp });
     status = result.status;
     if (status >= 400 && "error" in result.body) errorCode = result.body.error;

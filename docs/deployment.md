@@ -25,8 +25,9 @@ smoke test writes only to the development data environment of an internal app).
 
 ```
 merge to staging (or main)
-  → GitHub Actions "Deploy" (.github/workflows/deploy.yml), environment staging (or production: waits for a reviewer)
-      1. refuses if the branch does not match the environment or a secret is missing
+  → GitHub Actions "CI" on that commit
+  → when CI succeeded: "Deploy" (.github/workflows/deploy.yml), environment staging (or production: waits for a reviewer)
+      1. refuses if a secret is missing or the branch moved past the tested commit (before any migration)
       2. npm run db:migrate            (forward-only, each file in its own transaction)
       3. psql -f db/ops/schedule.sql   (pg_cron job, idempotent)
       4. POST the Vercel deploy hook   (builds that branch on Vercel)
@@ -35,6 +36,9 @@ merge to staging (or main)
 
 Vercel's automatic Git deploys are turned off for `main` and `staging` in
 `apps/platform/vercel.json`, so code is only deployed after its migrations ran.
+Deploy never runs for a commit whose CI failed, and has no manual trigger; see
+[deploy safety and branch protection](ops/deploy-and-branch-protection.md) for
+the gating, the required secrets and the branch protection the owner turns on.
 Pull requests still get Vercel previews and CI (lint, typecheck, unit,
 integration against Postgres, migrations on an empty database, build, browser
 tests).
@@ -48,7 +52,7 @@ migration.
 
 `/api/internal/process-events` retries privacy deletions, drains events the
 per-request `after()` hook missed, runs re-map and growth jobs, housekeeping,
-usage notices, attribution postbacks and engagement (audiences, automations,
+usage notices, attribution postbacks, ad cost import ([integrations](integrations.md)) and engagement (audiences, automations,
 webhooks). It needs a schedule:
 
 - **Supabase `pg_cron` + `pg_net`** call it (`db/ops/schedule.sql`): every 5
@@ -85,15 +89,19 @@ webhooks). It needs a schedule:
    - `DATABASE_URL` (transaction pooler URL), `DATABASE_SSL=require`
    - `CRON_SECRET` (`openssl rand -base64 32`, different per environment)
    - `PUBLIC_API_URL`, `PUBLIC_APP_URL` (`https://api.leanapp.io`, `https://app.leanapp.io` in production)
-   - `INTEGRATIONS_ENCRYPTION_KEY` (`openssl rand -hex 32`, keep stable)
+   - `INTEGRATIONS_ENCRYPTION_KEY` (`openssl rand -hex 32`, keep stable). Customers' WhatsApp (Meta) and Twilio credentials are entered per environment in the dashboard and encrypted with it. No platform-level Meta or Twilio variable exists; the `*_API_BASE_URL` mock overrides (`WHATSAPP_API_BASE_URL`, `TWILIO_API_BASE_URL`, `TWILIO_CONTENT_API_BASE_URL`) are ignored on deployments. See [messaging](messaging.md#owner-actions-live-use).
    - `ATTRIBUTION_IP_HASH_SECRET` (`openssl rand -base64 32`)
    - `RESEND_API_KEY`, `EMAIL_FROM` (e.g. `LeanApp <no-reply@leanapp.io>`)
-   - Optional: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` ([billing](billing.md)); `EVENT_RETENTION` stays unset (deletion is off until paid plans are final).
+   - Optional: `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET` and `STRIPE_PRICE_<PLAN>_<MONTHLY|ANNUAL>` ([billing](billing.md): test keys on Preview, live keys on Production only; follow its owner activation guide); `EVENT_RETENTION` stays unset (deletion is off until paid plans are final); `DEMO_ENABLED=1` turns on the public read-only demo (sample data with installs by source and daily ad spend for the paid ones, plus the journeys of people who installed up to 150 days ago, stored directly so Churn and RFM segments have history; refreshed by the scheduled worker; an existing demo gets its spend and history filled in on the next refresh). With `EVENT_RETENTION=enforce`, plan retention would delete the older demo history.
+   - Optional, media library ([media](media.md)): nothing for the default Postgres storage. For object storage set `MEDIA_STORAGE_DRIVER=s3` and `MEDIA_S3_ENDPOINT`, `MEDIA_S3_REGION`, `MEDIA_S3_BUCKET`, `MEDIA_S3_ACCESS_KEY_ID`, `MEDIA_S3_SECRET_ACCESS_KEY` (a private bucket and a key limited to it); `MEDIA_S3_FORCE_PATH_STYLE=false` for virtual-hosted URLs. `MEDIA_MAX_UPLOAD_BYTES` stays unset on Vercel (4 MB default, under its 4.5 MB request limit). A missing S3 variable fails the startup configuration check.
+   - Optional, ad reporting "Connect with …" buttons ([integrations](integrations.md#owner-actions)): `META_APP_ID`/`META_APP_SECRET`, `GOOGLE_ADS_CLIENT_ID`/`GOOGLE_ADS_CLIENT_SECRET`/`GOOGLE_ADS_DEVELOPER_TOKEN` (and optionally `GOOGLE_ADS_API_VERSION`), `TIKTOK_APP_ID`/`TIKTOK_APP_SECRET`, `SNAPCHAT_CLIENT_ID`/`SNAPCHAT_CLIENT_SECRET`. Without them customers paste their own credentials. Meta, TikTok and Snap website events, hashed user data and Google Enhanced Conversions need no variable (per-postback customer credentials; TikTok / Snap owner steps: [tiktok-snap-integration](tiktok-snap-integration.md)). `APPLE_ADSERVICES_LOOKUP=off` stops the worker's Apple Search Ads token lookups (on by default, no credentials). Meta app review and business verification steps: [meta-integration](meta-integration.md).
+   - Monitoring ([ops/monitoring.md](ops/monitoring.md)): `ALERT_WEBHOOK_URL` (Slack/Discord webhook), optionally `SENTRY_DSN`, and `MONITORING_SECRET` for the uptime check of `/api/internal/worker-status`.
 6. **GitHub environments** (repository Settings → Environments): create
    `staging` and `production`; on `production` add yourself as a required
-   reviewer and restrict it to the `main` branch. In each, add secrets
+   reviewer and restrict it to the `main` branch (leave `staging` unrestricted:
+   Deploy runs from `workflow_run`, whose ref is always `main`). In each, add secrets
    `DATABASE_URL` (session pooler or direct URL), `CRON_SECRET` (same value as
-   in Vercel), `APP_URL`, `VERCEL_DEPLOY_HOOK_URL`, and optionally
+   in Vercel), `APP_URL`, `VERCEL_DEPLOY_HOOK_URL` (required for production), and optionally
    `VERCEL_BYPASS` (staging) and `SMOKE_SDK_KEY`; and a variable
    `WORKER_SCHEDULE` = `*/5 * * * *` (production) or `*/15 * * * *` (staging).
 7. **First deploy.** Create the `staging` branch from `main` (or merge into
@@ -116,3 +124,13 @@ The workflow's smoke step prints each check. By hand:
 ## Releasing the SDKs
 
 See [sdk-release](sdk-release.md). Nothing is published automatically.
+
+## Marketing-only production (MARKETING_ONLY=1)
+
+Until the production app has its own database and settings, the Vercel production environment runs with `MARKETING_ONLY=1` and nothing else. In this mode:
+
+- Only the public pages are served: `/`, `/features`, `/pricing`, `/about`, `/developers`, plus `/lang` and `/theme`. Every other page redirects to `/`; `/v1/*`, `/api/*` and `/.well-known/*` return 404 (`src/lib/marketing-only.ts`, `src/proxy.ts`).
+- No database is used. "Start now" and "Sign in" become **Request access** and the demo buttons become **Get a demo**, both emails to hello@leanapp.io.
+- The configuration check reports a single warning instead of errors, and the public pages are indexable (staging and the app stay `noindex`).
+
+To turn the full app on in production later: create the production database and settings listed above, then remove `MARKETING_ONLY` and redeploy.

@@ -6,6 +6,7 @@ import { audit } from "@/modules/audit/service";
 import { assertCan } from "@/modules/rbac/authorize";
 import type { TenantContext } from "@/modules/tenancy/context";
 import type { Requester } from "./service";
+import { msg } from "@/i18n/translate";
 
 /**
  * End-user consent and suppression lists, per environment.
@@ -35,7 +36,7 @@ import type { Requester } from "./service";
 
 export const PURPOSES = ["analytics", "marketing", "push", "attribution"] as const;
 export type Purpose = (typeof PURPOSES)[number];
-export const CHANNELS = ["marketing", "push", "email", "whatsapp"] as const;
+export const CHANNELS = ["marketing", "push", "email", "whatsapp", "sms"] as const;
 export type Channel = (typeof CHANNELS)[number];
 export type ConsentSource = "sdk" | "api" | "dashboard";
 
@@ -309,7 +310,7 @@ const lookupSchema = z
     userId: z.string().trim().max(256).optional().transform((v) => v || undefined),
     anonymousId: z.string().trim().max(256).optional().transform((v) => v || undefined),
   })
-  .refine((s) => s.userId || s.anonymousId, "Provide a user_id, an anonymous_id, or both.");
+  .refine((s) => s.userId || s.anonymousId, msg("Provide a user_id, an anonymous_id, or both."));
 
 export interface ConsentHistoryRow {
   purpose: Purpose;
@@ -341,7 +342,7 @@ export interface ConsentLookup {
 /** One person's or install's current consent (stitched across both ids), history (newest first, ≤200) and suppressions. */
 export async function lookupConsent(req: Requester, environmentId: string, input: unknown): Promise<ConsentLookup> {
   const parsed = lookupSchema.safeParse(input);
-  if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid subject.");
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? msg("Invalid subject."));
   const keys = userKeysOf(parsed.data);
   return withTenant(scopeOf(req), async (db) => {
     await assertEnvironment(db, req, environmentId);
@@ -366,15 +367,15 @@ const suppressionInput = z
   .object({
     userId: z.string().trim().max(256).optional().transform((v) => v || undefined),
     anonymousId: z.string().trim().max(256).optional().transform((v) => v || undefined),
-    channels: z.array(z.enum(CHANNELS)).min(1, "Choose at least one channel: marketing, push, email or whatsapp.").max(4),
+    channels: z.array(z.enum(CHANNELS)).min(1, msg("Choose at least one channel: marketing, push, email, whatsapp or sms.")).max(5),
     reason: z.string().trim().max(500).optional().transform((v) => v || undefined),
   })
-  .refine((s) => s.userId || s.anonymousId, "Provide a user_id or an anonymous_id.");
+  .refine((s) => s.userId || s.anonymousId, msg("Provide a user_id or an anonymous_id."));
 
 /** Adds a user key to the suppression list for each channel. Repeating an add only updates the reason. */
 export async function addSuppression(req: Requester, environmentId: string, input: unknown): Promise<{ userKey: string; channels: Channel[] }> {
   const parsed = suppressionInput.safeParse(input);
-  if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid suppression.");
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? msg("Invalid suppression."));
   const s = parsed.data;
   const userKey = userKeyOf(s)!;
   const channels = [...new Set(s.channels)];
@@ -408,7 +409,7 @@ export async function addSuppression(req: Requester, environmentId: string, inpu
  */
 export async function removeSuppression(req: Requester, environmentId: string, input: unknown): Promise<{ userKey: string; removed: number; remaining: Channel[] }> {
   const parsed = suppressionInput.safeParse(input);
-  if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? "Invalid suppression.");
+  if (!parsed.success) throw new ValidationError(parsed.error.issues[0]?.message ?? msg("Invalid suppression."));
   const s = parsed.data;
   const userKey = userKeyOf(s)!;
   const scope = scopeOf(req);
@@ -448,12 +449,12 @@ export async function listSuppressions(
   environmentId: string,
   opts: { channel?: string; userKey?: string; limit?: number; before?: string } = {},
 ): Promise<{ rows: SuppressionRow[]; cursor: string | null }> {
-  if (opts.channel && !(CHANNELS as readonly string[]).includes(opts.channel)) throw new ValidationError("channel must be marketing, push, email or whatsapp.");
+  if (opts.channel && !(CHANNELS as readonly string[]).includes(opts.channel)) throw new ValidationError(msg("channel must be marketing, push, email, whatsapp or sms."));
   const limit = Math.min(Math.max(Math.trunc(opts.limit ?? 100) || 100, 1), SUPPRESSION_PAGE_MAX);
   let after: { at: string; id: string } | null = null;
   if (opts.before) {
     const [at, id] = Buffer.from(opts.before, "base64url").toString("utf8").split("|");
-    if (!at || !id || Number.isNaN(Date.parse(at)) || !z.string().uuid().safeParse(id).success) throw new ValidationError("Invalid cursor.");
+    if (!at || !id || Number.isNaN(Date.parse(at)) || !z.string().uuid().safeParse(id).success) throw new ValidationError(msg("Invalid cursor."));
     after = { at, id };
   }
   return withTenant(scopeOf(req), async (db) => {
@@ -484,7 +485,7 @@ export async function suppressionCounts(ctx: TenantContext, environmentId: strin
       [environmentId],
     ),
   );
-  const out: Record<Channel, number> = { marketing: 0, push: 0, email: 0, whatsapp: 0 };
+  const out: Record<Channel, number> = { marketing: 0, push: 0, email: 0, whatsapp: 0, sms: 0 };
   for (const r of rows) out[r.channel] = Number(r.n);
   return out;
 }

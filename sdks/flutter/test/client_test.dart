@@ -117,9 +117,10 @@ void main() {
       final call = s.calls[0];
       expect(call.request.url.toString(), 'https://api.example.test/v1/events/batch');
       expect(call.request.headers['Authorization'], 'Bearer $key');
-      expect(call.request.headers['Idempotency-Key'], 'id-2:4');
       expect(call.body['sent_at'], isA<String>());
       final b = call.batch;
+      // batch size : hash of every event id : first event id
+      expect(call.request.headers['Idempotency-Key'], '4:${eventIdsHash(b.map((e) => e['event_id'] as String).toList())}:id-2');
       expect(b[0]['type'], 'track');
       expect(b[0]['event_name'], 'product_viewed');
       expect(b[0]['properties'], {'product_id': 'p1'});
@@ -232,6 +233,30 @@ void main() {
       expect(sent.map((e) => e['event_id']).toList(), s.calls[0].batch.map((e) => e['event_id']).toList());
       expect(s.calls.last.request.headers['Idempotency-Key'], s.calls[0].request.headers['Idempotency-Key']);
       expect(second.client.anonymousId, anon);
+    });
+
+    test('derives the Idempotency-Key from every event id in the batch', () {
+      // FNV-1a 32-bit over the UTF-8 ids joined by "\n"; same vectors as the JavaScript SDK.
+      expect(eventIdsHash(['a']), 'e40c292c');
+      expect(eventIdsHash(['a', 'b']), '28e4c710');
+      expect(eventIdsHash(['\u00e9\u{1F600}']), '039d63cc');
+      expect(idempotencyKey(['id-2', 'id-3']), '2:408dab4a:id-2');
+      // Same first id and size but different events (the queue changed before a retry): different key.
+      expect(idempotencyKey(['A', 'B']), isNot(idempotencyKey(['A', 'C'])));
+      expect(idempotencyKey(['A', 'B']), isNot(idempotencyKey(['B', 'A'])));
+    });
+
+    test('resends without the Idempotency-Key when the server says the key was used for other events', () async {
+      final s = Server((c, n) => n == 1 ? http.Response('{"error":"idempotency_key_reused"}', 409) : Server.ok(c.batch.length));
+      final h = make(s);
+      h.client.track('a');
+      h.client.track('b');
+      expect(await h.client.flush(), const FlushResult.retry(0, 'idempotency key already used for other events; resending without it'));
+      expect(h.client.queueLength, 2); // never dropped
+      expect(await h.client.flush(), const FlushResult.sent(2, 0, 0));
+      expect(s.calls[0].request.headers['Idempotency-Key'], isNotNull);
+      expect(s.calls[1].request.headers.containsKey('Idempotency-Key'), isFalse);
+      expect(h.client.queueLength, 0);
     });
 
     test('honours Retry-After on 429', () async {

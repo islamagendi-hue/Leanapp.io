@@ -14,6 +14,7 @@ import { ingest } from "@/modules/ingestion/service";
 import { signUp } from "@/modules/auth/service";
 import { changeMemberRole, listMembers, removeMember } from "@/modules/organizations/service";
 import { processPendingEvents } from "@/modules/processing/processor";
+import { saveSpend } from "@/modules/attribution/spend";
 import { resolveTenant } from "@/modules/tenancy/context";
 import { makeTenant } from "./helpers";
 
@@ -32,6 +33,7 @@ async function seedData(t: T) {
   }, { mode: "batch" });
   await processPendingEvents();
   await createApiKey(t.ctx, t.dev.id, { label: "server" });
+  await saveSpend(t.ctx, { appId: t.app.id, environmentId: t.dev.id, timezone: "UTC" }, { date: "2026-01-15", source: "tiktok", currency: "SAR", amount: "100" });
   await saveAnswers(t.ctx, t.app.id, "business", { "business.description": "Food delivery", "business.model": "delivery", "business.customer_type": "b2c", "business.countries": ["SA"], "business.currencies": ["SAR"] });
 }
 

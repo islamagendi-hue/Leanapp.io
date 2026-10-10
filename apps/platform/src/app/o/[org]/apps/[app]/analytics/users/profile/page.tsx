@@ -1,12 +1,21 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
-import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
+import { AnalyticsHeader, param, rich } from "@/components/AnalyticsHeader";
+import { EventName } from "@/components/EventName";
+import { getLang, getT } from "@/i18n/server";
+import { dateLocale } from "@/i18n/translate";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import { eventLabels } from "@/modules/analytics/labels";
 import { getProfile, profileTimeline, type PersonRef, type Profile } from "@/modules/analytics/profiles";
 import { NO_CURRENCY } from "@/modules/analytics/revenue";
+import { CLARITY_ANONYMOUS_TAG } from "@/modules/integrations/clarity";
+import { clarityProfileLink } from "@/modules/integrations/clarity-service";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "User profile" };
+export async function generateMetadata() {
+  const t = await getT();
+  return { title: t("User profile") };
+}
 
 const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -15,6 +24,7 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "users.read");
+  const [t, lang] = await Promise.all([getT(), getLang()]);
   const env = await pickEnvironment(environments, sp.env);
   const userId = param(sp.user);
   const anonymousId = param(sp.anon);
@@ -33,33 +43,36 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
     if (e instanceof NotFoundError || e instanceof ValidationError) notFound();
     throw e;
   }
+  const clarity = await clarityProfileLink(ctx, a.id, env.id);
   const timeline = await profileTimeline(ctx, { environmentId: env.id }, ref, { cursor: param(sp.before) });
-  const when = (d: Date | null) => (d ? new Date(d).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "medium", timeZone: a.timezone }) : "–");
+  const when = (d: Date | null) => (d ? new Date(d).toLocaleString(dateLocale(lang), { dateStyle: "medium", timeStyle: "medium", timeZone: a.timezone }) : "–");
   const self: Record<string, string> = userId ? { user: userId } : { anon: anonymousId! };
   const props_ = Object.entries(p.properties);
+  const label = await eventLabels(ctx, a.id, t);
+  const value = (v: unknown) => (typeof v === "string" ? v : JSON.stringify(v));
 
   return (
     <div className="space-y-6">
       <AnalyticsHeader
-        title={p.userId ?? "Anonymous install"}
-        description={p.userId ? "An identified user, with the activity of installs linked only to them." : `Anonymous ID ${p.anonymousId}. Not linked to exactly one user, so its activity stays on this install.`} env={env.type}
+        title={p.userId ?? t("Anonymous install")}
+        description={p.userId ? t("An identified user, with the activity of installs linked only to them.") : t("Anonymous ID {id}. Not linked to exactly one user, so its activity stays on this install.", { id: p.anonymousId ?? "" })} env={env.type}
       />
-      <p className="text-sm"><Link className="underline" href={`${usersPath}?env=${env.type}`}>← All users</Link></p>
+      <p className="text-sm"><Link className="underline" href={`${usersPath}?env=${env.type}`}><span aria-hidden className="inline-block rtl:-scale-x-100">←</span> {t("All users")}</Link></p>
 
       <dl className="card grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-6">
-        <Stat label="First seen" value={when(p.firstSeen)} />
-        <Stat label="Last seen" value={when(p.lastSeen)} />
-        <Stat label="Platform" value={p.platform ?? "–"} hint={p.osVersion ? `OS ${p.osVersion}` : undefined} />
-        <Stat label="App version" value={p.appVersion ?? "–"} />
-        <Stat label="Sessions" value={p.sessionCount.toLocaleString("en-US")} />
-        <Stat label="Events" value={p.eventCount.toLocaleString("en-US")} />
+        <Stat label={t("First seen")} value={when(p.firstSeen)} />
+        <Stat label={t("Last seen")} value={when(p.lastSeen)} />
+        <Stat label={t("Platform")} value={p.platform ?? "–"} hint={p.osVersion ? t("OS {version}", { version: p.osVersion }) : undefined} />
+        <Stat label={t("App version")} value={p.appVersion ?? "–"} />
+        <Stat label={t("Sessions")} value={p.sessionCount.toLocaleString("en-US")} />
+        <Stat label={t("Events")} value={p.eventCount.toLocaleString("en-US")} />
       </dl>
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="card space-y-3">
-          <h2 className="h2">Identity</h2>
+          <h2 className="card-title">{t("Identity")}</h2>
           {p.installs.length === 0 ? (
-            <p className="text-sm text-ink-3">No installs linked yet.</p>
+            <p className="text-sm text-ink-3">{t("No installs linked yet.")}</p>
           ) : (
             <ul className="space-y-2 text-sm">
               {p.installs.map((i) => (
@@ -68,9 +81,9 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
                   <span className="text-ink-3">
                     {i.platform ?? ""}
                     {i.linkedUsers.length > 1 && (
-                      <span className="pill ms-2 border-warn/40 text-warn" title={`Linked to ${i.linkedUsers.join(", ")}`}>Shared device · not merged</span>
+                      <span className="pill ms-2 border-warn/40 text-warn" title={t("Linked to {users}", { users: i.linkedUsers.join(", ") })}>{t("Shared device · not merged")}</span>
                     )}
-                    {p.userId && i.stitched && <span className="pill ms-2 border-accent/40 text-accent">Merged</span>}
+                    {p.userId && i.stitched && <span className="pill ms-2 border-accent/40 text-accent">{t("Merged")}</span>}
                   </span>
                 </li>
               ))}
@@ -78,24 +91,34 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
           )}
           {p.installs.some((i) => i.linkedUsers.length > 1) && (
             <p className="text-xs text-ink-3">
-              A shared device was used by several users ({[...new Set(p.installs.flatMap((i) => i.linkedUsers.length > 1 ? i.linkedUsers : []))].map((u, k) => (
-                <span key={u}>{k > 0 && ", "}{u === p.userId ? u : <Link className="underline" href={link({ user: u })}>{u}</Link>}</span>
-              ))}). Its anonymous activity can&apos;t be attributed to any one of them, so it isn&apos;t merged.
+              {rich(t("A shared device was used by several users ({users}). Its anonymous activity can't be attributed to any one of them, so it isn't merged."), {
+                users: [...new Set(p.installs.flatMap((i) => i.linkedUsers.length > 1 ? i.linkedUsers : []))].map((u, k) => (
+                  <span key={u}>{k > 0 && ", "}{u === p.userId ? u : <Link className="underline" href={link({ user: u })}>{u}</Link>}</span>
+                )),
+              })}
             </p>
+          )}
+          {clarity && (
+            <div className="space-y-1 border-t border-line pt-3 text-sm">
+              <a href={clarity.url} target="_blank" rel="noreferrer" className="font-medium text-accent-ink underline">{t("Open Microsoft Clarity")}</a>
+              <p className="text-xs text-ink-3">
+                {t("Opens your Clarity project. To find this person's recordings, use Clarity's filters: custom user ID with this user's LeanApp user ID (or anonymous ID), or the custom tag {tag} with one of the anonymous IDs above. Recordings exist only for website visits where Clarity's tag and the LeanApp Clarity bridge ran with consent.", { tag: CLARITY_ANONYMOUS_TAG })}
+              </p>
+            </div>
           )}
         </section>
 
         <section className="card space-y-3">
-          <h2 className="h2">Revenue</h2>
+          <h2 className="card-title">{t("Revenue")}</h2>
           {p.revenue.length === 0 ? (
-            <p className="text-sm text-ink-3">No revenue events.</p>
+            <p className="text-sm text-ink-3">{t("No revenue events.")}</p>
           ) : (
             <table className="table">
-              <thead><tr><th className="text-start">Currency</th><th className="text-end">Net</th><th className="text-end">Refunds</th><th className="text-end">Transactions</th></tr></thead>
+              <thead><tr><th className="text-start">{t("Currency")}</th><th className="num">{t("Net")}</th><th className="num">{t("Refunds")}</th><th className="num">{t("Transactions")}</th></tr></thead>
               <tbody>
                 {p.revenue.map((r) => (
                   <tr key={r.currency}>
-                    <td>{r.currency === NO_CURRENCY ? "No currency" : r.currency}</td>
+                    <td>{r.currency === NO_CURRENCY ? t("No currency") : r.currency}</td>
                     <td className="text-end tabular-nums font-medium">{money(r.net)}</td>
                     <td className="text-end tabular-nums">{r.refunds ? `−${money(r.refunds)}` : ""}</td>
                     <td className="text-end tabular-nums">{r.transactions}</td>
@@ -104,14 +127,14 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
               </tbody>
             </table>
           )}
-          <p className="text-xs text-ink-3">All time, per currency (no conversion).</p>
+          <p className="text-xs text-ink-3">{t("All time, per currency (no conversion).")}</p>
         </section>
       </div>
 
       <section className="card space-y-3">
-        <h2 className="h2">{p.userId ? "User properties" : "Anonymous traits"}</h2>
+        <h2 className="card-title">{p.userId ? t("User properties") : t("Anonymous traits")}</h2>
         {props_.length === 0 ? (
-          <p className="text-sm text-ink-3">None set. Properties come from identify() calls.</p>
+          <p className="text-sm text-ink-3">{t("None set. Properties come from identify() calls.")}</p>
         ) : (
           <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2 lg:grid-cols-3">
             {props_.map(([k, v]) => (
@@ -124,35 +147,44 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
         )}
       </section>
 
-      <section className="card overflow-x-auto p-0">
-        <h2 className="h2 px-5 pt-4">Activity</h2>
+      <section className="card-table">
+        <div className="card-header"><h2 className="card-title">{t("Activity")}</h2></div>
         {timeline.events.length === 0 ? (
-          <p className="px-5 py-4 text-sm text-ink-3">No events{param(sp.before) ? " before this point" : ""}.</p>
+          <p className="px-5 py-4 text-sm text-ink-3">{param(sp.before) ? t("No events before this point.") : t("No events.")}</p>
         ) : (
-          <table className="table">
-            <thead><tr><th className="text-start">Time ({a.timezone})</th><th className="text-start">Event</th><th className="text-start">Properties</th><th className="text-start">Platform</th></tr></thead>
+          <div className="table-scroll"><table className="table">
+            <thead><tr><th className="text-start">{t("Time ({timezone})", { timezone: a.timezone })}</th><th className="text-start">{t("Event")}</th><th className="text-start">{t("Properties")}</th><th className="hidden text-start sm:table-cell">{t("Platform")}</th></tr></thead>
             <tbody>
               {timeline.events.map((e) => (
                 <tr key={e.id} className="align-top">
                   <td className="whitespace-nowrap tabular-nums">{when(e.timestamp)}</td>
                   <td>
-                    <span className="font-mono text-sm">{e.name}</span>
+                    <span className="text-sm"><EventName name={e.name} labels={label} /></span>
                     {e.type !== "track" && <span className="pill ms-2 border-line text-ink-3">{e.type}</span>}
-                    {e.sentAs && <div className="text-xs text-ink-3">sent as {e.sentAs}</div>}
-                    {p.userId && !e.userId && <div className="text-xs text-ink-3">before sign-in · {e.anonymousId}</div>}
+                    {e.sentAs && <div className="text-xs text-ink-3">{t("sent as {name}", { name: e.sentAs })}</div>}
+                    {p.userId && !e.userId && <div className="text-xs text-ink-3">{t("before sign-in · {id}", { id: e.anonymousId ?? "" })}</div>}
                   </td>
                   <td className="max-w-md">
-                    {Object.keys(e.properties).length > 0 && <code className="block truncate font-mono text-xs text-ink-2" title={JSON.stringify(e.properties)}>{JSON.stringify(e.properties)}</code>}
+                    {Object.keys(e.properties).length > 0 && (
+                      <dl className="flex flex-wrap gap-1.5 text-xs">
+                        {Object.entries(e.properties).slice(0, 8).map(([k, v]) => (
+                          <div key={k} className="inline-flex max-w-full gap-1 rounded bg-paper-2 px-1.5 py-0.5" title={`${k}: ${value(v)}`}>
+                            <dt className="text-ink-3">{k}</dt><dd className="truncate font-medium text-ink">{value(v)}</dd>
+                          </div>
+                        ))}
+                        {Object.keys(e.properties).length > 8 && <div className="px-1 text-ink-3" title={JSON.stringify(e.properties)}>{t("+{n} more", { n: Object.keys(e.properties).length - 8 })}</div>}
+                      </dl>
+                    )}
                   </td>
-                  <td className="whitespace-nowrap text-sm text-ink-2">{[e.platform, e.appVersion].filter(Boolean).join(" ")}</td>
+                  <td className="hidden whitespace-nowrap text-sm text-ink-2 sm:table-cell">{[e.platform, e.appVersion].filter(Boolean).join(" ")}</td>
                 </tr>
               ))}
             </tbody>
-          </table>
+          </table></div>
         )}
         <div className="flex gap-3 px-5 py-3 text-sm">
-          {param(sp.before) && <Link className="underline" href={link(self)}>Newest</Link>}
-          {timeline.nextCursor && <Link className="underline" href={link({ ...self, before: timeline.nextCursor })}>Older events →</Link>}
+          {param(sp.before) && <Link className="underline" href={link(self)}>{t("Newest")}</Link>}
+          {timeline.nextCursor && <Link className="underline" href={link({ ...self, before: timeline.nextCursor })}>{t("Older events")} <span aria-hidden className="inline-block rtl:-scale-x-100">→</span></Link>}
         </div>
       </section>
     </div>

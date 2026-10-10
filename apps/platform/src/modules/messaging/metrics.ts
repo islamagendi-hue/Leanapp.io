@@ -4,10 +4,11 @@
  * the reason, and is never estimated. Pure; shared by the Channels & delivery
  * page and campaign pages.
  */
+import { msg } from "@/i18n/translate";
 
-export const DELIVERY_CHANNELS = ["push", "email", "whatsapp", "in_app"] as const;
+export const DELIVERY_CHANNELS = ["push", "email", "whatsapp", "sms", "in_app"] as const;
 export type DeliveryChannel = (typeof DELIVERY_CHANNELS)[number];
-export const DELIVERY_CHANNEL_LABELS: Record<DeliveryChannel, string> = { push: "Push", email: "Email", whatsapp: "WhatsApp", in_app: "In-app" };
+export const DELIVERY_CHANNEL_LABELS: Record<DeliveryChannel, string> = { push: msg("Push"), email: msg("Email"), whatsapp: "WhatsApp", sms: "SMS", in_app: msg("In-app") };
 
 export const FUNNEL_METRICS = ["delivered", "opened", "clicked"] as const;
 export type FunnelMetric = (typeof FUNNEL_METRICS)[number];
@@ -15,22 +16,27 @@ export type FunnelMetric = (typeof FUNNEL_METRICS)[number];
 /** null: available. A string: why it isn't. */
 export const UNAVAILABLE: Record<DeliveryChannel, Record<FunnelMetric, string | null>> = {
   push: {
-    delivered: "FCM and APNs don't report delivery to the sender.",
-    opened: "Needs push-open tracking in the SDKs, which isn't built yet.",
-    clicked: "Needs push-open tracking in the SDKs, which isn't built yet.",
+    delivered: msg("FCM and APNs don't report delivery to the sender."),
+    opened: msg("Needs push-open tracking in the SDKs, which isn't built yet."),
+    clicked: msg("Needs push-open tracking in the SDKs, which isn't built yet."),
   },
   email: {
-    delivered: "Needs Resend delivery events (a Resend webhook), which aren't connected yet.",
-    opened: "Needs Resend open events, which aren't connected yet.",
-    clicked: "Needs Resend click events, which aren't connected yet.",
+    delivered: msg("Needs Resend delivery events (a Resend webhook), which aren't connected yet."),
+    opened: msg("Needs Resend open events, which aren't connected yet."),
+    clicked: msg("Needs Resend click events, which aren't connected yet."),
   },
   whatsapp: {
     delivered: null,
     opened: null,
-    clicked: "WhatsApp doesn't report link clicks.",
+    clicked: msg("WhatsApp doesn't report link clicks."),
+  },
+  sms: {
+    delivered: null,
+    opened: msg("SMS has no read receipts."),
+    clicked: msg("SMS link clicks aren't tracked."),
   },
   in_app: {
-    delivered: "The app reports when a message is shown, not when it is fetched.",
+    delivered: msg("The app reports when a message is shown, not when it is fetched."),
     opened: null,
     clicked: null,
   },
@@ -38,8 +44,8 @@ export const UNAVAILABLE: Record<DeliveryChannel, Record<FunnelMetric, string | 
 
 /** What "opened" means per channel, where it is available. */
 export const OPENED_MEANS: Partial<Record<DeliveryChannel, string>> = {
-  whatsapp: "Read receipts. People who turned read receipts off never count as read.",
-  in_app: "Shown in the app (reported by your app through the in-app API).",
+  whatsapp: msg("Read receipts. People who turned read receipts off never count as read."),
+  in_app: msg("Shown in the app (reported by your app through the in-app API)."),
 };
 
 export interface DeliveryCounts {

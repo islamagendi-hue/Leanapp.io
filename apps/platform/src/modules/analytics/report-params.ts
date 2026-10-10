@@ -6,15 +6,17 @@
 
 import { filtersFromSearch, partsFromFilter } from "@/modules/properties/filters";
 import type { PropertyFilter } from "@/modules/audiences/definition";
+import { msg } from "@/i18n/translate";
+import { compareKind, type Compare } from "./range";
 
 export const REPORT_KINDS = ["trend", "funnel", "retention", "revenue"] as const;
 export type ReportKind = (typeof REPORT_KINDS)[number];
 
 export const REPORT_PAGES: Record<ReportKind, { path: string; label: string }> = {
-  trend: { path: "events", label: "Events" },
-  funnel: { path: "funnels", label: "Funnel" },
-  retention: { path: "retention", label: "Retention" },
-  revenue: { path: "revenue", label: "Revenue" },
+  trend: { path: "events", label: msg("Events") },
+  funnel: { path: "funnels", label: msg("Funnel") },
+  retention: { path: "retention", label: msg("Retention") },
+  revenue: { path: "revenue", label: msg("Revenue") },
 };
 
 type Search = URLSearchParams;
@@ -35,19 +37,23 @@ function breakdownTo(q: Search, breakdown: unknown) {
 }
 
 /**
- * Range settings from page search params: `days` is a preset (7, 30, 90) or
- * "custom", which uses `from` and `to`; `compare=1` adds the previous period.
- * The dates are ignored unless the range is custom, so switching back to a
- * preset never keeps old dates.
+ * Range settings from page search params: `days` is a preset (7, 15, 30, 90)
+ * or "custom", which uses `from` and `to`. `compare` is "1" (the previous
+ * period), "year" (the same days a year earlier) or "custom", which uses
+ * `cfrom` and `cto`. Dates are ignored unless their choice is custom, so
+ * switching back to a preset never keeps old dates.
  */
-export function rangeFromParams(sp: Search): { days?: string; from?: string; to?: string; compare?: boolean } {
+export function rangeFromParams(sp: Search): { days?: string; from?: string; to?: string; compare?: Compare; cfrom?: string; cto?: string } {
   const days = sp.get("days") || undefined;
   const custom = days === "custom";
+  const compare = compareKind(sp.get("compare"));
   return {
     days: custom ? undefined : days,
     from: custom ? sp.get("from") || undefined : undefined,
     to: custom ? sp.get("to") || undefined : undefined,
-    compare: sp.get("compare") === "1" || undefined,
+    compare,
+    cfrom: compare === "custom" ? sp.get("cfrom") || undefined : undefined,
+    cto: compare === "custom" ? sp.get("cto") || undefined : undefined,
   };
 }
 
@@ -80,7 +86,7 @@ export function inputFromParams(kind: ReportKind, sp: Search): Record<string, un
         ...common,
         steps: sp.getAll("step").map((s) => s.trim()).filter(Boolean),
         windowDays: sp.get("window") ?? undefined,
-        breakdown: sp.get("split") === "platform" ? "platform" : undefined,
+        breakdown: sp.get("split") === "platform" || sp.get("split") === "channel" ? sp.get("split") : undefined,
       };
     case "retention":
       return { ...common, startEvent: sp.get("start") ?? "", returnEvent: sp.get("return") ?? "" };
@@ -105,7 +111,7 @@ export function paramsFromConfig(kind: ReportKind, config: Record<string, unknow
     case "funnel":
       for (const s of Array.isArray(config.steps) ? config.steps : []) q.append("step", String(s));
       str("window", config.windowDays);
-      if (config.breakdown === "platform") q.set("split", "platform");
+      if (config.breakdown === "platform" || config.breakdown === "channel") q.set("split", String(config.breakdown));
       break;
     case "retention":
       str("start", config.startEvent);
@@ -122,6 +128,12 @@ export function paramsFromConfig(kind: ReportKind, config: Record<string, unknow
     str("to", config.to);
   } else str("days", config.days);
   if (config.compare === true) q.set("compare", "1");
+  else if (config.compare === "year") q.set("compare", "year");
+  else if (config.compare === "custom") {
+    q.set("compare", "custom");
+    str("cfrom", config.cfrom);
+    str("cto", config.cto);
+  }
   str("cohort", config.cohortId);
   return q;
 }

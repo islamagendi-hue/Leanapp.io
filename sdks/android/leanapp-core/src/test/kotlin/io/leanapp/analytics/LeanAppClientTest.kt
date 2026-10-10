@@ -127,8 +127,9 @@ class LeanAppClientTest {
         assertEquals("POST", req.method)
         assertEquals("Bearer $KEY", req.getHeader("Authorization"))
         assertEquals("application/json", req.getHeader("Content-Type"))
-        assertEquals("id-2:4", req.getHeader("Idempotency-Key")) // first event id : batch size
         val b = Json.parse(req.body.readUtf8()) as Map<String, Any?>
+        // batch size : hash of every event id : first event id
+        assertEquals("4:${eventIdsHash(batchOf(b).map { it["event_id"] as String })}:id-2", req.getHeader("Idempotency-Key"))
         assertNotNull(b["sent_at"])
         val (view, screen, identify, order) = batchOf(b)
         assertEquals("track", view["type"])
@@ -243,6 +244,33 @@ class LeanAppClientTest {
         assertEquals(batchOf(calls[0].second).map { it["event_id"] }, sent.map { it["event_id"] })
         assertEquals(calls[0].first["Idempotency-Key"], calls.last().first["Idempotency-Key"])
         assertEquals(first.getAnonymousId(), second.getAnonymousId())
+    }
+
+    @Test fun derivesIdempotencyKeyFromEveryEventId() {
+        // FNV-1a 32-bit over the UTF-8 ids joined by "\n"; same vectors as the JavaScript SDK.
+        assertEquals("e40c292c", eventIdsHash(listOf("a")))
+        assertEquals("28e4c710", eventIdsHash(listOf("a", "b")))
+        assertEquals("039d63cc", eventIdsHash(listOf("\u00e9\uD83D\uDE00")))
+        assertEquals("2:408dab4a:id-2", idempotencyKey(listOf("id-2", "id-3")))
+        // Same first id and size but different events (the queue changed before a retry): different key.
+        assertNotEquals(idempotencyKey(listOf("A", "B")), idempotencyKey(listOf("A", "C")))
+        assertNotEquals(idempotencyKey(listOf("A", "B")), idempotencyKey(listOf("B", "A")))
+    }
+
+    @Test fun resendsWithoutIdempotencyKeyAfterKeyReused() {
+        server.enqueue(MockResponse().setResponseCode(409).setBody("""{"error":"idempotency_key_reused"}"""))
+        server.enqueue(ok(2))
+        val c = make()
+        c.track("a")
+        c.track("b")
+        assertEquals(FlushResult.Retry(0, "idempotency key already used for other events; resending without it"), c.flushBlocking())
+        assertEquals(2, c.queueLength) // never dropped
+        assertEquals(FlushResult.Sent(2, 0, 0), c.flushBlocking())
+        val first = server.takeRequest(5, TimeUnit.SECONDS)!!
+        val second = server.takeRequest(5, TimeUnit.SECONDS)!!
+        assertNotNull(first.getHeader("Idempotency-Key"))
+        assertNull(second.getHeader("Idempotency-Key"))
+        assertEquals(0, c.queueLength)
     }
 
     @Test fun honoursRetryAfterOn429() {

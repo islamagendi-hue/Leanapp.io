@@ -2,7 +2,13 @@ import "server-only";
 import type { Db } from "@/lib/db";
 import { EVENT_LIBRARY } from "@/modules/implementation/catalog/events";
 import type { PublishedPlan } from "@/modules/implementation/plan-store";
-import { clickSignals, extractRevenue, INSTALL_EVENTS, networkOfSource, SERVER_CONTEXT_KEY, type ClickSignals, type PostbackPayload } from "./pure";
+import {
+  clickSignals, extractRevenue, INSTALL_EVENTS, isOrganicUtm, matchTypeFor, networkOfSource, organicReason, SERVER_CONTEXT_KEY, type ClickSignals, type MatchType, type PostbackPayload,
+} from "./pure";
+import {
+  clickLookbackDays, creditEvidence, describeMatch, engineChannel, maxClickLookbackDays, maxConversionWindowDays, parseWindowOverrides, pickCredits, webMatch, webTouchOf,
+  type CreditCandidate, type Credits, type WebTouch, type WindowOverrides,
+} from "./pure-credit";
 
 /**
  * The attribution step of event processing (called once per event from
@@ -12,14 +18,39 @@ import { clickSignals, extractRevenue, INSTALL_EVENTS, networkOfSource, SERVER_C
  * LeanApp click id, and conversion events run a few indexed lookups.
  *
  *   app_installed       → install / reinstall, matched in order of confidence:
- *                           1. LeanApp click id (install referrer, deep link, context)
- *                           2. ad-network click id (gclid, fbclid, ttclid, ScCid, …)
- *                           3. utm parameters the SDK captured from the link
- *                           4. probabilistic (hashed IP + OS), only when enabled, never iOS
- *                           5. organic
+ *                           1. LeanApp click id (install referrer, deep link, context) of a
+ *                              click our link recorded → deterministic; else the click a deferred
+ *                              deep link already handed this install by click id
+ *                           2. ad-network click id (gclid, fbclid, ttclid, ScCid, …): carried by a
+ *                              click our link recorded → deterministic; only in the install's
+ *                              context → reported
+ *                           3. utm parameters the SDK captured from the link (not an organic
+ *                              referrer) → reported (the install says so; nothing verifies it)
+ *                           4. probabilistic (hashed IP + OS), only when enabled, never iOS: the
+ *                              click a deferred deep link handed this install, else an unclaimed one
+ *                           5. organic (match_key store_organic or direct when the referrer says so; null
+ *                              = unattributed: nothing matched). Paid iOS installs without a click id land here: without
+ *                              SKAdNetwork / AdAttributionKit or Apple Search Ads data they can't
+ *                              be attributed, and iOS is never fingerprinted.
+ *   A click is claimed once (touchpoint.matched_at): probabilistic matching here and in the
+ *   deferred deep link API only takes unclaimed clicks.
  *   app_opened / deep_link_opened with a newer LeanApp click → re_engagement
- *   conversion / revenue events → attribution_conversions, last touch
- * Every attribution event and conversion queues the matching postbacks.
+ *   web events carrying campaign evidence (UTM parameters, a click id or an external referrer,
+ *                         see pure-credit.ts webTouchOf) → web_touch, de-duplicated per visitor and
+ *                         session; a LeanApp or ad-network click id our link recorded makes it deterministic
+ *   conversion / revenue events → attribution_conversions with three credits among the person's
+ *                         touches (installs, reinstalls, re-engagements and web touches), each within its
+ *                         channel's conversion window: last touch (attribution_event_id), first touch
+ *                         (first_attribution_event_id) and last non-direct touch
+ *                         (last_non_direct_attribution_event_id: direct / organic / unattributed touches
+ *                         never take it from a known earlier source). Every credit is appended to
+ *                         attribution_conversion_credits.
+ *   A touch processed after conversions it precedes (delayed or out-of-order delivery) re-credits
+ *   those conversions (reason late_touch); the earlier credit stays in the history.
+ * Click lookback and conversion windows can differ per channel (attribution_settings.window_overrides).
+ * Every attribution event records its method, confidence and evidence (pure-credit.ts describeMatch).
+ * Every install / re-engagement and conversion queues the matching postbacks; conversions go to the
+ * network of their last non-direct touch. Web touches queue none themselves.
  */
 
 export interface AttributableEvent {
@@ -32,6 +63,7 @@ export interface AttributableEvent {
   anonymous_id: string | null;
   user_id: string | null;
   platform: string | null;
+  session_id?: string | null;
   os_version?: string | null;
   properties: Record<string, unknown>;
   context: Record<string, unknown>;
@@ -43,6 +75,8 @@ export interface AttributionSettings {
   probabilistic_window_hours: number;
   conversion_window_days: number;
   reengagement_enabled: boolean;
+  /** Windows per channel key; the app-wide ones apply to every other channel. */
+  window_overrides: WindowOverrides;
 }
 
 export const DEFAULT_SETTINGS: AttributionSettings = {
@@ -51,11 +85,15 @@ export const DEFAULT_SETTINGS: AttributionSettings = {
   probabilistic_window_hours: 24,
   conversion_window_days: 90,
   reengagement_enabled: true,
+  window_overrides: {},
 };
 
 const OPEN_EVENTS = new Set(["app_opened", "deep_link_opened"]);
 /** Clicks recorded slightly after the install (clock skew between device and server) still count. */
 const SKEW_MS = 5 * 60_000;
+/** The same web campaign evidence again within this long (or in the same session) is the same visit. */
+const WEB_TOUCH_DEDUP_MS = 30 * 60_000;
+const DAY_MS = 86_400_000;
 
 
 /** Whether an event is a conversion: the published plan decides, else the event library. */
@@ -68,21 +106,26 @@ export function isConversion(name: string, plan: PublishedPlan | null): boolean 
 
 async function loadSettings(db: Db, appId: string): Promise<AttributionSettings> {
   const row = await db.one<AttributionSettings>(
-    `select click_lookback_days, probabilistic_enabled, probabilistic_window_hours, conversion_window_days, reengagement_enabled
+    `select click_lookback_days, probabilistic_enabled, probabilistic_window_hours, conversion_window_days, reengagement_enabled, window_overrides
        from platform.attribution_settings where app_id = $1`,
     [appId],
   );
-  return row ?? DEFAULT_SETTINGS;
+  return row ? { ...row, window_overrides: parseWindowOverrides(row.window_overrides) } : DEFAULT_SETTINGS;
 }
 
 export async function attributeEvent(db: Db, e: AttributableEvent, canonical: string, plan: PublishedPlan | null): Promise<void> {
-  if (INSTALL_EVENTS.has(canonical)) return attributeInstall(db, e, await loadSettings(db, e.app_id));
+  let loaded: AttributionSettings | null = null;
+  const settings = async () => (loaded ??= await loadSettings(db, e.app_id));
+  if (INSTALL_EVENTS.has(canonical)) return attributeInstall(db, e, await settings());
+  // A web event carrying campaign evidence is a touch first; it may be a conversion as well.
+  const web = webTouchOf(e.context, e.platform);
+  if (web && (e.anonymous_id || e.user_id)) await attributeWebTouch(db, e, web, await settings());
   if (OPEN_EVENTS.has(canonical)) {
     const signals = clickSignals(e.context);
-    if (signals.clickId && e.anonymous_id) await attributeReengagement(db, e, signals, await loadSettings(db, e.app_id));
+    if (signals.clickId && e.anonymous_id) await attributeReengagement(db, e, signals, await settings());
     return;
   }
-  if (isConversion(canonical, plan)) await attributeConversion(db, e, canonical, await loadSettings(db, e.app_id));
+  if (isConversion(canonical, plan)) await attributeConversion(db, e, canonical, await settings());
 }
 
 interface TouchpointRow {
@@ -102,8 +145,24 @@ interface TouchpointRow {
 
 interface Match {
   touchpoint: TouchpointRow | null;
-  matchType: "deterministic" | "probabilistic" | "organic";
+  matchType: MatchType;
   matchKey: string | null;
+  /** Handed over by the deferred deep link API. */
+  deferred?: boolean;
+  /** Apple AdServices: Click or Impression, as Apple reported it. */
+  claimType?: string | null;
+  /** Extra evidence for the decision (AdServices: Apple's ids and the lookup). */
+  evidence?: Record<string, unknown>;
+}
+
+/** The channel a recorded or reported click belongs to (built-in rules), for its lookback window. */
+function clickChannel(t: { source: string | null; medium: string | null; network: string | null }): string {
+  return engineChannel({ source: t.source, medium: t.medium, network: t.network, match_type: "reported", match_key: null });
+}
+
+/** A click is in the lookback window of its own channel (the database search used the longest window). */
+function clickInWindow(tp: { source: string | null; medium: string | null; network: string | null; touchpoint_at: Date }, at: Date, s: AttributionSettings): boolean {
+  return new Date(tp.touchpoint_at).getTime() >= at.getTime() - clickLookbackDays(s, clickChannel(tp)) * DAY_MS;
 }
 
 const TP_COLUMNS = `t.id, t.source, t.medium, t.campaign, t.click_id, t.network_click_id, t.network, t.link_id, l.code as link_code,
@@ -154,30 +213,53 @@ async function contextTouchpoint(db: Db, e: AttributableEvent, s: ClickSignals, 
 
 async function findMatch(db: Db, e: AttributableEvent, settings: AttributionSettings): Promise<Match> {
   const s = clickSignals(e.context);
-  const from = new Date(e.timestamp.getTime() - settings.click_lookback_days * 86_400_000);
+  // The longest lookback any channel uses; each found click is then held to its own channel's window.
+  const from = new Date(e.timestamp.getTime() - maxClickLookbackDays(settings) * DAY_MS);
+  const fits = (tp: TouchpointRow | null) => (tp && clickInWindow(tp, e.timestamp, settings) ? tp : null);
 
-  // 1. LeanApp click id: exact.
+  // 1. LeanApp click id: exact, against a click our own link recorded.
   if (s.clickId) {
-    const tp = await findClick(db, e, "click_id", s.clickId.value, from);
-    if (tp) return { touchpoint: tp, matchType: "deterministic", matchKey: s.clickId.key };
+    const tp = fits(await findClick(db, e, "click_id", s.clickId.value, from));
+    if (tp) return { touchpoint: tp, matchType: matchTypeFor("recorded_click"), matchKey: s.clickId.key };
   }
-  // The Play referrer API reports when the store click happened: older than the lookback window means organic.
+  // A deferred deep link lookup may already have handed this install a click: the install
+  // keeps that click, so one click never goes to two installs. A click-id claim counts here;
+  // a probabilistic one keeps its place in step 4.
+  const claimed = e.anonymous_id ? await deferredClaim(db, e, from) : null;
+  const deferred = claimed?.touchpoint && clickInWindow(claimed.touchpoint, e.timestamp, settings) ? claimed : null;
+  if (deferred?.matchType === "deterministic") return deferred;
+  // The Play referrer API reports when the store click happened: older than the lookback window
+  // of the channel the parameters name means organic.
   const campaign = (e.context.campaign ?? {}) as Record<string, unknown>;
   const clickSeconds = Number(campaign.referrer_click_timestamp_seconds);
   const clickAt = Number.isFinite(clickSeconds) && clickSeconds > 0 ? new Date(clickSeconds * 1000) : null;
-  const inWindow = !clickAt || clickAt >= from;
+  const contextChannel = clickChannel({ source: s.utm.source ?? null, medium: s.utm.medium ?? null, network: s.networkClickId?.network ?? networkOfSource(s.utm.source) });
+  const inWindow = !clickAt || clickAt.getTime() >= e.timestamp.getTime() - clickLookbackDays(settings, contextChannel) * DAY_MS;
 
-  // 2. Ad-network click id: a recorded click that carried it, else the context itself.
+  // 2. Ad-network click id: carried by a click our link recorded (deterministic), else only the
+  // install's context reports it (reported: nothing of ours verifies it).
   if (s.networkClickId) {
-    const tp = await findClick(db, e, "network_click_id", s.networkClickId.value, from);
-    if (tp) return { touchpoint: tp, matchType: "deterministic", matchKey: s.networkClickId.param };
-    if (inWindow) return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: "deterministic", matchKey: s.networkClickId.param };
+    const tp = fits(await findClick(db, e, "network_click_id", s.networkClickId.value, from));
+    if (tp) return { touchpoint: tp, matchType: matchTypeFor("recorded_click"), matchKey: s.networkClickId.param };
+    if (inWindow) return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: matchTypeFor("install_context"), matchKey: s.networkClickId.param };
   }
-  // 3. Campaign parameters captured from the link that opened or installed the app.
-  if (s.utm.source && inWindow) {
-    return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: "deterministic", matchKey: s.installReferrer ? "install_referrer" : "utm_parameters" };
+  // 3. Campaign parameters captured from the link that opened or installed the app: reported.
+  // An organic referrer (Play's "utm_medium=organic") is not a campaign.
+  if (s.utm.source && inWindow && !isOrganicUtm(s.utm)) {
+    return { touchpoint: await contextTouchpoint(db, e, s, clickAt ?? e.timestamp), matchType: matchTypeFor("install_context"), matchKey: s.installReferrer ? "install_referrer" : "utm_parameters" };
   }
-  // 4. Probabilistic: opt-in, Android only (no fingerprinting on iOS), short window, unclaimed clicks only.
+  // 3b. Apple Search Ads: Apple's AdServices API already answered that one of its campaigns
+  // drove this iOS install (provider-reported). Usually the answer comes after the install
+  // has been processed; applyAdServicesAttribution handles that order.
+  if (e.anonymous_id && eventOs(e) === "ios") {
+    const asa = await adServicesAnswer(db, e.environment_id, e.anonymous_id);
+    if (asa) return adServicesMatch(asa, await adServicesTouchpoint(db, e, asa));
+  }
+  // 4a. The click a probabilistic deferred deep link lookup already handed this install.
+  if (deferred) return deferred;
+  // 4b. Probabilistic: opt-in, Android only (no fingerprinting on iOS), short window, unclaimed clicks only.
+  // The row lock (held until the processing transaction commits, by when matched_at is set) and
+  // matched_at keep a concurrent deferred deep link lookup from handing out the same click.
   const ipHash = ((e.context[SERVER_CONTEXT_KEY] ?? {}) as { ip_hash?: string }).ip_hash;
   if (settings.probabilistic_enabled && ipHash && eventOs(e) === "android") {
     const window = new Date(e.timestamp.getTime() - settings.probabilistic_window_hours * 3_600_000);
@@ -190,33 +272,89 @@ async function findMatch(db: Db, e: AttributableEvent, settings: AttributionSett
           and ($3::text is null or t.os_major is null or t.os_major = $3)
           and t.matched_at is null
           and t.touchpoint_at >= greatest($4::timestamptz, $5::timestamptz) and t.touchpoint_at <= $6
-        order by t.touchpoint_at desc limit 1`,
+        order by t.touchpoint_at desc limit 1
+        for update of t skip locked`,
       [e.environment_id, ipHash, major, window, from, new Date(e.timestamp.getTime() + SKEW_MS)],
     );
-    if (tp) return { touchpoint: tp, matchType: "probabilistic", matchKey: "ip_ua" };
+    if (fits(tp)) return { touchpoint: tp, matchType: matchTypeFor("ip_os"), matchKey: "ip_ua" };
   }
-  return { touchpoint: null, matchType: "organic", matchKey: null };
+  // 5. Organic or unattributed: an organic store referrer or "direct" parameters say why
+  // (match_key store_organic / direct); otherwise nothing matched (match_key null = unattributed).
+  return { touchpoint: null, matchType: matchTypeFor("none"), matchKey: s.utm.source && inWindow ? organicReason(s.utm) : null };
+}
+
+/** The click the deferred deep link API handed this install (within the click lookback), if any. */
+async function deferredClaim(db: Db, e: AttributableEvent, from: Date): Promise<Match | null> {
+  const row = await db.one<TouchpointRow & { deferred_match_type: string; deferred_match_key: string | null }>(
+    `select ${TP_COLUMNS}, m.match_type as deferred_match_type, m.match_key as deferred_match_key
+       from platform.deep_link_deferred_matches m
+       join platform.attribution_touchpoints t on t.id = m.touchpoint_id
+       left join platform.attribution_links l on l.id = t.link_id
+      where m.environment_id = $1 and m.anonymous_id = $2 and m.match_type in ('deterministic', 'probabilistic')
+        and t.touchpoint_at >= $3 and t.touchpoint_at <= $4`,
+    [e.environment_id, e.anonymous_id, from, new Date(e.timestamp.getTime() + SKEW_MS)],
+  );
+  if (!row) return null;
+  const { deferred_match_type, deferred_match_key, ...tp } = row;
+  return { touchpoint: tp, matchType: matchTypeFor(deferred_match_type === "deterministic" ? "recorded_click" : "ip_os"), matchKey: deferred_match_key, deferred: true };
+}
+
+/** What a decision rests on, beyond the match itself (stored in attribution_events.evidence). */
+interface DecisionExtra {
+  referrerHost?: string | null;
+  sessionId?: string | null;
+  touchSignature?: string | null;
+  evidence?: Record<string, unknown>;
+  /** Queue postbacks for this attribution (installs and re-engagements). */
+  postbacks?: boolean;
+}
+
+/** Names of the signals an install or open carried (never their values). */
+function signalKeys(s: ClickSignals): string[] {
+  const keys: string[] = [];
+  if (s.clickId) keys.push(s.clickId.key === "click_id" ? "click_id" : `click_id:${s.clickId.key}`);
+  if (s.networkClickId) keys.push(s.networkClickId.param);
+  for (const [k, v] of Object.entries(s.utm)) if (v) keys.push(`utm_${k}`);
+  if (s.installReferrer) keys.push("install_referrer");
+  if (s.deepLinkUrl) keys.push("deep_link_url");
+  return keys;
 }
 
 async function recordAttribution(
   db: Db,
   e: AttributableEvent,
-  kind: "install" | "reinstall" | "re_engagement",
+  kind: "install" | "reinstall" | "re_engagement" | "web_touch",
   m: Match,
+  settings: AttributionSettings,
+  extra: DecisionExtra = { postbacks: true },
 ): Promise<string | null> {
   const tp = m.touchpoint;
   const deviceId = ((e.context.device ?? {}) as { id?: unknown }).id;
   const network = tp ? tp.network ?? networkOfSource(tp.source) : null;
+  const decision = describeMatch(m.matchType, m.matchKey, { ios: e.platform === "ios", deferred: m.deferred, claimType: m.claimType });
+  const channel = engineChannel({
+    source: tp?.source ?? null, medium: tp?.medium ?? null, network, match_type: m.matchType, match_key: m.matchKey, referrer_host: extra.referrerHost ?? null, campaign: tp?.campaign ?? null,
+  });
+  const evidence = {
+    channel,
+    limitations: decision.limitations,
+    ...(tp ? { touch_at: new Date(tp.touchpoint_at).toISOString(), touch_kind: kind === "web_touch" ? "web" : tp.click_id || tp.link_id ? "click" : "context" } : {}),
+    ...(kind === "web_touch" ? {} : { click_lookback_days: clickLookbackDays(settings, channel), signals: signalKeys(clickSignals(e.context)) }),
+    ...m.evidence,
+    ...extra.evidence,
+  };
   const row = await db.one<{ id: string }>(
     `insert into platform.attribution_events
        (organization_id, app_id, environment_id, kind, anonymous_id, user_id, touchpoint_id, provider, model, occurred_at,
-        match_type, match_key, event_row_id, device_id, platform, link_id, source, medium, campaign, network)
-     values ($1, $2, $3, $4, $5, $6, $7, 'native', 'last_touch', $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        match_type, match_key, event_row_id, device_id, platform, link_id, source, medium, campaign, network,
+        method, confidence, evidence, referrer_host, session_id, touch_signature)
+     values ($1, $2, $3, $4, $5, $6, $7, 'native', 'last_touch', $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24)
      on conflict do nothing
      returning id`,
     [e.organization_id, e.app_id, e.environment_id, kind, e.anonymous_id, e.user_id, tp?.id ?? null, e.timestamp, m.matchType, m.matchKey,
      e.id, typeof deviceId === "string" ? deviceId.slice(0, 200) : null, e.platform, tp?.link_id ?? null, tp?.source ?? null, tp?.medium ?? null,
-     tp?.campaign ?? null, network],
+     tp?.campaign ?? null, network, decision.method, decision.confidence, JSON.stringify(evidence), extra.referrerHost ?? null,
+     extra.sessionId ?? null, extra.touchSignature ?? null],
   );
   if (!row) return null; // already attributed (reprocessing)
   if (tp) {
@@ -225,17 +363,21 @@ async function recordAttribution(
       [tp.id, e.timestamp, e.anonymous_id],
     );
   }
-  await enqueuePostbacks(db, {
-    environmentId: e.environment_id,
-    eventName: kind,
-    attributionEventId: row.id,
-    conversionId: null,
-    idempotencyKey: `${kind}:${row.id}`,
-    matchType: m.matchType,
-    source: tp?.source ?? null,
-    network,
-    payload: payloadFor(e, kind, `${kind}:${row.id}`, tp, m.matchType, e.timestamp, null),
-  });
+  if (extra.postbacks !== false) {
+    await enqueuePostbacks(db, {
+      environmentId: e.environment_id,
+      eventName: kind,
+      attributionEventId: row.id,
+      conversionId: null,
+      idempotencyKey: `${kind}:${row.id}`,
+      matchType: m.matchType,
+      source: tp?.source ?? null,
+      network,
+      payload: payloadFor(e, kind, `${kind}:${row.id}`, tp, m.matchType, e.timestamp, null),
+    });
+  }
+  // Conversions this touch precedes that were processed before it (delayed or out-of-order delivery).
+  await recreditLateConversions(db, e, settings);
   return row.id;
 }
 
@@ -256,13 +398,14 @@ async function attributeInstall(db: Db, e: AttributableEvent, settings: Attribut
     [e.environment_id, typeof deviceId === "string" ? deviceId : null, e.user_id, e.timestamp],
   );
   const match = await findMatch(db, e, settings);
-  await recordAttribution(db, e, prior ? "reinstall" : "install", match);
+  await recordAttribution(db, e, prior ? "reinstall" : "install", match, settings);
 }
 
 async function attributeReengagement(db: Db, e: AttributableEvent, s: ClickSignals, settings: AttributionSettings) {
   if (!settings.reengagement_enabled || !s.clickId) return;
-  const from = new Date(e.timestamp.getTime() - settings.click_lookback_days * 86_400_000);
-  const tp = await findClick(db, e, "click_id", s.clickId.value, from);
+  const from = new Date(e.timestamp.getTime() - maxClickLookbackDays(settings) * DAY_MS);
+  const found = await findClick(db, e, "click_id", s.clickId.value, from);
+  const tp = found && clickInWindow(found, e.timestamp, settings) ? found : null;
   if (!tp) return;
   const install = await db.one<{ occurred_at: Date }>(
     "select occurred_at from platform.attribution_events where environment_id = $1 and anonymous_id = $2 and kind in ('install', 'reinstall')",
@@ -275,14 +418,123 @@ async function attributeReengagement(db: Db, e: AttributableEvent, s: ClickSigna
     [e.environment_id, e.anonymous_id, tp.id],
   );
   if (already) return;
-  await recordAttribution(db, e, "re_engagement", { touchpoint: tp, matchType: "deterministic", matchKey: s.clickId.key });
+  await recordAttribution(db, e, "re_engagement", { touchpoint: tp, matchType: matchTypeFor("recorded_click"), matchKey: s.clickId.key }, settings);
 }
 
-async function attributeConversion(db: Db, e: AttributableEvent, name: string, settings: AttributionSettings) {
-  if (!e.anonymous_id && !e.user_id) return;
-  const from = new Date(e.timestamp.getTime() - settings.conversion_window_days * 86_400_000);
-  // Last touch: the latest install / reinstall / re-engagement of this install or user before the conversion.
-  const ae = await db.one<{ id: string; match_type: Match["matchType"]; source: string | null; network: string | null; occurred_at: Date; install_at: Date | null } & Partial<TouchpointRow> & { tp_id: string | null }>(
+/**
+ * A web visit that carried campaign evidence. The same evidence from the same
+ * visitor in the same session or within 30 minutes is one visit (the SDK
+ * repeats the attribution context on the first event of every session and on
+ * its landing event); a re-sent first touch is recorded once. The raw
+ * touchpoint keeps the landing page (without its query string), the referring
+ * host and the names of the keys that were present.
+ */
+async function attributeWebTouch(db: Db, e: AttributableEvent, w: WebTouch, settings: AttributionSettings) {
+  const ts = e.timestamp.getTime();
+  const dup = await db.one(
+    `select 1 from platform.attribution_events
+      where environment_id = $1 and kind = 'web_touch' and touch_signature = $2
+        and (anonymous_id = $3 or ($4::text is not null and user_id = $4))
+        and ($5::boolean or ($6::text is not null and session_id = $6) or occurred_at between $7 and $8)
+      limit 1`,
+    [e.environment_id, w.signature, e.anonymous_id, e.user_id, w.touch === "first", w.touch === "first" ? null : sessionOf(e),
+     new Date(ts - WEB_TOUCH_DEDUP_MS), new Date(ts + WEB_TOUCH_DEDUP_MS)],
+  );
+  if (dup) return;
+
+  // A click id backed by a click LeanApp's own link recorded is deterministic.
+  const from = new Date(ts - maxClickLookbackDays(settings) * DAY_MS);
+  let click: TouchpointRow | null = null;
+  let m: { matchType: MatchType; matchKey: string } = webMatch(w);
+  if (w.signals.clickId) {
+    const tp = await findClick(db, e, "click_id", w.signals.clickId.value, from);
+    if (tp && clickInWindow(tp, e.timestamp, settings)) {
+      click = tp;
+      m = { matchType: "deterministic", matchKey: "click_id" };
+    }
+  }
+  if (!click && w.signals.networkClickId) {
+    const tp = await findClick(db, e, "network_click_id", w.signals.networkClickId.value, from);
+    if (tp && clickInWindow(tp, e.timestamp, settings)) {
+      click = tp;
+      m = { matchType: "deterministic", matchKey: w.signals.networkClickId.param };
+    }
+  }
+  const u = w.signals.utm;
+  const source = click?.source ?? u.source ?? w.signals.networkClickId?.network ?? null;
+  const medium = click?.medium ?? u.medium ?? null;
+  const campaign = click?.campaign ?? u.campaign ?? null;
+  const network = click?.network ?? w.signals.networkClickId?.network ?? networkOfSource(source);
+  const raw: Record<string, unknown> = { keys: w.keys };
+  if (w.touch) raw.touch = w.touch;
+  if (click) raw.click_touchpoint_id = click.id;
+  if (w.signals.networkClickId) raw.network_click_param = w.signals.networkClickId.param;
+  const row = await db.one<{ id: string }>(
+    `insert into platform.attribution_touchpoints
+       (organization_id, app_id, environment_id, anonymous_id, user_id, provider, kind, source, medium, campaign, campaign_id, ad_group, ad_group_id,
+        creative, creative_id, click_id, network_click_id, network, link_id, referrer, landing_page, touchpoint_at, raw)
+     values ($1, $2, $3, $4, $5, 'sdk', 'web', $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+     returning id`,
+    [e.organization_id, e.app_id, e.environment_id, e.anonymous_id, e.user_id, source, medium, campaign, w.campaignId, u.term ?? null,
+     w.adsetId, u.content ?? null, w.adId, click?.click_id ?? null, w.signals.networkClickId?.value ?? click?.network_click_id ?? null, network,
+     click?.link_id ?? null, w.referrerHost, w.landingPage, e.timestamp, JSON.stringify(raw)],
+  );
+  if (click) {
+    // The recorded click led to this visit: probabilistic install matching never hands it out again.
+    await db.query("update platform.attribution_touchpoints set matched_at = coalesce(matched_at, $2) where id = $1", [click.id, e.timestamp]);
+  }
+  const tp: TouchpointRow = {
+    id: row!.id, source, medium, campaign, click_id: click?.click_id ?? null, network_click_id: w.signals.networkClickId?.value ?? click?.network_click_id ?? null,
+    network, link_id: click?.link_id ?? null, link_code: click?.link_code ?? null, country: click?.country ?? null, touchpoint_at: e.timestamp, raw,
+  };
+  await recordAttribution(db, e, "web_touch", { touchpoint: tp, matchType: m.matchType, matchKey: m.matchKey }, settings, {
+    postbacks: false,
+    referrerHost: w.referrerHost,
+    sessionId: sessionOf(e),
+    touchSignature: w.signature,
+    evidence: {
+      signals: w.keys,
+      landing_host: w.landingHost,
+      ...(w.referrerHost ? { referrer_host: w.referrerHost } : {}),
+      ...(w.touch ? { sdk_touch: w.touch } : {}),
+      ...(click ? { recorded_click: true } : {}),
+    },
+  });
+}
+
+function sessionOf(e: AttributableEvent): string | null {
+  return typeof e.session_id === "string" && e.session_id ? e.session_id.slice(0, 200) : null;
+}
+
+type TouchCandidate = CreditCandidate & { referrer_host: string | null; campaign: string | null };
+
+/** The person's touches (by install, user id or a linked install) between two instants, newest first. */
+async function personTouches(db: Db, environmentId: string, anonymousId: string | null, userId: string | null, from: Date, to: Date): Promise<TouchCandidate[]> {
+  return db.query<TouchCandidate>(
+    `select ae.id, ae.kind, ae.source, ae.medium, ae.network, ae.match_type, ae.match_key, ae.referrer_host, ae.campaign, ae.occurred_at
+       from platform.attribution_events ae
+      where ae.environment_id = $1 and ae.occurred_at <= $2 and ae.occurred_at >= $3
+        and ae.kind in ('install', 'reinstall', 're_engagement', 'web_touch')
+        and (ae.anonymous_id = $4
+             or ($5::text is not null and ae.user_id = $5)
+             or ($5::text is not null and ae.anonymous_id in (select anonymous_id from platform.identity_links where environment_id = $1 and user_id = $5)))
+      order by ae.occurred_at desc, ae.id desc limit 500`,
+    [environmentId, to, from, anonymousId, userId],
+  );
+}
+
+async function creditsFor(db: Db, environmentId: string, anonymousId: string | null, userId: string | null, at: Date, settings: AttributionSettings): Promise<Credits<TouchCandidate>> {
+  const from = new Date(at.getTime() - maxConversionWindowDays(settings) * DAY_MS);
+  const touches = await personTouches(db, environmentId, anonymousId, userId, from, new Date(at.getTime() + SKEW_MS));
+  return pickCredits(touches, at, settings, SKEW_MS);
+}
+
+type CreditTouch = { id: string; match_type: Match["matchType"]; source: string | null; network: string | null; occurred_at: Date; install_at: Date | null }
+  & Partial<TouchpointRow> & { tp_id: string | null };
+
+/** The stored touch a conversion is credited to, with its touchpoint, for the postback payload. */
+async function loadCreditTouch(db: Db, id: string): Promise<CreditTouch | null> {
+  return db.one<CreditTouch>(
     `select ae.id, ae.match_type, ae.source, ae.network, ae.occurred_at, t.id as tp_id, t.medium, t.campaign, t.click_id, t.network_click_id,
             t.link_id, l.code as link_code, t.country, t.raw,
             (select min(i.occurred_at) from platform.attribution_events i
@@ -290,21 +542,16 @@ async function attributeConversion(db: Db, e: AttributableEvent, name: string, s
        from platform.attribution_events ae
        left join platform.attribution_touchpoints t on t.id = ae.touchpoint_id
        left join platform.attribution_links l on l.id = t.link_id
-      where ae.environment_id = $1 and ae.occurred_at <= $2 and ae.occurred_at >= $3
-        and (ae.anonymous_id = $4
-             or ($5::text is not null and ae.user_id = $5)
-             or ($5::text is not null and ae.anonymous_id in (select anonymous_id from platform.identity_links where environment_id = $1 and user_id = $5)))
-      order by ae.occurred_at desc limit 1`,
-    [e.environment_id, new Date(e.timestamp.getTime() + SKEW_MS), from, e.anonymous_id, e.user_id],
+      where ae.id = $1`,
+    [id],
   );
-  const { revenue, currency } = extractRevenue(name, e.properties);
-  const conv = await db.one<{ id: string }>(
-    `insert into platform.attribution_conversions (organization_id, app_id, environment_id, attribution_event_id, event_row_id, event_name, revenue, currency, occurred_at)
-     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     on conflict do nothing returning id`,
-    [e.organization_id, e.app_id, e.environment_id, ae?.id ?? null, e.id, name, revenue, currency, e.timestamp],
-  );
-  if (!conv || !ae) return;
+}
+
+async function queueConversionPostbacks(
+  db: Db, e: AttributableEvent, name: string, conversionId: string, creditId: string, money: { revenue: number | null; currency: string | null },
+) {
+  const ae = await loadCreditTouch(db, creditId);
+  if (!ae) return;
   const tp: TouchpointRow | null = ae.tp_id
     ? {
         id: ae.tp_id, source: ae.source, medium: ae.medium ?? null, campaign: ae.campaign ?? null, click_id: ae.click_id ?? null,
@@ -316,13 +563,100 @@ async function attributeConversion(db: Db, e: AttributableEvent, name: string, s
     environmentId: e.environment_id,
     eventName: name,
     attributionEventId: ae.id,
-    conversionId: conv.id,
-    idempotencyKey: `conversion:${conv.id}`,
+    conversionId,
+    idempotencyKey: `conversion:${conversionId}`,
     matchType: ae.match_type,
     source: ae.source,
     network: ae.network,
-    payload: payloadFor(e, name, `conversion:${conv.id}`, tp, ae.match_type, ae.install_at ?? ae.occurred_at, { revenue, currency }),
+    payload: payloadFor(e, name, `conversion:${conversionId}`, tp, ae.match_type, ae.install_at ?? ae.occurred_at, money),
   });
+}
+
+async function recordCredit(db: Db, e: Pick<AttributableEvent, "organization_id" | "app_id" | "environment_id">, conversionId: string, reason: "initial" | "late_touch" | "provider_reported", c: Credits, evidence: Record<string, unknown>) {
+  await db.query(
+    `insert into platform.attribution_conversion_credits
+       (organization_id, app_id, environment_id, conversion_id, reason, last_touch_event_id, first_touch_event_id, last_non_direct_event_id, evidence)
+     values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+    [e.organization_id, e.app_id, e.environment_id, conversionId, reason, c.lastTouch?.id ?? null, c.firstTouch?.id ?? null, c.lastNonDirect?.id ?? null,
+     JSON.stringify(evidence)],
+  );
+}
+
+async function attributeConversion(db: Db, e: AttributableEvent, name: string, settings: AttributionSettings) {
+  if (!e.anonymous_id && !e.user_id) return;
+  const credits = await creditsFor(db, e.environment_id, e.anonymous_id, e.user_id, e.timestamp, settings);
+  const evidence = creditEvidence(credits, settings);
+  const { revenue, currency } = extractRevenue(name, e.properties);
+  const conv = await db.one<{ id: string }>(
+    `insert into platform.attribution_conversions (organization_id, app_id, environment_id, attribution_event_id, first_attribution_event_id, first_touch_recorded,
+                                                   last_non_direct_attribution_event_id, last_non_direct_recorded, credit_evidence,
+                                                   event_row_id, event_name, revenue, currency, occurred_at)
+     values ($1, $2, $3, $4, $5, true, $6, true, $7, $8, $9, $10, $11, $12)
+     on conflict do nothing returning id`,
+    [e.organization_id, e.app_id, e.environment_id, credits.lastTouch?.id ?? null, credits.firstTouch?.id ?? null, credits.lastNonDirect?.id ?? null,
+     JSON.stringify(evidence), e.id, name, revenue, currency, e.timestamp],
+  );
+  if (!conv) return;
+  await recordCredit(db, e, conv.id, "initial", credits, evidence);
+  // Networks hear about the conversions of the touch they drove: a later direct or organic touch doesn't take it away.
+  if (credits.lastNonDirect) await queueConversionPostbacks(db, e, name, conv.id, credits.lastNonDirect.id, { revenue, currency });
+}
+
+/**
+ * Re-credits the conversions of this event's person that happened after it but
+ * were processed before it (the touch arrived late or out of order). Each
+ * changed credit is appended to the history with reason late_touch; a
+ * conversion that had no credited touch before queues its postbacks now. Only
+ * conversions recorded since migration 0039 are re-credited.
+ */
+async function recreditLateConversions(db: Db, e: AttributableEvent, settings: AttributionSettings, reason: "late_touch" | "provider_reported" = "late_touch") {
+  if (!e.anonymous_id && !e.user_id) return;
+  const ids = await db.one<{ anons: string[]; users: string[] }>(
+    `with u as (select $3::text as user_id where $3::text is not null
+                union select user_id from platform.identity_links where environment_id = $1 and anonymous_id = $2),
+          a as (select $2::text as anonymous_id where $2::text is not null
+                union select anonymous_id from platform.identity_links where environment_id = $1 and user_id in (select user_id from u))
+     select array(select anonymous_id from a) as anons, array(select user_id from u where user_id is not null) as users`,
+    [e.environment_id, e.anonymous_id, e.user_id],
+  );
+  const later = await db.query<{
+    id: string; event_name: string; occurred_at: Date; revenue: string | null; currency: string | null; anonymous_id: string | null; user_id: string | null;
+    attribution_event_id: string | null; first_attribution_event_id: string | null; last_non_direct_attribution_event_id: string | null; last_non_direct_recorded: boolean;
+    lnd_fallback: boolean | null;
+  }>(
+    `select c.id, c.event_name, c.occurred_at, c.revenue::text, c.currency, ev.anonymous_id, ev.user_id,
+            c.attribution_event_id, c.first_attribution_event_id, c.last_non_direct_attribution_event_id, c.last_non_direct_recorded,
+            (c.credit_evidence->>'last_non_direct_fallback')::boolean as lnd_fallback
+       from platform.events ev
+       join platform.attribution_conversions c on c.environment_id = ev.environment_id and c.event_row_id = ev.id
+      where ev.environment_id = $1 and ev."timestamp" >= $2 and ev."timestamp" <= $3 and ev.id <> $6
+        and (ev.anonymous_id = any($4::text[]) or ev.user_id = any($5::text[]))
+        and c.last_non_direct_recorded
+      order by ev."timestamp" limit 100`,
+    [e.environment_id, new Date(e.timestamp.getTime() - SKEW_MS), new Date(e.timestamp.getTime() + maxConversionWindowDays(settings) * DAY_MS),
+     ids?.anons ?? [], ids?.users ?? [], e.id],
+  );
+  for (const c of later) {
+    const credits = await creditsFor(db, e.environment_id, c.anonymous_id, c.user_id, new Date(c.occurred_at), settings);
+    const same = (credits.lastTouch?.id ?? null) === c.attribution_event_id && (credits.firstTouch?.id ?? null) === c.first_attribution_event_id
+      && (credits.lastNonDirect?.id ?? null) === c.last_non_direct_attribution_event_id
+      // The same touch can turn from weak to known (an install Apple attributed after the fact).
+      && (c.lnd_fallback === null || c.lnd_fallback === credits.lastNonDirectFallback);
+    if (same) continue;
+    const evidence = { ...creditEvidence(credits, settings), recredited_by_event_row: e.id, reason };
+    await db.query(
+      `update platform.attribution_conversions
+          set attribution_event_id = $2, first_attribution_event_id = $3, last_non_direct_attribution_event_id = $4, credit_evidence = $5
+        where id = $1`,
+      [c.id, credits.lastTouch?.id ?? null, credits.firstTouch?.id ?? null, credits.lastNonDirect?.id ?? null, JSON.stringify(evidence)],
+    );
+    await recordCredit(db, e, c.id, reason, credits, evidence);
+    // Postbacks once the conversion has a known source for the first time (idempotent per postback).
+    if ((!c.last_non_direct_attribution_event_id || c.lnd_fallback) && credits.lastNonDirect && !credits.lastNonDirectFallback) {
+      const money = { revenue: c.revenue === null ? null : Number(c.revenue), currency: c.currency };
+      await queueConversionPostbacks(db, { ...e, timestamp: new Date(c.occurred_at) }, c.event_name, c.id, credits.lastNonDirect.id, money);
+    }
+  }
 }
 
 function payloadFor(
@@ -378,4 +712,135 @@ async function enqueuePostbacks(
      on conflict (postback_id, idempotency_key) do nothing`,
     [q.environmentId, q.eventName, q.attributionEventId, q.conversionId, q.idempotencyKey, JSON.stringify(q.payload), q.matchType, q.source, q.network],
   );
+}
+
+// ── Apple Search Ads (AdServices) ───────────────────────────────────────────
+
+interface AdServicesAnswer {
+  id: string;
+  apple_org_id: string | null;
+  campaign_id: string | null;
+  ad_group_id: string | null;
+  keyword_id: string | null;
+  ad_id: string | null;
+  country_or_region: string | null;
+  conversion_type: string | null;
+  claim_type: string | null;
+  click_date: Date | null;
+}
+
+const ADS_COLUMNS = `id, apple_org_id::text, campaign_id::text, ad_group_id::text, keyword_id::text, ad_id::text, country_or_region, conversion_type, claim_type, click_date`;
+
+/** Apple's "attributed" answer for an install, if one is stored (modules/attribution/adservices.ts writes them). */
+async function adServicesAnswer(db: Db, environmentId: string, anonymousId: string): Promise<AdServicesAnswer | null> {
+  return db.one<AdServicesAnswer>(
+    `select ${ADS_COLUMNS} from platform.adservices_attributions
+      where environment_id = $1 and anonymous_id = $2 and status = 'attributed'
+      order by looked_up_at desc nulls last, created_at desc limit 1`,
+    [environmentId, anonymousId],
+  );
+}
+
+/** A touchpoint holding what Apple reported (campaign data only; ids as Apple sent them). */
+async function adServicesTouchpoint(
+  db: Db, e: Pick<AttributableEvent, "organization_id" | "app_id" | "environment_id" | "anonymous_id" | "user_id" | "timestamp">, a: AdServicesAnswer,
+): Promise<TouchpointRow> {
+  const at = a.click_date && new Date(a.click_date) <= e.timestamp ? new Date(a.click_date) : e.timestamp;
+  const raw = {
+    adservices_lookup_id: a.id, apple_org_id: a.apple_org_id, keyword_id: a.keyword_id, conversion_type: a.conversion_type, claim_type: a.claim_type,
+  };
+  const row = await db.one<{ id: string }>(
+    `insert into platform.attribution_touchpoints
+       (organization_id, app_id, environment_id, anonymous_id, user_id, provider, kind, source, campaign, campaign_id, ad_group_id, creative_id,
+        country, touchpoint_at, raw)
+     values ($1, $2, $3, $4, $5, 'apple_adservices', 'context', 'apple_search_ads', $6, $6, $7, $8, $9, $10, $11)
+     returning id`,
+    [e.organization_id, e.app_id, e.environment_id, e.anonymous_id, e.user_id, a.campaign_id, a.ad_group_id, a.ad_id,
+     a.country_or_region && /^[A-Z]{2}$/.test(a.country_or_region) ? a.country_or_region : null, at, JSON.stringify(raw)],
+  );
+  return {
+    id: row!.id, source: "apple_search_ads", medium: null, campaign: a.campaign_id, click_id: null, network_click_id: null, network: null,
+    link_id: null, link_code: null, country: null, touchpoint_at: at, raw,
+  };
+}
+
+function adServicesEvidence(a: AdServicesAnswer): Record<string, unknown> {
+  return {
+    provider: "apple_adservices", evidence_level: "provider_reported", adservices_lookup_id: a.id,
+    apple: {
+      org_id: a.apple_org_id, campaign_id: a.campaign_id, ad_group_id: a.ad_group_id, keyword_id: a.keyword_id, ad_id: a.ad_id,
+      claim_type: a.claim_type, conversion_type: a.conversion_type, country_or_region: a.country_or_region,
+    },
+  };
+}
+
+function adServicesMatch(a: AdServicesAnswer, tp: TouchpointRow): Match {
+  return { touchpoint: tp, matchType: matchTypeFor("provider"), matchKey: "adservices", claimType: a.claim_type, evidence: adServicesEvidence(a) };
+}
+
+export type AdServicesApplyOutcome = "upgraded" | "no_install" | "kept_existing_match" | "not_attributed";
+
+/**
+ * Applies a stored AdServices answer to the install it belongs to (same
+ * environment and anonymous id). Called by processAdServicesLookups once
+ * Apple answered.
+ *
+ * Only an install nothing matched (match_type organic: unattributed on iOS)
+ * is upgraded, in place and once: it becomes provider_reported (source
+ * apple_search_ads, Apple's campaign / ad group / keyword / ad ids, method
+ * adservices), and evidence.upgraded_from keeps what it was. A LeanApp click
+ * match, reported parameters or an earlier upgrade are never overridden. The
+ * install stays one row, so installs are never double-counted. The person's
+ * conversions after the install are then re-credited (credit history reason
+ * provider_reported). A "not_attributed" answer changes nothing. When the
+ * install hasn't been processed yet, the install step finds the answer itself.
+ */
+export async function applyAdServicesAttribution(db: Db, lookupId: string): Promise<AdServicesApplyOutcome> {
+  const a = await db.one<AdServicesAnswer & { status: string; environment_id: string; anonymous_id: string | null }>(
+    `select ${ADS_COLUMNS}, status, environment_id, anonymous_id from platform.adservices_attributions where id = $1`,
+    [lookupId],
+  );
+  if (!a || a.status !== "attributed") return "not_attributed";
+  if (!a.anonymous_id) return "no_install";
+  const ae = await db.one<{
+    id: string; organization_id: string; app_id: string; environment_id: string; anonymous_id: string; user_id: string | null; occurred_at: Date;
+    event_row_id: string | null; platform: string | null; match_type: string; match_key: string | null; method: string | null; confidence: string | null;
+    source: string | null; medium: string | null; campaign: string | null; touchpoint_id: string | null; evidence: Record<string, unknown>;
+  }>(
+    `select id, organization_id, app_id, environment_id, anonymous_id, user_id, occurred_at, event_row_id::text, platform, match_type, match_key, method,
+            confidence, source, medium, campaign, touchpoint_id, evidence
+       from platform.attribution_events
+      where environment_id = $1 and anonymous_id = $2 and kind in ('install', 'reinstall')
+      for update`,
+    [a.environment_id, a.anonymous_id],
+  );
+  if (!ae) return "no_install";
+  if (ae.match_type !== "organic") return "kept_existing_match";
+  const e: AttributableEvent = {
+    id: ae.event_row_id ?? "0", organization_id: ae.organization_id, app_id: ae.app_id, environment_id: ae.environment_id, event_name: "app_installed",
+    timestamp: new Date(ae.occurred_at), anonymous_id: ae.anonymous_id, user_id: ae.user_id, platform: ae.platform, properties: {}, context: {},
+  };
+  const m = adServicesMatch(a, await adServicesTouchpoint(db, e, a));
+  const decision = describeMatch(m.matchType, m.matchKey, { claimType: a.claim_type });
+  const channel = engineChannel({ source: "apple_search_ads", medium: null, network: null, match_type: m.matchType, match_key: m.matchKey });
+  const evidence = {
+    ...ae.evidence, ...m.evidence, channel, limitations: decision.limitations, touch_at: new Date(m.touchpoint!.touchpoint_at).toISOString(), touch_kind: "provider",
+    upgraded_at: new Date().toISOString(),
+    upgraded_from: {
+      match_type: ae.match_type, match_key: ae.match_key, method: ae.method, confidence: ae.confidence, source: ae.source, medium: ae.medium,
+      campaign: ae.campaign, touchpoint_id: ae.touchpoint_id, limitations: ae.evidence?.limitations ?? null,
+    },
+  };
+  const upgraded = await db.one(
+    `update platform.attribution_events
+        set match_type = $2, match_key = $3, method = $4, confidence = $5, source = 'apple_search_ads', medium = null, campaign = $6, network = null,
+            touchpoint_id = $7, evidence = $8
+      where id = $1 and match_type = 'organic'
+      returning id`,
+    [ae.id, m.matchType, m.matchKey, decision.method, decision.confidence, a.campaign_id, m.touchpoint!.id, JSON.stringify(evidence)],
+  );
+  if (!upgraded) return "kept_existing_match";
+  await db.query("update platform.attribution_touchpoints set matched_at = coalesce(matched_at, $2) where id = $1", [m.touchpoint!.id, e.timestamp]);
+  await recreditLateConversions(db, e, await loadSettings(db, ae.app_id), "provider_reported");
+  return "upgraded";
 }

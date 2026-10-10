@@ -18,6 +18,17 @@ public struct AnalyticsOptions {
     public var debug: Bool = false
     /// app_installed / app_updated on launch and app_opened on launch and on return to the foreground.
     public var trackLifecycleEvents: Bool = true
+    /// Consent assumed until setConsent() records the user's answer (see LeanAppConfig.consentDefault).
+    public var consentDefault: ConsentStatus = .granted
+    /// Per-purpose overrides of consentDefault.
+    public var consentDefaults: [ConsentPurpose: ConsentStatus] = [:]
+    /// iOS 14.3+: send Apple's AdServices attribution token (AAAttribution.attributionToken()) once, with
+    /// app_installed, so LeanApp's server can look up an Apple Search Ads install. Needs attribution consent.
+    public var collectAdServicesToken: Bool = true
+    /// On the first launch of a new install, ask LeanApp once for the deferred deep link. Needs attribution consent.
+    public var deferredDeepLinks: Bool = true
+    /// Called on the main queue with LeanApp's answer (matchType "none" when nothing matched), once per install.
+    public var onDeferredDeepLink: ((DeferredDeepLink) -> Void)?
 
     public init() {}
 }
@@ -66,6 +77,9 @@ public enum Analytics {
         config.context = options.context
         config.optedOut = options.optedOut
         config.debug = options.debug
+        config.consentDefault = options.consentDefault
+        config.consentDefaults = options.consentDefaults
+        config.deferredDeepLinks = options.deferredDeepLinks
         let facts = UIKitFacts.read()
         let created: LeanAppClient
         do {
@@ -83,8 +97,19 @@ public enum Analytics {
         lock.unlock()
 
         if options.trackLifecycleEvents {
-            created.trackInstallOrUpdate(appVersion: versions.version, appBuild: versions.build)
+            // The AdServices token is read only for app_installed (the first launch with the SDK).
+            let token: (() -> String?)? = options.collectAdServicesToken ? { AppleAttribution.adServicesToken() } : nil
+            created.trackInstallOrUpdate(appVersion: versions.version, appBuild: versions.build, attributionToken: token)
             created.track("app_opened", properties: ["from_background": false])
+        }
+        if options.deferredDeepLinks {
+            let callback = options.onDeferredDeepLink
+            let v = ProcessInfo.processInfo.operatingSystemVersion
+            created.requestDeferredDeepLink(os: "ios", osVersion: "\(v.majorVersion).\(v.minorVersion)") { result in
+                if let result = result, let callback = callback {
+                    DispatchQueue.main.async { callback(result) }
+                }
+            }
         }
         observeLifecycle(created, trackOpens: options.trackLifecycleEvents)
         return created
@@ -165,6 +190,22 @@ public enum Analytics {
 
     public static func getAttribution() -> (first: [String: String], latest: [String: String])? {
         client()?.getAttribution()
+    }
+
+    /// Records the user's consent answers from your consent screen, e.g. [.analytics: true, .attribution: false].
+    public static func setConsent(_ consent: [ConsentPurpose: Bool]) { client()?.setConsent(consent) }
+
+    /// Current consent per purpose, or nil before initialize.
+    public static func getConsent() -> [ConsentPurpose: ConsentStatus]? { client()?.getConsent() }
+
+    /// SKAdNetwork / AdAttributionKit conversion value: see AppleAttribution.updateConversionValue.
+    public static func updateConversionValue(
+        _ fine: Int,
+        coarse: AppleAttribution.CoarseValue? = nil,
+        lock: Bool = false,
+        completion: ((Result<AppleAttribution.Framework, Error>) -> Void)? = nil
+    ) {
+        AppleAttribution.updateConversionValue(fine, coarse: coarse, lock: lock, completion: completion)
     }
 
     public static func getAnonymousId() -> String? { client()?.getAnonymousId() }

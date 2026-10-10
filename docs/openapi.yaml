@@ -27,6 +27,8 @@ tags:
     description: Public tracking-link redirect.
   - name: In-app
     description: In-app messages queued by automations, polled by the app with its public key.
+  - name: Experiments
+    description: Variants of running experiments (A/B tests) for one person, with the public key (docs/experiments.md).
   - name: Messaging
     description: Callbacks for WhatsApp and email unsubscribe links (docs/messaging.md).
   - name: System
@@ -68,6 +70,7 @@ paths:
         "200": { $ref: "#/components/responses/Ingested" }
         "400": { $ref: "#/components/responses/IngestRejected" }
         "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/IdempotencyKeyReused" }
         "413": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/IngestLimited" }
     options:
@@ -106,6 +109,7 @@ paths:
         "200": { $ref: "#/components/responses/Ingested" }
         "400": { $ref: "#/components/responses/Error" }
         "401": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/IdempotencyKeyReused" }
         "413": { $ref: "#/components/responses/Error" }
         "429": { $ref: "#/components/responses/IngestLimited" }
     options:
@@ -245,7 +249,11 @@ paths:
       operationId: requestDeletion
       tags: [Privacy]
       summary: Delete an end user's data in the key's environment
-      description: Needs a secret key with the `privacy:write` scope.
+      description: >-
+        Needs a secret key with the `privacy:write` scope. A completed deletion leaves a tombstone
+        (a hash, not the id) for the deleted `user_id` and installs: later events of that user, and
+        anonymous events of those installs, are rejected at ingestion with reason `subject_deleted`.
+        Tombstones don't expire; a returning person needs a new `user_id`.
       security: [{ bearerKey: [] }, { headerKey: [] }]
       requestBody:
         required: true
@@ -343,7 +351,7 @@ paths:
       description: Needs a secret key with the `privacy:read` scope.
       security: [{ bearerKey: [] }, { headerKey: [] }]
       parameters:
-        - { name: channel, in: query, schema: { type: string, enum: [marketing, push, email, whatsapp] } }
+        - { name: channel, in: query, schema: { type: string, enum: [marketing, push, email, whatsapp, sms] } }
         - { name: user_id, in: query, schema: { type: string } }
         - { name: anonymous_id, in: query, schema: { type: string } }
         - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
@@ -377,8 +385,8 @@ paths:
               properties:
                 user_id: { type: string, maxLength: 256 }
                 anonymous_id: { type: string, maxLength: 256 }
-                channel: { type: string, enum: [marketing, push, email, whatsapp] }
-                channels: { type: array, items: { type: string, enum: [marketing, push, email, whatsapp] } }
+                channel: { type: string, enum: [marketing, push, email, whatsapp, sms] }
+                channels: { type: array, items: { type: string, enum: [marketing, push, email, whatsapp, sms] } }
                 reason: { type: string, maxLength: 500 }
       responses:
         "201":
@@ -403,7 +411,7 @@ paths:
       parameters:
         - { name: user_id, in: query, schema: { type: string } }
         - { name: anonymous_id, in: query, schema: { type: string } }
-        - { name: channel, in: query, required: true, description: Repeat for several channels., schema: { type: string, enum: [marketing, push, email, whatsapp] } }
+        - { name: channel, in: query, required: true, description: Repeat for several channels., schema: { type: string, enum: [marketing, push, email, whatsapp, sms] } }
       responses:
         "200":
           description: Removed
@@ -695,8 +703,13 @@ paths:
                     type: array
                     description: Installs linked to the user (newest first, at most 100).
                     items: { type: string }
-                  event_count: { type: integer }
-                  last_event_at: { type: [string, "null"], format: date-time }
+                  event_count:
+                    type: integer
+                    description: The user's events as reports count them (processed `track` events and screen views; identify, alias, push_token and consent calls and failed events are left out).
+                  last_event_at:
+                    type: [string, "null"]
+                    format: date-time
+                    description: Time of the latest of those events.
         "401": { $ref: "#/components/responses/Error" }
         "403": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
@@ -813,6 +826,64 @@ paths:
       security: []
       responses:
         "204": { description: Preflight accepted }
+  /v1/experiments/assignments:
+    get:
+      operationId: getExperimentAssignments
+      tags: [Experiments]
+      summary: Variants of every running experiment for one person
+      description: |
+        Every running experiment of the key's environment, with this person's variant, or null when they
+        are outside its traffic or audience (show your default). The person is the user_id, else the one
+        user the install is linked to, else the install. Assignment is a hash of the experiment's salt and
+        the person: the same person always gets the same variant, and nothing is stored. Calling this is
+        not an exposure; the app sends an `experiment_exposure` track event when it shows the variant.
+        A public key can't prove who the user is, so don't target experiments on sensitive audiences.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      parameters:
+        - { name: user_id, in: query, required: false, schema: { type: string, maxLength: 200 } }
+        - { name: anonymous_id, in: query, required: false, schema: { type: string, maxLength: 200 } }
+      responses:
+        "200":
+          description: Assignments
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExperimentAssignments" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    post:
+      operationId: postExperimentAssignments
+      tags: [Experiments]
+      summary: Variants of every running experiment for one person (ids in the body)
+      description: The same answer as GET, for ids you'd rather not put in a URL. The JavaScript SDK's getVariant uses this.
+      security: [{ bearerKey: [] }, { headerKey: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                user_id: { type: string, maxLength: 200 }
+                anonymous_id: { type: string, maxLength: 200 }
+      responses:
+        "200":
+          description: Assignments
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ExperimentAssignments" }
+        "401": { $ref: "#/components/responses/Error" }
+        "403": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+    options:
+      operationId: experimentAssignmentsPreflight
+      tags: [Experiments]
+      summary: CORS preflight
+      security: []
+      responses:
+        "204": { description: Preflight accepted }
   /v1/whatsapp/webhook/{id}:
     parameters:
       - { name: id, in: path, required: true, description: The environment's WhatsApp integration id (shown on Engage → Integrations)., schema: { type: string, format: uuid } }
@@ -832,7 +903,7 @@ paths:
       operationId: whatsappWebhookEvent
       tags: [Messaging]
       summary: WhatsApp delivery statuses and inbound messages
-      description: Signed by Meta with the app secret. Applies sent/delivered/read/failed statuses to notifications and turns STOP / إيقاف replies into WhatsApp suppressions.
+      description: Signed by Meta with the app secret. Applies sent/delivered/read/failed statuses to notifications, records every inbound message (opening the 24-hour customer service window and feeding `inbound_message` flow triggers), and turns STOP / إيقاف replies into WhatsApp suppressions.
       security: []
       parameters:
         - { name: X-Hub-Signature-256, in: header, required: true, schema: { type: string, example: "sha256=…" } }
@@ -850,6 +921,27 @@ paths:
                   received: { type: boolean }
                   statuses: { type: integer }
                   optOuts: { type: integer }
+                  inbound: { type: integer, description: Inbound messages stored (duplicates are ignored). }
+        "401": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "413": { $ref: "#/components/responses/Error" }
+  /v1/twilio/webhook/{id}:
+    parameters:
+      - { name: id, in: path, required: true, description: The environment's Twilio integration id (shown on Settings → Dev Ops → Channels)., schema: { type: string, format: uuid } }
+    post:
+      operationId: twilioWebhookEvent
+      tags: [Messaging]
+      summary: Twilio message status callbacks and inbound SMS / WhatsApp messages
+      description: |
+        LeanApp sets this URL as the StatusCallback of every Twilio message; the owner also sets it as "A message comes in" on the Twilio number or Messaging Service. Signed by Twilio with X-Twilio-Signature (base64 HMAC-SHA1 with the auth token over this exact URL followed by the sorted POST parameters). Status callbacks update the notification (error 21610 suppresses the person on the channel); inbound messages are stored (sender hashed), open the WhatsApp 24-hour window, can trigger flows, and STOP / OptOutType=STOP add an `sms` or `whatsapp` suppression.
+      security: []
+      parameters:
+        - { name: X-Twilio-Signature, in: header, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content: { application/x-www-form-urlencoded: { schema: { type: object, additionalProperties: { type: string } } } }
+      responses:
+        "200": { description: Processed; empty TwiML so Twilio sends no automatic reply, content: { text/xml: { schema: { type: string } } } }
         "401": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "413": { $ref: "#/components/responses/Error" }
@@ -896,7 +988,11 @@ components:
       name: Idempotency-Key
       in: header
       required: false
-      description: Same value on every retry of the same request; the stored response is replayed.
+      description: >-
+        Same value on every retry of the same request; the stored response is replayed when the
+        request carries the same events (same event_ids in the same order; sent_at and JSON key order
+        may differ). The same key with different events returns 409 idempotency_key_reused and
+        stores nothing. Use one key per distinct batch.
       schema: { type: string, maxLength: 200 }
     Org:
       name: org
@@ -923,12 +1019,23 @@ components:
           schema: { $ref: "#/components/schemas/IngestResult" }
     IngestLimited:
       description: >-
-        `rate_limited` (too many events per minute for this environment) or `plan_limit_exceeded`
+        `rate_limited` (too many events per minute for this environment, for this API key
+        (`INGEST_EVENTS_PER_KEY_PER_MINUTE`, default 6000) or, for public SDK keys, from one client IP
+        (`INGEST_EVENTS_PER_IP_PER_MINUTE`, default 1200; counted under a keyed hash, the IP is never stored);
+        every event in the request counts) or `plan_limit_exceeded`
         (the organization used its monthly event allowance plus the 10% grace; nothing in the request
         was stored). Retry after `Retry-After` seconds.
       headers:
         Retry-After:
           schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    IdempotencyKeyReused:
+      description: >-
+        `idempotency_key_reused`: this Idempotency-Key was already used for a request with
+        different events. Nothing in the request was stored. Resend with a new key, or without one
+        (event_id still de-duplicates).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
@@ -950,7 +1057,7 @@ components:
       type: object
       properties:
         user_key: { type: string, description: "user_id, or anon:<anonymous_id>" }
-        channel: { type: string, enum: [marketing, push, email, whatsapp] }
+        channel: { type: string, enum: [marketing, push, email, whatsapp, sms] }
         source: { type: string, enum: [manual, api, consent] }
         reason: { type: [string, "null"] }
         created_at: { type: string, format: date-time }
@@ -1126,11 +1233,46 @@ components:
           properties:
             name: { type: string }
             version: { type: string }
+        user_agent: { type: string, maxLength: 1000, description: "Web SDK: navigator.userAgent" }
         attribution:
           type: object
-          additionalProperties: { type: string }
+          description: >-
+            Well-known keys below; any other string key (1-60 characters, at most 64 keys) is still accepted.
+            Values are at most 1000 characters except adservices_token (4096). A `touch` other than first/latest
+            and a non-http(s) landing_url / referrer are dropped with a warning.
+          maxProperties: 64
+          properties:
+            utm_source: { type: string }
+            utm_medium: { type: string }
+            utm_campaign: { type: string }
+            utm_term: { type: string }
+            utm_content: { type: string }
+            utm_id: { type: string }
+            gclid: { type: string }
+            gbraid: { type: string }
+            wbraid: { type: string }
+            fbclid: { type: string }
+            ttclid: { type: string }
+            ScCid: { type: string }
+            sccid: { type: string }
+            twclid: { type: string }
+            li_fat_id: { type: string }
+            msclkid: { type: string }
+            click_id: { type: string, description: "LeanApp's own click id (lac_…)" }
+            campaign_id: { type: string }
+            adset_id: { type: string }
+            ad_id: { type: string }
+            landing_url: { type: string, description: "Web: origin, path and attribution parameters of the landing page" }
+            referrer: { type: string, description: "Web: external referrer, origin and path" }
+            touch: { type: string, enum: [first, latest] }
+            deep_link_url: { type: string, description: "Native SDKs: the URL that opened the app" }
+            fbp: { type: string, description: "Web: Meta _fbp cookie, with marketing consent" }
+            fbc: { type: string, description: "Web: Meta _fbc cookie or fb.1.<ms>.<fbclid>, with marketing consent" }
+            adservices_token: { type: string, maxLength: 4096, description: "iOS: AAAttribution.attributionToken(), on app_installed" }
+          additionalProperties: { type: string, maxLength: 1000 }
         consent:
           type: object
+          description: The purposes the user has answered (the SDKs never send defaults)
           additionalProperties: { type: boolean }
     IngestResult:
       type: object
@@ -1145,6 +1287,13 @@ components:
             properties:
               index: { type: integer }
               event_id: { type: string }
+              reason:
+                type: string
+                enum: [consent_denied, subject_deleted]
+                description: >-
+                  Present when a valid event was not stored on purpose: `consent_denied` (the user or install
+                  denied analytics consent) or `subject_deleted` (the user, or the install's anonymous activity,
+                  was deleted by a privacy request). Absent when the event failed validation. Don't retry either.
               errors:
                 type: array
                 items:
@@ -1258,6 +1407,19 @@ components:
           type: array
           description: The subject's installs another user is linked to as well; their anonymous activity was kept.
           items: { type: string }
+    ExperimentAssignments:
+      type: object
+      required: [assignments]
+      properties:
+        assignments:
+          type: array
+          items:
+            type: object
+            required: [experiment, experiment_id, variant]
+            properties:
+              experiment: { type: string, description: The experiment's key, as used in the app's code }
+              experiment_id: { type: string, format: uuid, description: Send it as `experiment_id` on the experiment_exposure event }
+              variant: { type: [string, "null"], description: The variant's key; null when the person isn't in the experiment }
     InAppMessage:
       type: object
       required: [id, title, body, button_text, deep_link, data, created_at, expires_at]

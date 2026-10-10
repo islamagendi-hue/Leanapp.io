@@ -1,12 +1,19 @@
 import "server-only";
 import { z } from "zod";
+import { msg, type T } from "@/i18n/translate";
 import type { Db } from "@/lib/db";
-import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
 import { COUNTED_EVENTS, PERSON } from "@/modules/analytics/sql";
+import { DefinitionError, parseDefinition } from "@/modules/audiences/definition";
+import { can } from "@/modules/rbac/authorize";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
-import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, referencedWhatsAppTemplates, type AutomationDefinition } from "./definition";
+import { checkMessagingStep } from "@/modules/messaging/step-checks";
+import { AutomationDefinitionError, parseAutomation, referencedAudiences, referencedEmailTemplates, referencedWebhooks, type AutomationDefinition } from "./definition";
+import { FLOW_TEMPLATE_IDS, getFlowTemplate, needsWhatsApp, planFlowTemplate } from "./library";
+import { fill } from "./messages";
 import { nextScheduled } from "./time";
+import { syncAutomationMedia } from "@/modules/media/service";
 
 /**
  * Automations: CRUD, versioning and lifecycle. Every save of the definition is
@@ -53,13 +60,21 @@ export interface RunLogEntry {
   detail?: string;
 }
 
-const nameSchema = z.string().trim().min(2, "Name the automation.").max(80);
+const nameSchema = z.string().trim().min(2, msg("Name the automation.")).max(80);
 
 function parseDef(input: unknown): AutomationDefinition {
   try {
     return parseAutomation(typeof input === "string" ? JSON.parse(input) : input);
   } catch (err) {
-    throw new ValidationError(err instanceof AutomationDefinitionError ? err.message : "The automation is not valid.");
+    throw new ValidationError(err instanceof AutomationDefinitionError ? err.message : msg("The automation is not valid."));
+  }
+}
+
+function parseAudienceDefinition(input: unknown) {
+  try {
+    return parseDefinition(input);
+  } catch (err) {
+    throw new ValidationError(err instanceof DefinitionError ? err.message : msg("The audience definition is not valid."));
   }
 }
 
@@ -115,27 +130,23 @@ export async function getAutomation(ctx: TenantContext, id: string, opts: { runS
 async function checkReferences(db: Db, environmentId: string, d: AutomationDefinition, opts: { requireActive: boolean }) {
   for (const id of referencedAudiences(d)) {
     const a = await db.one<{ status: string; name: string }>("select status, name from platform.audiences where id = $1 and environment_id = $2", [id, environmentId]);
-    if (!a || a.status === "archived") throw new ValidationError("The trigger's audience doesn't exist in this environment.");
-    if (opts.requireActive && a.status !== "active") throw new ValidationError(`Activate the audience "${a.name}" first.`);
+    if (!a || a.status === "archived") throw new ValidationError(msg("The trigger's audience doesn't exist in this environment."));
+    if (opts.requireActive && a.status !== "active") throw new ValidationError(fill(msg('Activate the audience "{name}" first.'), { name: a.name }));
   }
   for (const id of referencedWebhooks(d)) {
     const w = await db.one("select id from platform.webhooks where id = $1 and environment_id = $2", [id, environmentId]);
-    if (!w) throw new ValidationError("A webhook step points to a webhook that doesn't exist in this environment.");
+    if (!w) throw new ValidationError(msg("A webhook step points to a webhook that doesn't exist in this environment."));
   }
   for (const id of referencedEmailTemplates(d)) {
     const t = await db.one("select id from platform.email_templates where id = $1 and environment_id = $2", [id, environmentId]);
-    if (!t) throw new ValidationError("An email step points to a template that doesn't exist in this environment.");
+    if (!t) throw new ValidationError(msg("An email step points to a template that doesn't exist in this environment."));
   }
-  for (const s of referencedWhatsAppTemplates(d)) {
-    const t = await db.one<{ status: string; body_params: number; header_params: number }>(
-      "select status, body_params, header_params from platform.whatsapp_templates where environment_id = $1 and name = $2 and language = $3",
-      [environmentId, s.template, s.language],
-    );
-    if (!t) throw new ValidationError(`The WhatsApp template "${s.template}" (${s.language}) isn't synced in this environment. Sync templates on Engage → Integrations.`);
-    if (t.body_params !== s.bodyParams.length || t.header_params !== s.headerParams.length) {
-      throw new ValidationError(`The WhatsApp template "${s.template}" needs ${t.body_params} body and ${t.header_params} header variables.`);
-    }
-    if (opts.requireActive && t.status !== "APPROVED") throw new ValidationError(`The WhatsApp template "${s.template}" is ${t.status.toLowerCase()}, not approved by WhatsApp yet.`);
+  const env = await db.one<{ app_id: string; organization_id: string }>("select app_id, organization_id from platform.environments where id = $1", [environmentId]);
+  for (const s of d.steps) {
+    if (s.type !== "whatsapp" && s.type !== "whatsapp_session" && s.type !== "sms") continue;
+    const issues = await checkMessagingStep(db, { organizationId: env!.organization_id, appId: env!.app_id, environmentId }, s, opts);
+    const first = issues.find((i) => i.level === "error");
+    if (first) throw new ValidationError(first.message);
   }
 }
 
@@ -143,25 +154,94 @@ export async function createAutomation(
   ctx: TenantContext,
   environmentId: string,
   input: { name?: unknown; definition?: unknown },
-  opts: { kind?: AutomationRow["kind"] } = {},
+  opts: { kind?: AutomationRow["kind"]; template?: string } = {},
 ): Promise<{ id: string }> {
   const name = parseName(input.name);
   const definition = parseDef(input.definition);
+  return tenantTx(ctx, "automations.manage", (db) => insertAutomation(db, ctx, environmentId, name, definition, opts));
+}
+
+async function insertAutomation(
+  db: Db,
+  ctx: TenantContext,
+  environmentId: string,
+  name: string,
+  definition: AutomationDefinition,
+  opts: { kind?: AutomationRow["kind"]; template?: string; audienceId?: string },
+): Promise<{ id: string }> {
+  const env = await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [environmentId]);
+  if (!env) throw new NotFoundError("Environment");
+  await checkReferences(db, environmentId, definition, { requireActive: false });
+  const row = await db.one<{ id: string }>(
+    `insert into platform.automations (organization_id, app_id, environment_id, name, definition, version, created_by, updated_by, kind)
+     values ($1, $2, $3, $4, $5, 1, $6, $6, $7) returning id`,
+    [ctx.organizationId, env.app_id, environmentId, name, JSON.stringify(definition), ctx.userId, opts.kind ?? "automation"],
+  );
+  await db.query(
+    "insert into platform.automation_versions (organization_id, automation_id, version, definition, created_by) values ($1, $2, 1, $3, $4)",
+    [ctx.organizationId, row!.id, JSON.stringify(definition), ctx.userId],
+  );
+  await syncAutomationMedia(db, ctx, row!.id, definition);
+  const metadata = { environment_id: environmentId, name, kind: opts.kind ?? "automation", ...(opts.template ? { template: opts.template } : {}), ...(opts.audienceId ? { audience_id: opts.audienceId } : {}) };
+  await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata });
+  return { id: row!.id };
+}
+
+const whatsappChoice = z.object({
+  template: z.string().trim().min(1).max(512),
+  language: z.string().trim().min(2).max(10),
+  bodyParams: z.array(z.string().trim().min(1).max(1024)).max(20).default([]),
+});
+
+/**
+ * A flow from the library (./library.ts), with `events` mapping the
+ * template's event slots to this app's event names (suggestions otherwise).
+ * Always created as a draft: nothing is sent until someone activates it.
+ * Events the app doesn't send yet are allowed; the flow just won't start
+ * until they arrive. A template that starts from an audience creates that
+ * audience too, as a draft, in the same transaction (it needs
+ * audiences.manage); activating the flow asks for the audience to be
+ * activated first. A WhatsApp template needs an approved, synced template.
+ */
+export async function createAutomationFromTemplate(
+  ctx: TenantContext,
+  environmentId: string,
+  templateId: unknown,
+  input: { events?: Record<string, unknown>; whatsapp?: unknown } = {},
+  opts: { t?: T } = {},
+): Promise<{ id: string; audienceId: string | null }> {
+  const id = z.enum(FLOW_TEMPLATE_IDS).safeParse(templateId);
+  if (!id.success) throw new ValidationError(msg("Choose a flow from the library."));
+  const template = getFlowTemplate(id.data);
+  let whatsapp: z.infer<typeof whatsappChoice> | null = null;
+  if (needsWhatsApp(template)) {
+    const w = whatsappChoice.safeParse(input.whatsapp);
+    if (!w.success) throw new ValidationError(msg("Choose an approved WhatsApp template for this flow."));
+    whatsapp = w.data;
+  }
+  const plan = planFlowTemplate(id.data, input.events ?? {}, opts.t, null, { whatsapp: whatsapp && { ...whatsapp, headerParams: [] } });
+  const name = parseName(plan.name);
+  // Checked with the placeholder audience; the real id replaces it below.
+  parseDef(plan.definition);
+  const audience = plan.audience && { ...plan.audience, definition: parseAudienceDefinition(plan.audience.definition) };
+  if (audience && !can(ctx.role, "audiences.manage")) throw new ForbiddenError(msg("This flow creates an audience, which your role can't do."));
   return tenantTx(ctx, "automations.manage", async (db) => {
-    const env = await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [environmentId]);
-    if (!env) throw new NotFoundError("Environment");
-    await checkReferences(db, environmentId, definition, { requireActive: false });
-    const row = await db.one<{ id: string }>(
-      `insert into platform.automations (organization_id, app_id, environment_id, name, definition, version, created_by, updated_by, kind)
-       values ($1, $2, $3, $4, $5, 1, $6, $6, $7) returning id`,
-      [ctx.organizationId, env.app_id, environmentId, name, JSON.stringify(definition), ctx.userId, opts.kind ?? "automation"],
-    );
-    await db.query(
-      "insert into platform.automation_versions (organization_id, automation_id, version, definition, created_by) values ($1, $2, 1, $3, $4)",
-      [ctx.organizationId, row!.id, JSON.stringify(definition), ctx.userId],
-    );
-    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.created", targetType: "automation", targetId: row!.id, metadata: { environment_id: environmentId, name, kind: opts.kind ?? "automation" } });
-    return { id: row!.id };
+    let audienceId: string | null = null;
+    let definition = plan.definition;
+    if (audience) {
+      const env = await db.one<{ app_id: string }>("select app_id from platform.environments where id = $1", [environmentId]);
+      if (!env) throw new NotFoundError("Environment");
+      const row = await db.one<{ id: string }>(
+        `insert into platform.audiences (organization_id, app_id, environment_id, name, description, definition, created_by, updated_by)
+         values ($1, $2, $3, $4, $5, $6, $7, $7) returning id`,
+        [ctx.organizationId, env.app_id, environmentId, audience.name, audience.description, JSON.stringify(audience.definition), ctx.userId],
+      );
+      audienceId = row!.id;
+      await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "audience.created", targetType: "audience", targetId: audienceId, metadata: { environment_id: environmentId, name: audience.name, template: id.data } });
+      definition = { ...definition, trigger: { type: "audience_entered", audienceId } };
+    }
+    const created = await insertAutomation(db, ctx, environmentId, name, parseDef(definition), { template: id.data, audienceId: audienceId ?? undefined });
+    return { id: created.id, audienceId };
   });
 }
 
@@ -186,6 +266,7 @@ export async function updateAutomation(ctx: TenantContext, id: string, input: { 
         [ctx.organizationId, id, version, JSON.stringify(definition), ctx.userId],
       );
     }
+    await syncAutomationMedia(db, ctx, id, definition);
     // A new trigger starts from now, never from history.
     if (triggerChanged && cur.status !== "draft") await resetTrigger(db, ctx, id, cur.environment_id, definition);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.updated", targetType: "automation", targetId: id, metadata: { name, version } });
@@ -201,6 +282,9 @@ async function resetTrigger(db: Db, ctx: TenantContext, id: string, environmentI
     cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.events where environment_id = $1", [environmentId]))!.max;
   } else if (d.trigger.type === "audience_entered" || d.trigger.type === "audience_exited") {
     cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.audience_events where audience_id = $1", [d.trigger.audienceId]))!.max;
+  } else if (d.trigger.type === "inbound_message") {
+    // Replies received from now on (not ones that arrived before activation).
+    cursor = (await db.one<{ max: string }>("select coalesce(max(id), 0) as max from platform.inbound_messages where environment_id = $1", [environmentId]))!.max;
   } else if (d.trigger.type === "once") {
     // A time already past means "send now". A send that already went out (cursor set) never goes out again.
     await db.query("update platform.automations set next_fire_at = case when trigger_cursor is null then $2::timestamptz end where id = $1", [id, new Date(Math.max(Date.parse(d.trigger.at), Date.now()))]);
@@ -220,7 +304,7 @@ export async function activateAutomation(ctx: TenantContext, id: string): Promis
       [id],
     );
     if (!a) throw new NotFoundError("Automation");
-    if (a.status !== "draft" && a.status !== "paused") throw new ConflictError("Only a draft or paused automation can be activated.");
+    if (a.status !== "draft" && a.status !== "paused") throw new ConflictError(msg("Only a draft or paused automation can be activated."));
     const definition = parseDef(a.definition);
     await checkReferences(db, a.environment_id, definition, { requireActive: true });
     await resetTrigger(db, ctx, id, a.environment_id, definition);
@@ -233,7 +317,7 @@ export async function activateAutomation(ctx: TenantContext, id: string): Promis
 export async function pauseAutomation(ctx: TenantContext, id: string): Promise<void> {
   await tenantTx(ctx, "automations.manage", async (db) => {
     const row = await db.one("update platform.automations set status = 'paused', updated_by = $2 where id = $1 and status = 'active' returning id", [id, ctx.userId]);
-    if (!row) throw new ConflictError("Only an active automation can be paused.");
+    if (!row) throw new ConflictError(msg("Only an active automation can be paused."));
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "automation.paused", targetType: "automation", targetId: id });
   });
 }

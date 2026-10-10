@@ -1,6 +1,7 @@
-import { cookies } from "next/headers";
+import { getLang } from "@/i18n/server";
+import type { Lang } from "@/i18n/translate";
 
-export type Locale = "en" | "ar";
+export type Locale = Lang;
 export type Direction = "ltr" | "rtl";
 
 const DIRECTION: Record<Locale, Direction> = { en: "ltr", ar: "rtl" };
@@ -11,12 +12,7 @@ export function resolveLocale(value: string | undefined | null): { lang: Locale;
   return { lang, dir: DIRECTION[lang] };
 }
 
-/**
- * `lang` and `dir` for <html>. The UI strings are English only for now: an `ar`
- * locale cookie switches the document to Arabic/RTL so layouts (which use logical
- * utilities like ms-, pe-, text-start) can be checked, but nothing is translated yet.
- */
+/** `lang` and `dir` for <html>: the `locale` cookie, else the browser's preference (see pickLang). */
 export async function getLocale(): Promise<{ lang: Locale; dir: Direction }> {
-  const store = await cookies();
-  return resolveLocale(store.get("locale")?.value);
+  return resolveLocale(await getLang());
 }

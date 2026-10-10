@@ -211,7 +211,7 @@ describe("suppression", () => {
   });
 
   it("validates input and pages the list", async () => {
-    await expect(addSuppression(apiReq, t.dev.id, { userId: "x", channels: ["sms"] })).rejects.toThrow();
+    await expect(addSuppression(apiReq, t.dev.id, { userId: "x", channels: ["fax"] })).rejects.toThrow();
     await expect(addSuppression(apiReq, t.dev.id, { channels: ["push"] })).rejects.toThrow(/user_id/);
     for (let i = 0; i < 5; i++) await addSuppression(apiReq, t.dev.id, { userId: `page-${i}`, channels: ["email"] });
     const first = await listSuppressions(apiReq, t.dev.id, { channel: "email", limit: 3 });
@@ -264,7 +264,7 @@ describe("API", () => {
     expect((await suppressionsRoute.GET(req("GET", "/v1/privacy/suppressions", eventsKey))).status).toBe(403);
     expect((await suppressionsRoute.GET(req("GET", "/v1/privacy/suppressions", t.sdkKey))).status).toBe(403);
     expect((await consentRoute.GET(req("GET", "/v1/privacy/consent?user_id=x", t.sdkKey))).status).toBe(403);
-    expect((await suppressionsRoute.POST(req("POST", "/v1/privacy/suppressions", writerKey, { user_id: "x", channel: "sms" }))).status).toBe(422);
+    expect((await suppressionsRoute.POST(req("POST", "/v1/privacy/suppressions", writerKey, { user_id: "x", channel: "fax" }))).status).toBe(422);
   });
 
   it("returns a user's current consent and history", async () => {

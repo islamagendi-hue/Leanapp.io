@@ -4,7 +4,7 @@
 @theme {
   --color-paper: #f4f2ec;
   --color-paper-2: #ebe8e0;
-  --color-card: #fbfaf7;
+  --color-card: #fdfcfa;
   --color-ink: #0e1311;
   --color-ink-2: #3b413e;
   --color-ink-3: #6a706c;
@@ -19,23 +19,34 @@
   --color-alert-soft: #f4e2da;
   --color-warn: #7a5c0e;
   --color-warn-soft: #f5ecd2;
+  /* Chart series, in order: the first two are accent and alert; all pass 3:1 on a card. */
+  --color-chart-1: #0f6b4f;
+  --color-chart-2: #a8492a;
+  --color-chart-3: #3d5a99;
+  --color-chart-4: #8a6a12;
+  --color-chart-5: #7a3e8c;
+  --color-chart-6: #6a706c;
+  /* Cards lift off the paper with a hairline shadow (the border alone is 1.4:1). */
+  --shadow-card: 0 1px 2px rgb(14 19 17 / 0.05), 0 1px 3px rgb(14 19 17 / 0.04);
 
   --font-sans: var(--font-dubai), ui-sans-serif, system-ui, sans-serif;
-  --font-mono: var(--font-plex-mono), ui-monospace, monospace;
+  /* Dubai after Plex Mono so Arabic text in mono labels gets Arabic glyphs. */
+  --font-mono: var(--font-plex-mono), var(--font-dubai), ui-monospace, monospace;
 }
 
-/* Dark theme (brand guidelines §4). Tokens swap, so bg-ink text-paper stays the primary button. */
+/* Dark theme (brand guidelines §4). Tokens swap, so bg-ink text-paper stays the primary button.
+   It follows the device unless the person picked Light or Dark (data-theme on <html>, see /theme). */
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     color-scheme: dark;
     --color-paper: #0e1311;
     --color-paper-2: #131916;
-    --color-card: #161c19;
+    --color-card: #1a211d;
     --color-ink: #f4f2ec;
     --color-ink-2: #c4c7c2;
     --color-ink-3: #959b96;
-    --color-line: #2a312d;
-    --color-line-strong: #3c443f;
+    --color-line: #323a35;
+    --color-line-strong: #46504a;
     --color-accent: #3fb58a;
     --color-accent-ink: #6fd0a9;
     --color-accent-soft: #15392c;
@@ -43,6 +54,46 @@
     --color-warn-soft: #2e2611;
     --color-alert: #e07a55;
     --color-alert-soft: #3a1f15;
+    --color-chart-1: #3fb58a;
+    --color-chart-2: #e07a55;
+    --color-chart-3: #7f9cf5;
+    --color-chart-4: #d4a73a;
+    --color-chart-5: #c08ad6;
+    --color-chart-6: #959b96;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper: #0e1311;
+  --color-paper-2: #131916;
+  --color-card: #1a211d;
+  --color-ink: #f4f2ec;
+  --color-ink-2: #c4c7c2;
+  --color-ink-3: #959b96;
+  --color-line: #323a35;
+  --color-line-strong: #46504a;
+  --color-accent: #3fb58a;
+  --color-accent-ink: #6fd0a9;
+  --color-accent-soft: #15392c;
+  --color-warn: #d4a73a;
+  --color-warn-soft: #2e2611;
+  --color-alert: #e07a55;
+  --color-alert-soft: #3a1f15;
+  --color-chart-1: #3fb58a;
+  --color-chart-2: #e07a55;
+  --color-chart-3: #7f9cf5;
+  --color-chart-4: #d4a73a;
+  --color-chart-5: #c08ad6;
+  --color-chart-6: #959b96;
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+}
+
+/* dark: utilities follow the same choice. */
+@custom-variant dark {
+  &:where([data-theme="dark"], [data-theme="dark"] *) { @slot; }
+  @media (prefers-color-scheme: dark) {
+    &:where(:root:not([data-theme="light"]), :root:not([data-theme="light"]) *) { @slot; }
   }
 }
 
@@ -62,19 +113,206 @@
 }
 
 @layer components {
-  .card { @apply rounded-xl border border-line bg-card p-5; }
+  .card { @apply rounded-xl border border-line bg-card p-5 shadow-card; }
+  /* Every card's title row: the title, and an action (Open, a range) at the end. */
+  .card-header { @apply mb-4 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1; }
+  .card-title { @apply text-base font-semibold leading-snug; }
+  /* A card whose content is a table running edge to edge; the header keeps the card's padding. */
+  .card-table { @apply overflow-hidden rounded-xl border border-line bg-card p-0 shadow-card; }
+  .card-table > .card-header { @apply mb-0 px-5 pb-3 pt-5; }
+  .card-table > p { @apply px-5 py-4; }
   .btn { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-ink px-4 text-sm font-medium text-paper transition hover:bg-ink-2 disabled:opacity-50; }
   .btn-secondary { @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-line-strong bg-card px-4 text-sm font-medium text-ink transition hover:bg-paper-2 disabled:opacity-50; }
   .btn-danger { @apply inline-flex min-h-9 items-center justify-center rounded-lg border border-alert/40 px-3 text-sm text-alert transition hover:bg-alert-soft; }
+  /* A text link that opens something ("Open →"), with a finger-sized hit area that doesn't shift the layout. */
+  .link-action { @apply -mx-2 -my-2 inline-flex min-h-10 items-center gap-1 rounded-md px-2 text-sm font-medium text-accent-ink hover:bg-paper-2 hover:underline; }
   .input { @apply min-h-10 w-full rounded-lg border border-line-strong bg-white px-3 dark:bg-card text-[15px] text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none; }
+  .input-sm { @apply min-h-9 text-sm; }
   .label { @apply mb-1 block text-sm font-medium text-ink-2; }
   .help { @apply mt-1 text-xs text-ink-3; }
+  /* Small section labels (menu groups, table headers, panel titles). Arabic gets its own rule below. */
+  .eyebrow { @apply font-mono text-[11px] font-medium uppercase tracking-wide text-ink-3; }
   .pill { @apply inline-flex items-center rounded-full border px-2 py-0.5 font-mono text-[11px] uppercase tracking-wide; }
   .code { @apply overflow-x-auto rounded-lg bg-ink p-4 font-mono text-[12.5px] leading-relaxed text-paper; }
   .table { @apply w-full border-collapse text-sm; }
   .table th { @apply border-b border-line px-3 py-2 text-start font-mono text-[11px] font-medium uppercase tracking-wide text-ink-3; }
-  .table td { @apply border-b border-line/70 px-3 py-2 align-top; }
+  .table td { @apply border-b border-line/70 px-3 py-2 align-top tabular-nums; }
+  .table tbody tr:last-child td { @apply border-b-0; }
+  .table .num { @apply text-end tabular-nums; }
+  /* Tables line up with their card's title: flush inside a padded card, card padding inside .card-table. */
+  .card:not(.p-0) > .table :is(th, td):first-child { padding-inline-start: 0; }
+  .card:not(.p-0) > .table :is(th, td):last-child { padding-inline-end: 0; }
+  :is(.card-table, .card.p-0) .table :is(th, td):first-child { @apply ps-5; }
+  :is(.card-table, .card.p-0) .table :is(th, td):last-child { @apply pe-5; }
+  /* A table that scrolls sideways on narrow screens, with a shadow at the edge that has more. */
+  .table-scroll {
+    @apply overflow-x-auto;
+    background:
+      linear-gradient(to right, var(--color-card) 30%, transparent) left / 24px 100% no-repeat local,
+      linear-gradient(to left, var(--color-card) 30%, transparent) right / 24px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 0.14), transparent) left / 10px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 0.14), transparent) right / 10px 100% no-repeat scroll;
+  }
   .h1 { @apply text-2xl font-bold tracking-tight sm:text-3xl; }
   .h2 { @apply text-lg font-bold; }
   .muted { @apply text-ink-3; }
+
+  /* Key numbers: two per row on phones, four on wide screens. */
+  .stat-grid { @apply grid grid-cols-2 gap-3 lg:grid-cols-4; }
+  .stat { @apply flex min-w-0 flex-col gap-1 rounded-xl border border-line bg-card p-4 shadow-card; }
+  .stat-bare { @apply border-0 bg-transparent p-0 shadow-none; }
+  .stat-label { @apply text-sm text-ink-2; }
+  .stat-value { @apply text-2xl font-bold leading-tight tabular-nums sm:text-3xl; }
+  .stat-value-sm { @apply text-xl sm:text-2xl; }
+  .stat-unit { @apply ms-1 text-sm font-normal text-ink-3; }
+  .stat-note { @apply text-xs text-ink-3; }
+  /* Change against the comparison period: a small badge, neutral when the change is small. */
+  .delta { @apply inline-flex w-fit items-center gap-1 rounded-full px-1.5 py-px text-xs font-medium whitespace-nowrap tabular-nums; }
+  .delta-up { @apply bg-accent-soft text-accent-ink; }
+  .delta-down { @apply bg-alert-soft text-alert; }
+  .delta-flat { @apply bg-paper-2 text-ink-3; }
+
+  /* Report filters: one compact toolbar. Phones get two columns of full-width controls;
+     wider screens a single wrapping row. Secondary filters go in .filters-more. */
+  .filters { @apply grid grid-cols-2 items-end gap-2 rounded-xl border border-line bg-card p-3 shadow-card sm:flex sm:flex-wrap sm:gap-x-3 sm:gap-y-2; }
+  .filters-bare { @apply border-0 bg-transparent p-0 shadow-none; }
+  .filters :is(label, fieldset) { @apply min-w-0; }
+  .filters .label { @apply mb-0.5 text-xs font-medium text-ink-3; }
+  .filters .input { @apply text-sm sm:min-h-9 sm:w-auto sm:max-w-60; }
+  .filters .wide { @apply col-span-2 sm:min-w-48 sm:flex-1; }
+  .filters .wide .input { @apply sm:w-full sm:max-w-none; }
+  .filters fieldset { @apply col-span-2 sm:basis-full; }
+  .filters fieldset .input { @apply max-sm:w-full; }
+  .filters .filters-end { @apply col-span-2 sm:ms-auto sm:self-center; }
+  .filters-more { @apply col-span-2; }
+  .filters-more > summary { @apply flex min-h-10 cursor-pointer list-none items-center gap-1.5 text-sm font-medium text-ink-2; }
+  .filters-more > summary::before { content: "+"; @apply inline-grid size-5 place-items-center rounded border border-line-strong text-xs; }
+  .filters-more[open] > summary::before { content: "−"; }
+  .filters-more > .filters-more-body { @apply mt-1 grid grid-cols-2 items-end gap-2; }
+  .filters-more > .filters-more-body > :is(label, div) { @apply min-w-0; }
+}
+@media (width >= 40rem) {
+  /* Wide screens have room: the secondary filters sit in the toolbar, always shown. */
+  .filters-more { display: contents; }
+  .filters-more > summary { display: none; }
+  .filters-more::details-content { display: contents; content-visibility: visible; }
+  .filters-more > .filters-more-body { display: contents; }
+}
+@media (width < 40rem) {
+  /* An odd last tile takes the full row instead of leaving a hole. */
+  .stat-grid > :last-child:nth-child(odd) { grid-column: span 2; }
+}
+
+/* The phone menu: a popover drawer from the start edge (components/AppNav), opened by the
+   menu button in the top bar. Top-bar buttons show only where their target exists. */
+@layer components {
+  .drawer {
+    position: fixed;
+    inset-block: 0;
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+    margin: 0;
+    width: min(20rem, 86vw);
+    height: 100dvh;
+    max-height: 100dvh;
+    border: 0;
+    border-inline-end: 1px solid var(--color-line);
+    background: var(--color-card);
+    color: var(--color-ink);
+    padding: 0.5rem 0.75rem 1.5rem;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    box-shadow: 0 10px 40px rgb(0 0 0 / 0.25);
+    transition: translate 200ms ease-out, display 200ms allow-discrete, overlay 200ms allow-discrete;
+    translate: 0 0;
+  }
+  .drawer:not(:popover-open) { translate: -100% 0; }
+  html[dir="rtl"] .drawer:not(:popover-open) { translate: 100% 0; }
+  @starting-style {
+    .drawer:popover-open { translate: -100% 0; }
+    html[dir="rtl"] .drawer:popover-open { translate: 100% 0; }
+  }
+  .drawer::backdrop { background: rgb(14 19 17 / 0.4); }
+}
+/* Placeholder blocks of a loading page (loading.tsx). */
+@layer components {
+  .skeleton { @apply rounded-lg bg-paper-2; animation: skeleton-pulse 1.4s ease-in-out infinite; }
+}
+@keyframes skeleton-pulse { 50% { opacity: 0.55; } }
+@media (prefers-reduced-motion: reduce) {
+  .skeleton { animation: none; }
+}
+body:not(:has(#nav-drawer)) .nav-drawer-btn,
+body:not(:has(#quick-search)) .quick-search-btn { display: none; }
+@media (prefers-reduced-motion: reduce) {
+  .drawer { transition: none; }
+}
+
+/* Arabic has no capitals and its letters join: section labels, table headers and pills
+   use the sans face at a readable size (a monospace run spaced the words apart). */
+html[lang="ar"] :is(.eyebrow, .table th, .pill) {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  text-transform: none;
+}
+html[lang="ar"] .pill { font-size: 12px; }
+
+/* Reports that apply on change (components/AutoApply): no Show button, and the
+   old result fades while the new one loads; without JavaScript the button
+   stays. Range and comparison dates show only when "Custom dates" is chosen. */
+@layer components {
+  form[data-auto] [data-apply] { display: none; }
+  form:has(select[name="days"]):not(:has(select[name="days"] option[value="custom"]:checked)) .custom-date { display: none; }
+  form:has(select[name="compare"]):not(:has(select[name="compare"] option[value="custom"]:checked)) .compare-date { display: none; }
+  main:has(form[aria-busy="true"]) form ~ * { opacity: 0.55; transition: opacity 150ms; }
+}
+
+/* Bars in reports (funnel steps): hovering or focusing one shows its exact
+   value in a small tip above its start, without JavaScript. The tip follows
+   the reading direction; colors are the theme tokens. */
+@layer components {
+  [data-tip] { position: relative; }
+  [data-tip]::after {
+    content: attr(data-tip);
+    position: absolute;
+    bottom: calc(100% + 6px);
+    inset-inline-start: 0;
+    z-index: 10;
+    white-space: nowrap;
+    border: 1px solid var(--color-line);
+    border-radius: 0.5rem;
+    background: var(--color-card);
+    color: var(--color-ink);
+    padding: 0.125rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+    box-shadow: 0 4px 12px rgb(0 0 0 / 0.12);
+    opacity: 0;
+    translate: 0 2px;
+    pointer-events: none;
+    transition: opacity 120ms, translate 120ms;
+  }
+  [data-tip]:hover::after, [data-tip]:focus-visible::after { opacity: 1; translate: 0 0; }
+  [data-tip]:hover > *, [data-tip]:focus-visible > * { filter: brightness(1.12); }
+  /* Retention cells: the one under the pointer is outlined (its exact count is in its title). */
+  td[data-heat]:hover { box-shadow: inset 0 0 0 2px var(--color-ink); }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-tip]::after { transition: none; }
+}
+
+/* Letter-spacing breaks the joins between Arabic letters: none in right-to-left pages. */
+html[dir="rtl"] *:not(code):not(pre):not(.code) {
+  letter-spacing: 0 !important;
+}
+
+/* Landing page dashboard (components/marketing/BuildingDashboard): the cursor's click ring. */
+@keyframes landing-click {
+  from { scale: 0.4; opacity: 0.7; }
+  to { scale: 1.8; opacity: 0; }
+}
+.landing-click { animation: landing-click 600ms ease-out forwards; }
+@media (prefers-reduced-motion: reduce) {
+  .landing-click { animation: none; opacity: 0; }
 }

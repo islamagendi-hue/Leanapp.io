@@ -1,14 +1,19 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 /**
- * Stripe over its REST API with fetch (no SDK). Card data never touches
- * LeanApp: customers pay on Stripe Checkout and manage payment methods in the
- * Stripe Customer Portal.
+ * The Stripe adapter: Stripe's REST API with fetch (no SDK). Everything
+ * Stripe-specific on the way out lives here (and, for webhooks, in
+ * webhook.ts); the rest of billing talks to the BillingProvider interface in
+ * provider.ts. Card data never touches LeanApp: customers pay on Stripe
+ * Checkout and manage payment methods in the Stripe Customer Portal.
  *
- * Configuration (env only, never in git):
- *   STRIPE_SECRET_KEY      sk_live_… / sk_test_… (or a restricted rk_… key)
- *   STRIPE_WEBHOOK_SECRET  whsec_… of the webhook endpoint /api/webhooks/stripe
- * Payments count as connected only when both are set: without the webhook a
- * paid checkout could never activate the plan.
+ * Configuration (env only, never in git, never logged):
+ *   STRIPE_SECRET_KEY      sk_test_… / sk_live_… (or a restricted rk_test_… / rk_live_… key).
+ *                          The prefix decides the mode: test and live are never mixed.
+ *   STRIPE_WEBHOOK_SECRET  whsec_… of the webhook endpoint /api/webhooks/stripe in the same mode.
+ *   STRIPE_PRICE_<PLAN>_<INTERVAL>  price ids per plan (plans.ts).
+ * Payments count as connected only when both secrets are set and well-formed:
+ * without the webhook a paid checkout could never activate the plan.
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { AppError } from "@/lib/errors";
@@ -16,15 +21,26 @@ import { log } from "@/lib/log";
 
 type Env = Record<string, string | undefined>;
 
+export type ProviderMode = "test" | "live";
+
 export interface StripeConfig {
   secretKey: string;
   webhookSecret: string;
+  mode: ProviderMode;
+}
+
+/** test or live from the key's prefix; null for anything that isn't a Stripe secret or restricted key. */
+export function keyMode(secretKey: string | undefined | null): ProviderMode | null {
+  const m = /^(?:sk|rk)_(test|live)_[A-Za-z0-9]+$/.exec(secretKey?.trim() ?? "");
+  return m ? (m[1] as ProviderMode) : null;
 }
 
 export function stripeConfig(env: Env = process.env): StripeConfig | null {
   const secretKey = env.STRIPE_SECRET_KEY?.trim();
   const webhookSecret = env.STRIPE_WEBHOOK_SECRET?.trim();
-  return secretKey && webhookSecret ? { secretKey, webhookSecret } : null;
+  const mode = keyMode(secretKey);
+  if (!secretKey || !webhookSecret || !mode || !webhookSecret.startsWith("whsec_")) return null;
+  return { secretKey, webhookSecret, mode };
 }
 
 export function paymentsConnected(env: Env = process.env): boolean {
@@ -33,13 +49,13 @@ export function paymentsConnected(env: Env = process.env): boolean {
 
 export class PaymentsNotConnectedError extends AppError {
   constructor() {
-    super("payments_not_connected", "Payments are not connected yet.", 503);
+    super("payments_not_connected", msg("Payments are not connected yet."), 503);
   }
 }
 
 export class PaymentProviderError extends AppError {
   constructor() {
-    super("payment_provider_error", "The payment provider couldn't complete the request. Try again in a moment.", 502);
+    super("payment_provider_error", msg("The payment provider couldn't complete the request. Try again in a moment."), 502);
   }
 }
 
@@ -58,6 +74,45 @@ export function formEncode(params: Record<string, unknown>): string {
   return out.toString();
 }
 
+type StripeError = { error?: { type?: string; code?: string } };
+
+/**
+ * One Stripe API call. Returns the HTTP status and body; a network failure
+ * throws PaymentProviderError. The key goes only into the Authorization
+ * header; logs carry the path, status and Stripe's error type/code, never the
+ * key or Stripe's error message (which can echo parts of the request).
+ */
+export async function stripeRequest<T>(
+  secretKey: string,
+  method: "GET" | "POST",
+  path: string,
+  params: Record<string, unknown> = {},
+  opts: { idempotencyKey?: string } = {},
+): Promise<{ status: number; body: T & StripeError }> {
+  const form = formEncode(params);
+  const url = `https://api.stripe.com${path}${method === "GET" && form ? `?${form}` : ""}`;
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers: {
+        Authorization: `Bearer ${secretKey}`,
+        ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+        ...(opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {}),
+      },
+      body: method === "POST" ? form : undefined,
+      signal: AbortSignal.timeout(15_000),
+    });
+  } catch (err) {
+    log.error("stripe.request_failed", { path: redactPath(path), error_name: err instanceof Error ? err.name : typeof err });
+    throw new PaymentProviderError();
+  }
+  const body = (await res.json().catch(() => ({}))) as T & StripeError;
+  if (!res.ok) log.warn("stripe.request_error", { path: redactPath(path), status: res.status, type: body.error?.type, code: body.error?.code });
+  return { status: res.status, body };
+}
+
+/** A call that must succeed: provider errors become a generic PaymentProviderError for the user. */
 export async function stripeApi<T>(
   method: "GET" | "POST",
   path: string,
@@ -66,34 +121,46 @@ export async function stripeApi<T>(
 ): Promise<T> {
   const config = stripeConfig();
   if (!config) throw new PaymentsNotConnectedError();
-  const body = formEncode(params);
-  const url = `https://api.stripe.com${path}${method === "GET" && body ? `?${body}` : ""}`;
-  let res: Response;
+  const res = await stripeRequest<T>(config.secretKey, method, path, params, opts);
+  if (res.status < 200 || res.status >= 300) {
+    log.error("stripe.request_failed", { path: redactPath(path), status: res.status, type: res.body.error?.type, code: res.body.error?.code });
+    throw new PaymentProviderError();
+  }
+  return res.body;
+}
+
+/** Object ids in paths are fine to log; anything else is cut. */
+const redactPath = (path: string) => path.replace(/[^A-Za-z0-9/_-]/g, "");
+
+// ── Redirect allowlist ──────────────────────────────────────────────────────
+
+/** Hosts a Checkout or Customer Portal session may send the browser to. */
+const STRIPE_REDIRECT_HOSTS = new Set(["checkout.stripe.com", "billing.stripe.com"]);
+
+/** True for an https URL on Stripe's Checkout or Portal host; anything else is never redirected to. */
+export function isAllowedProviderRedirect(url: unknown): url is string {
+  if (typeof url !== "string") return false;
   try {
-    res = await fetch(url, {
-      method,
-      headers: {
-        Authorization: `Bearer ${config.secretKey}`,
-        ...(method === "POST" ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
-        ...(opts.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {}),
-      },
-      body: method === "POST" ? body : undefined,
-      signal: AbortSignal.timeout(15_000),
-    });
-  } catch (err) {
-    log.error("stripe.request_failed", { path, error: err instanceof Error ? err.message : String(err) });
-    throw new PaymentProviderError();
+    const u = new URL(url);
+    return u.protocol === "https:" && STRIPE_REDIRECT_HOSTS.has(u.hostname) && !u.username && !u.password && !u.port;
+  } catch {
+    return false;
   }
-  const json = (await res.json().catch(() => ({}))) as T & { error?: { type?: string; code?: string; message?: string } };
-  if (!res.ok) {
-    // Stripe's error messages describe our request, not the customer: log them, show a generic one.
-    log.error("stripe.request_failed", { path, status: res.status, type: json.error?.type, code: json.error?.code, message: json.error?.message });
-    throw new PaymentProviderError();
-  }
-  return json;
 }
 
 // ── Webhook signatures ──────────────────────────────────────────────────────
+
+/** Events the webhook endpoint must send (docs/billing.md); webhook.ts handles each. */
+export const STRIPE_WEBHOOK_EVENTS = [
+  "checkout.session.completed",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "invoice.paid",
+  "invoice.payment_succeeded",
+  "invoice.payment_failed",
+  "charge.refunded",
+] as const;
 
 /** Default tolerance between the signed timestamp and now, as Stripe's libraries use. */
 export const SIGNATURE_TOLERANCE_SECONDS = 300;

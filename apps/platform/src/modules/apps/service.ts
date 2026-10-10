@@ -10,18 +10,19 @@ import { enqueueReprocess } from "@/modules/reprocess/jobs";
 import type { EnvironmentType } from "@/modules/credentials/keys";
 import { validTimezone } from "@/modules/organizations/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
+import { msg } from "@/i18n/translate";
 
 export const APP_PLATFORMS = ["android", "ios", "react_native", "flutter", "web", "backend"] as const;
 export type AppPlatform = (typeof APP_PLATFORMS)[number];
 export const ENVIRONMENT_TYPES: EnvironmentType[] = ["development", "staging", "production"];
 
 export const createAppSchema = z.object({
-  name: z.string().trim().min(2, "Enter the app name.").max(80),
+  name: z.string().trim().min(2, msg("Enter the app name.")).max(80),
   description: z.string().trim().max(500).optional(),
   category: z.string().trim().max(60).optional(),
-  platforms: z.array(z.enum(APP_PLATFORMS)).min(1, "Choose at least one platform."),
-  timezone: z.string().trim().max(64).refine((tz) => !tz || validTimezone(tz), "Unknown timezone.").optional(),
-  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Use a 3-letter currency code.").optional(),
+  platforms: z.array(z.enum(APP_PLATFORMS)).min(1, msg("Choose at least one platform.")),
+  timezone: z.string().trim().max(64).refine((tz) => !tz || validTimezone(tz), msg("Unknown timezone.")).optional(),
+  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, msg("Use a 3-letter currency code.")).optional(),
 });
 
 export interface App {
@@ -51,7 +52,7 @@ export interface Environment {
  */
 export async function createApp(ctx: TenantContext, input: unknown): Promise<{ id: string; slug: string }> {
   const r = createAppSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid input."));
   const data = r.data;
   const slug = slugify(data.name);
   try {
@@ -90,7 +91,7 @@ export async function createApp(ctx: TenantContext, input: unknown): Promise<{ i
       return { id: appId, slug };
     });
   } catch (err) {
-    if (isUniqueViolation(err)) throw new ConflictError("An app with this name already exists in the organization.");
+    if (isUniqueViolation(err)) throw new ConflictError(msg("An app with this name already exists in the organization."));
     throw err;
   }
 }
@@ -134,8 +135,8 @@ export const updateAppSchema = z.object({
 });
 
 export const appLocaleSchema = z.object({
-  timezone: z.string().trim().min(1, "Choose a timezone.").max(64).refine(validTimezone, "Unknown timezone."),
-  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, "Use a 3-letter currency code."),
+  timezone: z.string().trim().min(1, msg("Choose a timezone.")).max(64).refine(validTimezone, msg("Unknown timezone.")),
+  defaultCurrency: z.string().trim().toUpperCase().regex(/^[A-Z]{3}$/, msg("Use a 3-letter currency code.")),
 });
 
 /** Archived projects, for the workspace's project list (restore lives in each one's settings). */
@@ -168,14 +169,14 @@ async function changeApp(ctx: TenantContext, appId: string, after: Record<string
 /** Renames or re-describes a project. The slug, and so every URL and SDK key, stays as it is. */
 export async function updateApp(ctx: TenantContext, appId: string, input: unknown): Promise<void> {
   const r = updateAppSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid input."));
   await changeApp(ctx, appId, { name: r.data.name, description: r.data.description || null, category: r.data.category || null }, "app.updated");
 }
 
 /** The timezone reports bucket days in and the currency revenue is shown in. Changing them rebuilds Activation. */
 export async function updateAppLocale(ctx: TenantContext, appId: string, input: unknown): Promise<void> {
   const r = appLocaleSchema.safeParse(input);
-  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? "Invalid input.");
+  if (!r.success) throw new ValidationError(r.error.issues[0]?.message ?? msg("Invalid input."));
   await changeApp(ctx, appId, { timezone: r.data.timezone, default_currency: r.data.defaultCurrency }, "app.locale_updated", async (db, changed) => {
     // Activation's retention days are calendar days in the app's timezone (and revenue
     // falls back to its currency), so growth state is rebuilt when either changes.
@@ -192,7 +193,7 @@ export function archiveApp(ctx: TenantContext, appId: string): Promise<void> {
   return tenantTx(ctx, "apps.delete", async (db) => {
     const app = await db.one<{ status: string }>("select status from platform.apps where id = $1 for update", [appId]);
     if (!app) throw new NotFoundError("App");
-    if (app.status === "archived") throw new ConflictError("This project is already archived.");
+    if (app.status === "archived") throw new ConflictError(msg("This project is already archived."));
     await db.query("update platform.apps set status = 'archived' where id = $1", [appId]);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "app.archived", targetType: "app", targetId: appId });
   });
@@ -203,7 +204,7 @@ export function restoreApp(ctx: TenantContext, appId: string): Promise<void> {
   return tenantTx(ctx, "apps.delete", async (db) => {
     const app = await db.one<{ status: string }>("select status from platform.apps where id = $1 for update", [appId]);
     if (!app) throw new NotFoundError("App");
-    if (app.status !== "archived") throw new ConflictError("This project is not archived.");
+    if (app.status !== "archived") throw new ConflictError(msg("This project is not archived."));
     await assertCanAddApp(db, ctx.organizationId);
     await db.query("update platform.apps set status = 'active' where id = $1", [appId]);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "app.restored", targetType: "app", targetId: appId });
@@ -218,7 +219,7 @@ export function setEnvironmentStatus(ctx: TenantContext, environmentId: string, 
   return tenantTx(ctx, "apps.update", async (db) => {
     const env = await db.one<{ type: EnvironmentType; status: string }>("select type, status from platform.environments where id = $1 for update", [environmentId]);
     if (!env) throw new NotFoundError("Environment");
-    if (env.type === "production") throw new ValidationError("Production can't be paused. Archive the project instead.");
+    if (env.type === "production") throw new ValidationError(msg("Production can't be paused. Archive the project instead."));
     if (env.status === status) return;
     await db.query("update platform.environments set status = $2 where id = $1", [environmentId, status]);
     await audit(db, {

@@ -3,7 +3,8 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [main]
+    # A successful run on main/staging is what starts .github/workflows/deploy.yml.
+    branches: [main, staging]
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -18,7 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:16
+        # The same official image from the AWS public mirror: Docker Hub rate-limits and times out anonymous pulls from CI runners.
+        image: public.ecr.aws/docker/library/postgres:16
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: platform_test

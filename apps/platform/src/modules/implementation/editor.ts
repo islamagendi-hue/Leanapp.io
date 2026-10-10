@@ -1,3 +1,4 @@
+import { msg } from "@/i18n/translate";
 import "server-only";
 import { withTenant, type Db } from "@/lib/db";
 import { ConflictError, NotFoundError, ValidationError } from "@/lib/errors";
@@ -196,7 +197,7 @@ export async function addPlanEvent(actor: PlanActor, appId: string, input: unkno
        e.attribution_relevance ?? !!lib?.attribution,
        e.automation_relevance ?? !!lib?.automation,
        e.platforms ?? (await defaultPlatforms(db, appId, source)),
-       e.reason || (lib ? `Added by hand from the standard library. ${lib.reason}` : "Added by hand."),
+       e.reason || (lib ? `Added by hand from the standard library. ${lib.reason}` : msg("Added by hand.")),
        order!.n],
     );
     for (const p of properties) await insertProperty(db, who.organizationId, row!.id, p);

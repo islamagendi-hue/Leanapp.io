@@ -4,22 +4,40 @@
  * on automation_versions. See docs/automation.md.
  */
 import { z } from "zod";
+import { makeT, msg, type T } from "@/i18n/translate";
 import { describeNode, parseDefinition, type AudienceNode } from "@/modules/audiences/definition";
+import { WHATSAPP_PROVIDERS } from "@/modules/messaging/providers/registry";
+import { fill } from "./messages";
 import { HHMM } from "./time";
 
-const uuid = z.string().uuid("Choose an audience.");
-const text = (max: number, what: string) => z.string().trim().min(1, `Enter ${what}.`).max(max);
+/** Delivery outcomes a flow can wait for. */
+export const OUTCOMES = ["delivered", "read", "replied", "failed"] as const;
+export type Outcome = (typeof OUTCOMES)[number];
+/** Which message steps report each outcome (from provider receipts or inbound replies). */
+export const OUTCOME_LABELS: Record<Outcome, string> = { delivered: msg("delivered"), read: msg("read"), replied: msg("replied to"), failed: msg("failed") };
+export const OUTCOME_STEPS: Record<Outcome, readonly string[]> = {
+  delivered: ["whatsapp", "whatsapp_session", "sms"],
+  read: ["whatsapp", "whatsapp_session"],
+  replied: ["whatsapp", "whatsapp_session", "sms"],
+  failed: ["whatsapp", "whatsapp_session", "sms", "email", "push"],
+};
+
+const uuid = z.string().uuid(msg("Choose an audience."));
+/** Required text; `missing` is the message when it is empty. */
+const text = (max: number, missing: string) => z.string().trim().min(1, missing).max(max);
 const optionalText = (max: number) => z.string().trim().max(max).optional().transform((v) => v || undefined);
 const deepLink = z
   .string()
   .trim()
   .max(500)
-  .refine((v) => !v || /^[a-z][a-z0-9+.-]{1,30}:\/?\/?[^\s]*$/i.test(v), "Deep links look like myapp://path or https://…")
-  .refine((v) => !/^(javascript|data|vbscript):/i.test(v), "That link scheme is not allowed.")
+  .refine((v) => !v || /^[a-z][a-z0-9+.-]{1,30}:\/?\/?[^\s]*$/i.test(v), msg("Deep links look like myapp://path or https://…"))
+  .refine((v) => !/^(javascript|data|vbscript):/i.test(v), msg("That link scheme is not allowed."))
   .optional()
   .transform((v) => v || undefined);
-const eventName = z.string().trim().min(1, "Choose an event.").max(200);
-const propertyName = z.string().trim().regex(/^[A-Za-z0-9_$][A-Za-z0-9_.$-]{0,63}$/, "Property names may use letters, digits, _ . $ - (max 64).");
+/** A media library asset id (src/modules/media); checked against the app and channel when saved and sent. */
+const imageAssetId = z.string().trim().optional().transform((v) => v || undefined).refine((v) => !v || z.uuid().safeParse(v).success, msg("Choose a file from the media library."));
+const eventName = z.string().trim().min(1, msg("Choose an event.")).max(200);
+const propertyName = z.string().trim().regex(/^[A-Za-z0-9_$][A-Za-z0-9_.$-]{0,63}$/, msg("Property names may use letters, digits, _ . $ - (max 64)."));
 const scalar = z.union([z.string().max(500), z.number().finite(), z.boolean(), z.null()]);
 
 export const triggerSchema = z.discriminatedUnion("type", [
@@ -30,11 +48,21 @@ export const triggerSchema = z.discriminatedUnion("type", [
     type: z.literal("schedule"),
     audienceId: uuid,
     every: z.enum(["day", "week"]),
-    at: z.string().regex(HHMM, "Use HH:MM (24-hour)."),
+    at: z.string().regex(HHMM, msg("Use HH:MM (24-hour).")),
     weekday: z.coerce.number().int().min(0).max(6).optional(),
   }),
   /** One send to everyone in an audience at `at` (or as soon as activated, if `at` has passed). Used by campaigns. */
-  z.object({ type: z.literal("once"), audienceId: uuid, at: z.iso.datetime({ offset: true, message: "Choose when to send." }) }),
+  z.object({ type: z.literal("once"), audienceId: uuid, at: z.iso.datetime({ offset: true, message: msg("Choose when to send.") }) }),
+  /**
+   * A person replied on WhatsApp or SMS (an inbound message from a number we
+   * messaged). With `keyword`, only replies that are exactly that word
+   * (case-insensitive) start a run. Opt-out replies never do.
+   */
+  z.object({
+    type: z.literal("inbound_message"),
+    channel: z.enum(["whatsapp", "sms"]),
+    keyword: z.string().trim().max(100).optional().transform((v) => v || undefined),
+  }),
 ]);
 export type Trigger = z.infer<typeof triggerSchema>;
 
@@ -42,7 +70,7 @@ const condition = z.unknown().transform((v, ctx): AudienceNode => {
   try {
     return parseDefinition(v, { allowSinceTrigger: true });
   } catch (err) {
-    ctx.addIssue({ code: "custom", message: `Branch condition: ${(err as Error).message}` });
+    ctx.addIssue({ code: "custom", message: fill(msg("Branch condition: {message}"), { message: (err as Error).message }) });
     return z.NEVER;
   }
 });
@@ -55,51 +83,83 @@ export const stepSchema = z.discriminatedUnion("type", [
     /** When the condition is false: end the run, or jump forward to step N (0-based). */
     else: z.union([z.literal("exit"), z.object({ goto: z.coerce.number().int().min(1).max(49) })]),
   }),
-  z.object({ type: z.literal("webhook"), webhookId: z.string().uuid("Choose a webhook.") }),
-  z.object({ type: z.literal("push"), title: text(120, "a title"), body: text(500, "a message"), deepLink }),
+  z.object({ type: z.literal("webhook"), webhookId: z.string().uuid(msg("Choose a webhook.")) }),
+  z.object({ type: z.literal("push"), title: text(120, msg("Enter a title.")), body: text(500, msg("Enter a message.")), deepLink, imageAssetId }),
   z.object({
-    type: z.literal("in_app"), title: text(120, "a title"), body: text(1000, "a message"), buttonText: optionalText(40), deepLink,
+    type: z.literal("in_app"), title: text(120, msg("Enter a title.")), body: text(1000, msg("Enter a message.")), buttonText: optionalText(40), deepLink, imageAssetId,
     expiresInHours: z.coerce.number().int().min(1).max(720).default(72),
   }),
   z.object({
     type: z.literal("email"),
     /** A saved email template; when absent, `subject` and `body` are used. */
-    templateId: z.string().uuid("Choose a template.").optional(),
+    templateId: z.string().uuid(msg("Choose a template.")).optional(),
     subject: optionalText(200),
     body: optionalText(20_000),
   }),
   z.object({
     type: z.literal("whatsapp"),
     /** An approved template synced from the WhatsApp Business account. */
-    template: z.string().trim().min(1, "Choose a WhatsApp template.").max(512),
-    language: z.string().trim().regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, "Choose the template's language."),
+    template: z.string().trim().min(1, msg("Choose a WhatsApp template.")).max(512),
+    language: z.string().trim().regex(/^[a-z]{2,3}(_[A-Z]{2})?$/, msg("Choose the template's language.")),
     /** Values for {{1}}, {{2}}, … in the body (and header); may use {{user.x}} / {{event.x}}. */
-    bodyParams: z.array(z.string().trim().min(1, "Fill in every template variable.").max(1024)).max(20).default([]),
-    headerParams: z.array(z.string().trim().min(1, "Fill in every template variable.").max(60)).max(1).default([]),
+    bodyParams: z.array(z.string().trim().min(1, msg("Fill in every template variable.")).max(1024)).max(20).default([]),
+    headerParams: z.array(z.string().trim().min(1, msg("Fill in every template variable.")).max(60)).max(1).default([]),
     /** User property holding the phone number in E.164 (+9665…). */
     phoneProperty: propertyName.default("phone"),
+    /** Which connected WhatsApp provider sends it: Meta's Cloud API, or Twilio (template = the Content SID's synced name). */
+    provider: z.enum(WHATSAPP_PROVIDERS).default("whatsapp_cloud"),
+    /** Media library asset for an IMAGE / VIDEO / DOCUMENT template header. */
+    mediaAssetId: z.string().uuid(msg("Choose a media file.")).optional(),
+  }),
+  /** A free-form WhatsApp message: only sent inside the 24-hour customer service window, otherwise skipped. */
+  z.object({
+    type: z.literal("whatsapp_session"),
+    text: text(4096, msg("Enter a message.")),
+    mediaAssetId: z.string().uuid(msg("Choose a media file.")).optional(),
+    phoneProperty: propertyName.default("phone"),
+    provider: z.enum(WHATSAPP_PROVIDERS).default("whatsapp_cloud"),
+  }),
+  /** SMS through a provider that sends SMS (Twilio). Text only; an image (MMS) only where the provider declares it. */
+  z.object({
+    type: z.literal("sms"),
+    text: text(1600, msg("Enter a message.")),
+    mediaAssetId: z.string().uuid(msg("Choose a media file.")).optional(),
+    phoneProperty: propertyName.default("phone"),
+    provider: z.literal("twilio").default("twilio"),
+  }),
+  /**
+   * Waits for what happened to an earlier message step of this run: delivered,
+   * read, replied or failed, within `withinHours` of the send. Continues when
+   * it happens; otherwise ends the run or jumps forward, like a branch.
+   */
+  z.object({
+    type: z.literal("wait_outcome"),
+    step: z.coerce.number().int().min(0).max(48),
+    outcome: z.enum(OUTCOMES),
+    withinHours: z.coerce.number().int().min(1).max(720).default(24),
+    else: z.union([z.literal("exit"), z.object({ goto: z.coerce.number().int().min(1).max(49) })]),
   }),
   z.object({ type: z.literal("update_user_property"), property: propertyName, value: scalar }),
   /** Ends the run here (e.g. the end of a branch's "yes" path). */
   z.object({ type: z.literal("exit") }),
   z.object({
     type: z.literal("send_event"), event: eventName,
-    properties: z.record(propertyName, scalar).refine((p) => Object.keys(p).length <= 20, "At most 20 properties.").default({}),
+    properties: z.record(propertyName, scalar).refine((p) => Object.keys(p).length <= 20, msg("At most 20 properties.")).default({}),
   }),
 ]);
 export type Step = z.infer<typeof stepSchema>;
-export const MESSAGE_STEPS = new Set<Step["type"]>(["push", "in_app", "email", "whatsapp"]);
+export const MESSAGE_STEPS = new Set<Step["type"]>(["push", "in_app", "email", "whatsapp", "whatsapp_session", "sms"]);
 
 export const definitionSchema = z
   .object({
     trigger: triggerSchema,
-    steps: z.array(stepSchema).min(1, "Add at least one step.").max(50, "Use at most 50 steps."),
+    steps: z.array(stepSchema).min(1, msg("Add at least one step.")).max(50, msg("Use at most 50 steps.")),
     /** Who may enter: once ever, or each trigger (never while a run is in progress) after a cooldown. */
     entry: z.object({ mode: z.enum(["once", "every_time"]), cooldownHours: z.coerce.number().int().min(0).max(8760).default(0) }).default({ mode: "every_time", cooldownHours: 0 }),
     /** Per-user cap over messages (push, in-app, email) from all automations of the environment. */
     frequencyCap: z.object({ messages: z.coerce.number().int().min(1).max(100), hours: z.coerce.number().int().min(1).max(720) }).nullable().default({ messages: 3, hours: 24 }),
     /** Push and email wait out these local hours (organization timezone). In-app messages are not affected. */
-    quietHours: z.object({ start: z.string().regex(HHMM, "Use HH:MM."), end: z.string().regex(HHMM, "Use HH:MM.") }).nullable().default({ start: "22:00", end: "08:00" }),
+    quietHours: z.object({ start: z.string().regex(HHMM, msg("Use HH:MM.")), end: z.string().regex(HHMM, msg("Use HH:MM.")) }).nullable().default({ start: "22:00", end: "08:00" }),
     /**
      * Conversion goal: the event that means the flow worked, done within
      * `withinDays` of the trigger. Reported per flow; with stopOnConversion
@@ -112,18 +172,25 @@ export const definitionSchema = z
   .superRefine((d, ctx) => {
     d.steps.forEach((s, i) => {
       if (s.type === "email" && !s.templateId && (!s.subject || !s.body)) {
-        ctx.addIssue({ code: "custom", path: ["steps", i], message: `Step ${i + 1}: choose an email template or write a subject and text.` });
+        ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: choose an email template or write a subject and text."), { n: i + 1 }) });
       }
-      if (s.type === "branch" && s.else !== "exit") {
-        if (s.else.goto <= i) ctx.addIssue({ code: "custom", path: ["steps", i], message: `Step ${i + 1}: a branch can only jump forward.` });
-        else if (s.else.goto >= d.steps.length) ctx.addIssue({ code: "custom", path: ["steps", i], message: `Step ${i + 1}: there is no step ${s.else.goto + 1}.` });
+      if (s.type === "wait_outcome") {
+        const target = d.steps[s.step];
+        if (s.step >= i) ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: wait for the outcome of an earlier step."), { n: i + 1 }) });
+        else if (!target || !OUTCOME_STEPS[s.outcome].includes(target.type)) {
+          ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: step {target} doesn't report \"{outcome}\"."), { n: i + 1, target: s.step + 1, outcome: s.outcome }) });
+        }
+      }
+      if ((s.type === "branch" || s.type === "wait_outcome") && s.else !== "exit") {
+        if (s.else.goto <= i) ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: a branch can only jump forward."), { n: i + 1 }) });
+        else if (s.else.goto >= d.steps.length) ctx.addIssue({ code: "custom", path: ["steps", i], message: fill(msg("Step {n}: there is no step {target}."), { n: i + 1, target: s.else.goto + 1 }) });
       }
     });
     const triggerEvent = d.trigger.type === "event" ? d.trigger.event : null;
-    if (d.goal && d.goal.event === triggerEvent) ctx.addIssue({ code: "custom", path: ["goal"], message: "The goal must be a different event from the trigger." });
-    if (d.exitEvent && d.exitEvent === triggerEvent) ctx.addIssue({ code: "custom", path: ["exitEvent"], message: "The exit event must be a different event from the trigger." });
+    if (d.goal && d.goal.event === triggerEvent) ctx.addIssue({ code: "custom", path: ["goal"], message: msg("The goal must be a different event from the trigger.") });
+    if (d.exitEvent && d.exitEvent === triggerEvent) ctx.addIssue({ code: "custom", path: ["exitEvent"], message: msg("The exit event must be a different event from the trigger.") });
     if (d.trigger.type === "schedule" && d.trigger.every === "week" && d.trigger.weekday === undefined) {
-      ctx.addIssue({ code: "custom", path: ["trigger"], message: "Choose a weekday for a weekly schedule." });
+      ctx.addIssue({ code: "custom", path: ["trigger"], message: msg("Choose a weekday for a weekly schedule.") });
     }
   });
 export type AutomationDefinition = z.infer<typeof definitionSchema>;
@@ -135,8 +202,9 @@ export function parseAutomation(input: unknown): AutomationDefinition {
   if (!r.success) {
     const custom = r.error.issues.find((i) => i.code === "custom");
     const issue = custom ?? r.error.issues[0];
-    const where = issue?.path?.[0] === "steps" && typeof issue.path[1] === "number" && !custom ? `Step ${issue.path[1] + 1}: ` : "";
-    throw new AutomationDefinitionError(`${where}${issue?.message ?? "The automation is not valid."}`);
+    const message = issue?.message ?? msg("The automation is not valid.");
+    const step = issue?.path?.[0] === "steps" && typeof issue.path[1] === "number" && !custom ? issue.path[1] + 1 : null;
+    throw new AutomationDefinitionError(step === null ? message : fill(msg("Step {n}: {message}"), { n: step, message }));
   }
   return r.data;
 }
@@ -166,30 +234,59 @@ export function renderTemplate(template: string, vars: { user?: Record<string, u
   });
 }
 
-export function describeStep(s: Step): string {
+const english = makeT(null);
+
+const WAIT: Record<string, [string, string]> = {
+  minutes: [msg("Wait 1 minute"), msg("Wait {n} minutes")],
+  hours: [msg("Wait 1 hour"), msg("Wait {n} hours")],
+  days: [msg("Wait 1 day"), msg("Wait {n} days")],
+};
+
+/** A readable line for a step, in English unless a translate function is given. */
+export function describeStep(s: Step, t: T = english): string {
   switch (s.type) {
-    case "delay": return `Wait ${s.amount} ${s.amount === 1 ? s.unit.slice(0, -1) : s.unit}`;
-    case "branch": return `Continue if ${describeNode(s.condition)}, otherwise ${s.else === "exit" ? "exit" : `go to step ${s.else.goto + 1}`}`;
-    case "webhook": return "Call webhook";
-    case "push": return `Push: ${s.title}`;
-    case "in_app": return `In-app message: ${s.title}`;
-    case "email": return s.templateId ? "Email (template)" : `Email: ${s.subject}`;
-    case "whatsapp": return `WhatsApp template: ${s.template} (${s.language})`;
-    case "update_user_property": return `Set user property ${s.property} = ${JSON.stringify(s.value)}`;
-    case "send_event": return `Send event ${s.event}`;
-    case "exit": return "Exit";
+    case "delay": return t(WAIT[s.unit][s.amount === 1 ? 0 : 1], { n: s.amount });
+    case "branch": {
+      const condition = describeNode(s.condition, t);
+      return s.else === "exit" ? t("Continue if {condition}, otherwise exit", { condition }) : t("Continue if {condition}, otherwise go to step {n}", { condition, n: s.else.goto + 1 });
+    }
+    case "webhook": return t("Call webhook");
+    case "push": return t("Push: {title}", { title: s.title });
+    case "in_app": return t("In-app message: {title}", { title: s.title });
+    case "email": return s.templateId ? t("Email (template)") : t("Email: {subject}", { subject: String(s.subject) });
+    case "whatsapp": return t("WhatsApp template: {template} ({language})", { template: s.template, language: s.language });
+    case "whatsapp_session": return t("WhatsApp message (within 24 hours of their last message): {text}", { text: s.text.slice(0, 60) });
+    case "sms": return t("SMS: {text}", { text: s.text.slice(0, 60) });
+    case "wait_outcome": {
+      const outcome = t(OUTCOME_LABELS[s.outcome]);
+      return s.else === "exit"
+        ? t("Wait up to {hours} h for step {step} to be {outcome}, otherwise exit", { hours: s.withinHours, step: s.step + 1, outcome })
+        : t("Wait up to {hours} h for step {step} to be {outcome}, otherwise go to step {n}", { hours: s.withinHours, step: s.step + 1, outcome, n: s.else.goto + 1 });
+    }
+    case "update_user_property": return t("Set user property {property} = {value}", { property: s.property, value: JSON.stringify(s.value) });
+    case "send_event": return t("Send event {event}", { event: s.event });
+    case "exit": return t("Exit");
   }
 }
 
-export function describeTrigger(t: Trigger, audienceName: (id: string) => string = (id) => id): string {
-  switch (t.type) {
-    case "event": return `When someone does ${t.event}`;
-    case "audience_entered": return `When someone enters ${audienceName(t.audienceId)}`;
-    case "audience_exited": return `When someone leaves ${audienceName(t.audienceId)}`;
+const DAYS = [msg("Sunday"), msg("Monday"), msg("Tuesday"), msg("Wednesday"), msg("Thursday"), msg("Friday"), msg("Saturday")];
+
+/** A readable line for a trigger, in English unless a translate function is given. */
+export function describeTrigger(tr: Trigger, audienceName: (id: string) => string = (id) => id, t: T = english): string {
+  switch (tr.type) {
+    case "event": return t("When someone does {event}", { event: tr.event });
+    case "audience_entered": return t("When someone enters {audience}", { audience: audienceName(tr.audienceId) });
+    case "audience_exited": return t("When someone leaves {audience}", { audience: audienceName(tr.audienceId) });
     case "schedule": {
-      const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-      return `${t.every === "day" ? "Every day" : `Every ${days[t.weekday ?? 0]}`} at ${t.at} for everyone in ${audienceName(t.audienceId)}`;
+      const audience = audienceName(tr.audienceId);
+      return tr.every === "day"
+        ? t("Every day at {time} for everyone in {audience}", { time: tr.at, audience })
+        : t("Every {weekday} at {time} for everyone in {audience}", { weekday: t(DAYS[tr.weekday ?? 0]), time: tr.at, audience });
     }
-    case "once": return `Once at ${t.at} for everyone in ${audienceName(t.audienceId)}`;
+    case "once": return t("Once at {time} for everyone in {audience}", { time: tr.at, audience: audienceName(tr.audienceId) });
+    case "inbound_message": {
+      const channel = tr.channel === "sms" ? "SMS" : "WhatsApp";
+      return tr.keyword ? t("When someone replies {keyword} on {channel}", { keyword: tr.keyword, channel }) : t("When someone replies on {channel}", { channel });
+    }
   }
 }

@@ -1,6 +1,7 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
 import { isUniqueViolation, withSystem } from "@/lib/db";
+import { sha256 } from "@/lib/crypto";
 import { hashIp } from "@/lib/secret-box";
 import { INSTALL_EVENTS, SERVER_CONTEXT_KEY } from "@/modules/attribution/pure";
 import type { IngestionPrincipal } from "@/modules/credentials/service";
@@ -8,14 +9,18 @@ import { eventAllowance, noteEventsAccepted } from "@/modules/billing/enforcemen
 import { retryAfterSeconds } from "@/modules/billing/limits";
 import { recordUsage } from "@/modules/usage/service";
 import { effectiveConsent, loadStateRows, recordConsentChanges, userKeysOf } from "@/modules/privacy/consent";
+import { deletedSubjectFilter, lockTombstonesShared } from "@/modules/privacy/tombstones";
 import { batchSchema, normalizeEvent, type NormalizedEvent, type NormalizeIssue } from "./schema";
 
 export interface IngestResponse {
   batch_id: string;
   accepted: number;
   duplicates: number;
-  /** `reason: "consent_denied"`: valid, but the user denied analytics consent, so it was not stored. */
-  rejected: { index: number; event_id?: string; reason?: "consent_denied"; errors: NormalizeIssue[] }[];
+  /**
+   * `reason: "consent_denied"`: valid, but the user denied analytics consent, so it was not stored.
+   * `reason: "subject_deleted"`: valid, but its user (or anonymous install) was deleted by a privacy request, so it was not stored.
+   */
+  rejected: { index: number; event_id?: string; reason?: "consent_denied" | "subject_deleted"; errors: NormalizeIssue[] }[];
   warnings: { index: number; warnings: NormalizeIssue[] }[];
 }
 
@@ -44,11 +49,20 @@ export const PLAN_GRACE_HEADER = "X-LeanApp-Plan-Limit";
  *     denied, `context.attribution` is removed before storing. One
  *     primary-key lookup per batch.
  *
+ * Privacy deletions (modules/privacy/tombstones): events (consent changes
+ * included) carrying a deleted user_id, and an install's anonymous events (no
+ * user_id) once its anonymous activity was deleted, are not stored: they are
+ * reported as rejected with reason `subject_deleted`. Checked before consent,
+ * with one primary-key lookup per batch.
+ *
  * Idempotency:
  *   - Per event: unique (environment_id, event_id). Retried events are counted
  *     as duplicates, never stored twice.
- *   - Per request: an Idempotency-Key header stores the response; a retry with
- *     the same key replays it verbatim without touching the event table.
+ *   - Per request: an Idempotency-Key header stores the response with a hash of
+ *     the request's events (payloadHash); a retry with the same key and the same
+ *     events replays it verbatim without touching the event table. The same key
+ *     with different events is refused with 409 `idempotency_key_reused`, never
+ *     answered with a response for events that were not stored.
  */
 export async function ingest(
   principal: IngestionPrincipal,
@@ -57,11 +71,6 @@ export async function ingest(
 ): Promise<IngestResult> {
   const now = opts.now ?? new Date();
   const idemKey = opts.idempotencyKey?.trim().slice(0, 200) || null;
-
-  if (idemKey) {
-    const prior = await findBatch(principal.environmentId, idemKey);
-    if (prior) return { status: 200, body: prior, replayed: true };
-  }
 
   let rawEvents: unknown[];
   let clockSkewMs = 0;
@@ -78,6 +87,12 @@ export async function ingest(
     }
   } else {
     rawEvents = [payload];
+  }
+
+  const payloadHash = idemKey ? payloadHashOf(rawEvents) : null;
+  if (idemKey) {
+    const prior = await findBatch(principal.environmentId, idemKey, payloadHash!);
+    if (prior) return prior;
   }
 
   // Monthly plan allowance: refused (never silently dropped) once the grace is used up.
@@ -138,9 +153,23 @@ export async function ingest(
     const body = await withSystem(async (db) => {
       const scope = { organizationId: principal.organizationId, environmentId: principal.environmentId };
       let accepted = 0;
+      // 0. Drop everything of deleted users and installs, consent changes included.
+      let subjectDeleted = 0;
+      let live = valid;
+      if (valid.length) {
+        await lockTombstonesShared(db, principal.environmentId);
+        const isDeleted = await deletedSubjectFilter(db, principal.environmentId, valid);
+        live = valid.filter((e) => {
+          if (!isDeleted(e)) return true;
+          subjectDeleted++;
+          rejected.push({ index: e.index, event_id: e.event_id, reason: "subject_deleted", errors: [{ field: "", message: "this user or install was deleted by a privacy request; not stored" }] });
+          return false;
+        });
+        if (subjectDeleted) rejected.sort((a, b) => a.index - b.index);
+      }
       // 1. Consent changes first, so the rest of the batch is judged by them.
-      const changes = valid.filter((v) => v.type === "consent");
-      let events = valid.filter((v) => v.type !== "consent");
+      const changes = live.filter((v) => v.type === "consent");
+      let events = live.filter((v) => v.type !== "consent");
       if (changes.length) {
         const recorded = await recordConsentChanges(
           db,
@@ -196,17 +225,17 @@ export async function ingest(
       const response: IngestResponse = {
         batch_id: batchId,
         accepted,
-        duplicates: valid.length - consentDenied - accepted + inBatchDuplicates,
+        duplicates: valid.length - subjectDeleted - consentDenied - accepted + inBatchDuplicates,
         rejected,
         warnings,
       };
       await db.query(
         `insert into platform.event_batches
            (id, organization_id, app_id, environment_id, idempotency_key, credential_kind,
-            received_count, accepted_count, duplicate_count, rejected_count, response, received_at, consent_denied_count)
-         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+            received_count, accepted_count, duplicate_count, rejected_count, response, received_at, consent_denied_count, payload_hash)
+         values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [batchId, principal.organizationId, principal.appId, principal.environmentId, idemKey, principal.kind,
-         rawEvents.length, accepted, response.duplicates, rejected.length, JSON.stringify(response), now, consentDenied],
+         rawEvents.length, accepted, response.duplicates, rejected.length, JSON.stringify(response), now, consentDenied, payloadHash],
       );
       // Usage counts stored events only: consent changes and dropped events are free.
       if (stored) await recordUsage(db, principal.organizationId, "events", stored, now);
@@ -214,25 +243,62 @@ export async function ingest(
     });
     // 207-style semantics without 207: the batch was processed; per-event errors are in the body.
     if (body.accepted) noteEventsAccepted(principal.organizationId, body.accepted, now);
-    // An event dropped for consent was valid: not a client error.
-    const status = opts.mode === "single" && rejected.some((r) => r.reason !== "consent_denied") ? 400 : 200;
+    // An event dropped for consent or a privacy deletion was valid: not a client error.
+    const status = opts.mode === "single" && rejected.some((r) => r.reason === undefined) ? 400 : 200;
     return { status, body, headers: graceHeaders };
   } catch (err) {
     // Concurrent retry with the same Idempotency-Key: the other request won; replay its response.
     if (idemKey && isUniqueViolation(err)) {
-      const prior = await findBatch(principal.environmentId, idemKey);
-      if (prior) return { status: 200, body: prior, replayed: true };
+      const prior = await findBatch(principal.environmentId, idemKey, payloadHash!);
+      if (prior) return prior;
     }
     throw err;
   }
 }
 
-async function findBatch(environmentId: string, key: string): Promise<IngestResponse | null> {
+/**
+ * Identity of a request's events for its Idempotency-Key: sha256 of the ordered
+ * event ids (the canonical JSON of an event without one). Ids, not the raw body,
+ * because SDKs re-serialize on every retry (sent_at changes, key order may
+ * differ) while the ids of a retried batch never do. Order matters: a replayed
+ * response refers to events by index.
+ */
+export function payloadHashOf(rawEvents: unknown[]): string {
+  return sha256(
+    JSON.stringify(
+      rawEvents.map((raw) => {
+        const id = (raw as { event_id?: unknown } | null)?.event_id;
+        return typeof id === "string" && id.trim() ? `id:${id.trim()}` : `json:${canonicalJson(raw)}`;
+      }),
+    ),
+  );
+}
+
+function canonicalJson(v: unknown): string {
+  if (Array.isArray(v)) return `[${v.map(canonicalJson).join(",")}]`;
+  if (v && typeof v === "object") {
+    return `{${Object.keys(v).sort().map((k) => `${JSON.stringify(k)}:${canonicalJson((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v) ?? "null";
+}
+
+/** The stored response for this key, or a 409 when the key was used for different events. Rows from before payload hashes replay as before. */
+async function findBatch(environmentId: string, key: string, payloadHash: string): Promise<IngestResult | null> {
   const row = await withSystem((db) =>
-    db.one<{ response: IngestResponse }>(
-      "select response from platform.event_batches where environment_id = $1 and idempotency_key = $2",
+    db.one<{ response: IngestResponse; payload_hash: string | null }>(
+      "select response, payload_hash from platform.event_batches where environment_id = $1 and idempotency_key = $2",
       [environmentId, key],
     ),
   );
-  return row?.response ?? null;
+  if (!row) return null;
+  if (row.payload_hash && row.payload_hash !== payloadHash) {
+    return {
+      status: 409,
+      body: {
+        error: "idempotency_key_reused",
+        message: "This Idempotency-Key was already used for a request with different events. Nothing was stored; resend with a new key (or none: event_id still de-duplicates).",
+      },
+    };
+  }
+  return { status: 200, body: row.response, replayed: true };
 }

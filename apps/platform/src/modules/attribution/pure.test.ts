@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildRequest, networkEventName } from "./networks";
 import {
-  backoffSeconds, clickSignals, destinationFor, expandMacros, extractRevenue, isBot, isPrefetch, MAX_POSTBACK_ATTEMPTS, networkOfSource,
+  backoffSeconds, clickSignals, isOrganicUtm, MATCH_TYPES, organicReason, matchTypeFor, mergeCampaignRows, destinationFor, expandMacros, extractRevenue, isBot, isPrefetch, MAX_POSTBACK_ATTEMPTS, networkOfSource,
   parseQuery, parseUserAgent, retryable, unknownMacros, type LinkDestinations,
 } from "./pure";
 import { assertPostbackUrlShape, isPrivateAddress } from "./url-safety";
@@ -155,5 +155,52 @@ describe("postback URL safety", () => {
   it("knows private ranges", () => {
     for (const ip of ["10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "127.0.0.1", "::1", "fd00::1", "::ffff:10.0.0.1", "100.64.0.1"]) expect(isPrivateAddress(ip), ip).toBe(true);
     for (const ip of ["8.8.8.8", "2001:4860:4860::8888"]) expect(isPrivateAddress(ip), ip).toBe(false);
+  });
+});
+
+describe("isOrganicUtm", () => {
+  it("treats store and direct referrers as organic, campaigns as not", () => {
+    expect(isOrganicUtm({ source: "google-play", medium: "organic" })).toBe(true);
+    expect(isOrganicUtm({ source: "(direct)", medium: "(none)" })).toBe(true);
+    expect(isOrganicUtm({ source: "Organic" })).toBe(true);
+    expect(isOrganicUtm({ source: "tiktok", medium: "paid" })).toBe(false);
+    expect(isOrganicUtm({ source: "google", medium: "cpc" })).toBe(false);
+    expect(isOrganicUtm({})).toBe(false);
+  });
+});
+
+describe("matchTypeFor", () => {
+  it("calls only a click LeanApp recorded deterministic", () => {
+    expect(matchTypeFor("recorded_click")).toBe("deterministic");
+    // UTM parameters or an ad-network click id only the install's context reports are not verified.
+    expect(matchTypeFor("install_context")).toBe("reported");
+    expect(matchTypeFor("ip_os")).toBe("probabilistic");
+    expect(matchTypeFor("none")).toBe("organic");
+    expect(matchTypeFor("provider")).toBe("provider_reported");
+    expect([...MATCH_TYPES]).toEqual(["deterministic", "reported", "probabilistic", "organic", "provider_reported"]);
+  });
+});
+
+describe("mergeCampaignRows", () => {
+  it("gives one row per source and campaign, revenue kept per currency", () => {
+    const rows = mergeCampaignRows([
+      { source: "tiktok", campaign: "eid", currency: "SAR", conversions: 30, revenue: 3000 },
+      { source: "tiktok", campaign: "eid", currency: null, conversions: 100, revenue: 0 },
+      { source: "tiktok", campaign: "eid", currency: "AED", conversions: 2, revenue: 150 },
+      { source: "meta", campaign: null, currency: null, conversions: 5, revenue: 0 },
+    ]);
+    expect(rows).toEqual([
+      { source: "tiktok", campaign: "eid", conversions: 132, revenue: [{ currency: "SAR", amount: 3000 }, { currency: "AED", amount: 150 }] },
+      { source: "meta", campaign: null, conversions: 5, revenue: [] },
+    ]);
+  });
+});
+
+describe("organicReason", () => {
+  it("tells store organic, other organic and direct apart", () => {
+    expect(organicReason({ source: "google-play", medium: "organic" })).toBe("store_organic");
+    expect(organicReason({ source: "blog", medium: "organic" })).toBe("organic_other");
+    expect(organicReason({ source: "(direct)", medium: "(none)" })).toBe("direct");
+    expect(organicReason({ source: "tiktok", medium: "paid" })).toBeNull();
   });
 });

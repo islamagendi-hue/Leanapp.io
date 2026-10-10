@@ -2,7 +2,11 @@ import type { Metadata, Viewport } from "next";
 import { IBM_Plex_Mono } from "next/font/google";
 import localFont from "next/font/local";
 import { connection } from "next/server";
+import { I18nProvider } from "@/i18n/client";
+import { clientDictionary } from "@/i18n/server";
 import { getLocale } from "@/lib/locale";
+import { marketingOnly } from "@/lib/marketing-only";
+import { getTheme } from "@/lib/theme";
 import "./globals.css";
 
 const dubai = localFont({
@@ -20,7 +24,8 @@ const plexMono = IBM_Plex_Mono({ variable: "--font-plex-mono", subsets: ["latin"
 export const metadata: Metadata = {
   title: { default: "LeanApp: growth infrastructure for mobile apps", template: "%s · LeanApp" },
   description: "Attribution, analytics and automation for mobile apps, with an implementation designed around your business.",
-  robots: { index: false, follow: false },
+  // Only the public site of a marketing-only deployment is for search engines; staging and the app are not.
+  robots: marketingOnly() ? { index: true, follow: true } : { index: false, follow: false },
 };
 
 export const viewport: Viewport = {
@@ -36,9 +41,12 @@ export default async function RootLayout({ children }: { children: React.ReactNo
   // Every page renders per request so Next.js can apply the CSP nonce set in proxy.ts.
   await connection();
   const { lang, dir } = await getLocale();
+  const theme = await getTheme();
   return (
-    <html lang={lang} dir={dir} className={`${dubai.variable} ${plexMono.variable}`}>
-      <body className="min-h-dvh antialiased">{children}</body>
+    <html lang={lang} dir={dir} data-theme={theme === "system" ? undefined : theme} className={`${dubai.variable} ${plexMono.variable}`}>
+      <body className="min-h-dvh antialiased">
+        <I18nProvider lang={lang} dict={await clientDictionary()}>{children}</I18nProvider>
+      </body>
     </html>
   );
 }

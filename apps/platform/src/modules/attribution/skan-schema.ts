@@ -16,6 +16,7 @@
  *             matching rule with lock: true locks the window.
  */
 import { z } from "zod";
+import { msg } from "@/i18n/translate";
 
 export const COARSE = ["low", "medium", "high"] as const;
 export type Coarse = (typeof COARSE)[number];
@@ -34,18 +35,18 @@ const ruleSchema = z
     lock: z.boolean().optional(),
   })
   .strict()
-  .refine((r) => r.event !== undefined || r.min_revenue !== undefined || r.max_revenue !== undefined, "Each rule needs an event or a revenue range.")
-  .refine((r) => r.fine !== undefined || r.coarse !== undefined, "Each rule sets a fine or a coarse value.")
-  .refine((r) => r.fine === undefined || r.window === 0, "Fine values are only sent in the first window (window 0); use coarse for windows 1 and 2.")
+  .refine((r) => r.event !== undefined || r.min_revenue !== undefined || r.max_revenue !== undefined, msg("Each rule needs an event or a revenue range."))
+  .refine((r) => r.fine !== undefined || r.coarse !== undefined, msg("Each rule sets a fine or a coarse value."))
+  .refine((r) => r.fine === undefined || r.window === 0, msg("Fine values are only sent in the first window (window 0); use coarse for windows 1 and 2."))
   .refine((r) => r.min_revenue === undefined || r.max_revenue === undefined || r.min_revenue < r.max_revenue, "min_revenue must be below max_revenue.");
 
 export const conversionSchemaSchema = z
   .object({
     currency: z.string().regex(/^[A-Z]{3}$/, "currency is a 3-letter code such as SAR or USD.").optional(),
-    rules: z.array(ruleSchema).min(1, "Add at least one rule.").max(200, "At most 200 rules."),
+    rules: z.array(ruleSchema).min(1, msg("Add at least one rule.")).max(200, msg("At most 200 rules.")),
   })
   .strict()
-  .refine((s) => s.currency !== undefined || s.rules.every((r) => r.min_revenue === undefined && r.max_revenue === undefined), "Set currency to use revenue ranges.");
+  .refine((s) => s.currency !== undefined || s.rules.every((r) => r.min_revenue === undefined && r.max_revenue === undefined), msg("Set currency to use revenue ranges."));
 
 export type ConversionRule = z.infer<typeof ruleSchema>;
 export type ConversionSchema = z.infer<typeof conversionSchemaSchema>;
@@ -125,14 +126,14 @@ export function parseConversionSchema(input: unknown): { ok: true; schema: Conve
     try {
       value = JSON.parse(input);
     } catch {
-      return { ok: false, message: "The schema is not valid JSON." };
+      return { ok: false, message: msg("The schema is not valid JSON.") };
     }
   }
   const r = conversionSchemaSchema.safeParse(value);
   if (r.success) return { ok: true, schema: r.data };
   const i = r.error.issues[0];
   const where = i?.path.length ? `${i.path.join(".")}: ` : "";
-  return { ok: false, message: `${where}${i?.message ?? "Invalid schema."}` };
+  return { ok: false, message: `${where}${i?.message ?? msg("Invalid schema.")}` };
 }
 
 /** A starting schema for a typical app: install → signup → purchase revenue tiers. */

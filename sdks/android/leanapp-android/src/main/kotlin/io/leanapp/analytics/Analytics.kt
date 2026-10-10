@@ -2,6 +2,9 @@ package io.leanapp.analytics
 
 import android.app.Application
 import android.content.Context
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import io.leanapp.analytics.android.AndroidLogger
 import io.leanapp.analytics.android.DeviceInfo
 import io.leanapp.analytics.android.InstallReferrerFetcher
@@ -28,6 +31,17 @@ class AnalyticsOptions @JvmOverloads constructor(
     val collectInstallReferrer: Boolean = true,
     /** Captures utm_* and click ids from the Intent data of the activity that opens the app. */
     val captureDeepLinks: Boolean = true,
+    /** Consent assumed until setConsent() records the user's answer (see LeanAppConfig.consentDefault). */
+    val consentDefault: ConsentStatus = ConsentStatus.GRANTED,
+    /** Per-purpose overrides of [consentDefault]: analytics, marketing, push, attribution. */
+    val consentDefaults: Map<String, ConsentStatus> = emptyMap(),
+    /**
+     * On the first launch of a new install, after the install referrer was read, ask LeanApp once for the
+     * deferred deep link (POST /v1/deep-links/deferred). Needs attribution consent.
+     */
+    val deferredDeepLinks: Boolean = true,
+    /** Called on the main thread with LeanApp's answer (match_type "none" when nothing matched), once per install. */
+    val onDeferredDeepLink: ((DeferredDeepLink) -> Unit)? = null,
 )
 
 /**
@@ -76,6 +90,9 @@ object Analytics {
                 context = options.context,
                 optedOut = options.optedOut,
                 debug = options.debug,
+                consentDefault = options.consentDefault,
+                consentDefaults = options.consentDefaults,
+                deferredDeepLinks = options.deferredDeepLinks,
             ),
             store = FileStore(File(app.filesDir, "leanapp")),
             transport = UrlConnectionTransport(),
@@ -86,6 +103,15 @@ object Analytics {
         )
         instance = client
 
+        // Once per new install (the core keeps track), after the referrer so it can carry LeanApp's click id.
+        val askDeferred: () -> Unit = {
+            if (options.deferredDeepLinks) {
+                client.requestDeferredDeepLink("android", Build.VERSION.RELEASE) { result ->
+                    val callback = options.onDeferredDeepLink
+                    if (result != null && callback != null) Handler(Looper.getMainLooper()).post { callback(result) }
+                }
+            }
+        }
         client.checkInstallReferrerPending { pending ->
             if (pending && options.collectInstallReferrer) {
                 // app_installed waits for the referrer (up to 10 s) so it carries context.campaign.
@@ -96,9 +122,11 @@ object Analytics {
                         ReferrerResult.TryLater -> Unit
                     }
                     if (options.trackLifecycleEvents) client.trackInstallOrUpdate(info.versionName, info.versionCode, launchAt)
+                    askDeferred()
                 }
-            } else if (options.trackLifecycleEvents) {
-                client.trackInstallOrUpdate(info.versionName, info.versionCode, launchAt)
+            } else {
+                if (options.trackLifecycleEvents) client.trackInstallOrUpdate(info.versionName, info.versionCode, launchAt)
+                askDeferred()
             }
         }
 
@@ -161,6 +189,19 @@ object Analytics {
 
     @JvmStatic
     fun getAttribution(): Pair<Map<String, String>, Map<String, String>>? = client()?.getAttribution()
+
+    /**
+     * Records the user's consent answers from your consent screen, e.g. mapOf("analytics" to true, "attribution" to false).
+     * Purposes: analytics, marketing, push, attribution. Purposes left out keep their state.
+     */
+    @JvmStatic
+    fun setConsent(consent: Map<String, Boolean>) {
+        client()?.setConsent(consent)
+    }
+
+    /** Current consent per purpose, or null before initialize(). */
+    @JvmStatic
+    fun getConsent(): Map<String, ConsentStatus>? = client()?.getConsent()
 
     @JvmStatic
     fun getAnonymousId(): String? = client()?.getAnonymousId()

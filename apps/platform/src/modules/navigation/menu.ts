@@ -1,3 +1,4 @@
+import { msg } from "@/i18n/translate";
 import { can } from "@/modules/rbac/authorize";
 import type { Permission, Role } from "@/modules/rbac/permissions";
 
@@ -19,7 +20,10 @@ export interface NavItem {
   soon?: boolean;
   /** Shown as a sub-entry of the item above it. */
   sub?: boolean;
+  beta?: boolean;
 }
+
+export type NavIcon = "overview" | "growth" | "attribution" | "analyze" | "segments" | "engage" | "experiments" | "settings";
 
 export interface NavGroup {
   label: string;
@@ -27,6 +31,10 @@ export interface NavGroup {
   href?: string;
   match?: string;
   beta?: boolean;
+  /** The picture for this entry in the folded menu (NavRail). */
+  icon?: NavIcon;
+  /** Starts a block of the menu under this small heading; "" is a plain divider. */
+  heading?: string;
   items: NavItem[];
 }
 
@@ -36,59 +44,89 @@ const pick = (role: Role, entries: Entry[]): NavItem[] =>
   entries.filter((e) => can(role, e.perm)).map(({ perm: _perm, ...item }) => item);
 
 function groups(list: (NavGroup & { perm?: Permission })[], role: Role): NavGroup[] {
-  return list
-    .filter((g) => (g.perm ? can(role, g.perm) : true) && (g.href || g.items.length > 0))
-    .map(({ perm: _perm, ...g }) => g);
+  const out: NavGroup[] = [];
+  let heading: string | undefined;
+  for (const { perm, ...g } of list) {
+    // A block's heading moves to its first entry this role can see.
+    heading = g.heading ?? heading;
+    if ((perm && !can(role, perm)) || (!g.href && g.items.length === 0)) continue;
+    out.push(heading !== undefined ? { ...g, heading } : g);
+    heading = undefined;
+  }
+  return out;
 }
 
 /** Main menu of a project. `base` is the project's path, /o/{org}/apps/{app}. */
 export function projectMenu(role: Role, base: string): NavGroup[] {
   return groups(
     [
-      { label: "Overview", href: base, items: [] },
+      { label: msg("Overview"), href: base, icon: "overview", items: [] },
       {
-        label: "Analytics",
+        label: msg("Growth"),
+        icon: "growth",
         items: pick(role, [
-          { label: "Events & trends", href: `${base}/analytics/events`, perm: "analytics.read" },
-          { label: "Funnels", href: `${base}/analytics/funnels`, perm: "analytics.read" },
-          { label: "Retention", href: `${base}/analytics/retention`, perm: "analytics.read" },
-          { label: "Revenue", href: `${base}/analytics/revenue`, perm: "analytics.read" },
-          { label: "Activation", href: `${base}/growth`, perm: "growth.read" },
-          { label: "Dashboards", href: `${base}/analytics/dashboards`, perm: "analytics.read" },
-          { label: "Saved reports", href: `${base}/analytics`, perm: "analytics.read" },
-        ]),
-      },
-      { label: "Users", href: `${base}/analytics/users`, perm: "users.read", items: [] },
-      { label: "Audiences", href: `${base}/engage/audiences`, perm: "audiences.read", items: [] },
-      {
-        label: "Engagement",
-        items: pick(role, [
-          { label: "Campaigns", href: `${base}/engage/campaigns`, perm: "automations.read" },
-          { label: "Flows", href: `${base}/engage/automations`, perm: "automations.read" },
-          { label: "Templates", href: `${base}/engage/email-templates`, perm: "automations.read" },
-          { label: "Channels & delivery", href: `${base}/engage/channels`, perm: "automations.read" },
+          { label: msg("Acquisition"), href: `${base}/acquisition`, perm: "attribution.read", beta: true },
+          { label: msg("CAC & LTV"), href: `${base}/acquisition/channels`, perm: "attribution.read", sub: true },
+          { label: msg("Sources & campaigns"), href: `${base}/acquisition/sources`, perm: "attribution.read", sub: true },
+          { label: msg("Ad spend"), href: `${base}/acquisition/spend`, perm: "attribution.read", sub: true },
+          { label: msg("Activation"), href: `${base}/growth`, perm: "growth.read" },
+          { label: msg("Retention"), href: `${base}/analytics/retention`, perm: "analytics.read" },
+          { label: msg("Churn"), href: `${base}/analytics/churn`, perm: "analytics.read", sub: true },
+          { label: msg("RFM segments"), href: `${base}/analytics/rfm`, perm: "analytics.read", sub: true },
+          { label: msg("Revenue"), href: `${base}/analytics/revenue`, perm: "analytics.read" },
         ]),
       },
       {
-        label: "Acquisition",
+        label: msg("Attribution"),
+        icon: "attribution",
         beta: true,
         items: pick(role, [
-          { label: "Overview", href: `${base}/acquisition`, perm: "attribution.read" },
-          { label: "Sources & campaigns", href: `${base}/acquisition/sources`, perm: "attribution.read" },
-          { label: "Attribution", href: `${base}/acquisition/attribution`, perm: "attribution.read" },
-          { label: "Tracking links & QR", href: `${base}/acquisition/links`, perm: "attribution.read" },
-          { label: "Deep links", href: `${base}/acquisition/deep-links`, perm: "attribution.read" },
+          { label: msg("Attribution report"), href: `${base}/acquisition/attribution`, perm: "attribution.read" },
+          { label: msg("Tracking links & QR"), href: `${base}/acquisition/links`, perm: "attribution.read" },
+          { label: msg("Deep links"), href: `${base}/acquisition/deep-links`, perm: "attribution.read" },
         ]),
       },
-      { label: "Settings", href: `${base}/settings`, items: [] },
+      {
+        label: msg("Analyze"),
+        icon: "analyze",
+        items: pick(role, [
+          { label: msg("Events & trends"), href: `${base}/analytics/events`, perm: "analytics.read" },
+          { label: msg("Funnels"), href: `${base}/analytics/funnels`, perm: "analytics.read" },
+          { label: msg("Dashboards"), href: `${base}/analytics/dashboards`, perm: "analytics.read" },
+          { label: msg("Saved reports"), href: `${base}/analytics`, perm: "analytics.read" },
+        ]),
+      },
+      {
+        label: msg("Segments"),
+        icon: "segments",
+        items: pick(role, [
+          { label: msg("Users"), href: `${base}/analytics/users`, perm: "users.read" },
+          { label: msg("Audiences"), href: `${base}/engage/audiences`, perm: "audiences.read" },
+        ]),
+      },
+      {
+        label: msg("Engage Lab"),
+        icon: "engage",
+        items: pick(role, [
+          { label: msg("Campaigns"), href: `${base}/engage/campaigns`, perm: "automations.read" },
+          { label: msg("Flows"), href: `${base}/engage/automations`, perm: "automations.read" },
+          { label: msg("Templates"), href: `${base}/engage/email-templates`, perm: "automations.read" },
+          { label: msg("WhatsApp templates"), href: `${base}/engage/templates`, perm: "automations.read" },
+          { label: msg("Media library"), href: `${base}/engage/media`, perm: "media.read" },
+          { label: msg("Channels & delivery"), href: `${base}/engage/channels`, perm: "automations.read" },
+        ]),
+      },
+      { label: msg("A/B experiments"), href: `${base}/engage/experiments`, perm: "automations.read", icon: "experiments", items: [] },
+      { label: msg("Settings"), href: `${base}/settings`, icon: "settings", heading: "", items: [] },
     ],
     role,
   );
 }
 
 /**
- * Settings menu. Workspace and Security belong to the organization; Project and Dev Ops to the
- * project at `base`, and are left out when there is no project in view.
+ * Settings menu. You is the signed-in person's own profile; Workspace and Security belong to the
+ * organization; Project and Dev Ops to the project at `base`, and are left out when there is no
+ * project in view.
  */
 export function settingsMenu(role: Role, org: string, base?: string): NavGroup[] {
   const ws = `/o/${org}/settings`;
@@ -96,52 +134,61 @@ export function settingsMenu(role: Role, org: string, base?: string): NavGroup[]
   return groups(
     [
       {
-        label: "Workspace",
+        label: msg("You"),
         items: pick(role, [
-          { label: "General", href: ws, perm: "organization.read" },
-          { label: "Members & roles", href: `${ws}/members`, perm: "members.read" },
-          { label: "Billing & plan", href: `${ws}/billing`, perm: "billing.read" },
-          { label: "Usage", href: `${ws}/billing#usage`, perm: "billing.read" },
+          { label: msg("Your profile"), href: `${ws}/profile`, perm: "organization.read" },
+          { label: msg("Help & support"), href: `${ws}/support`, perm: "organization.read" },
+        ]),
+      },
+      {
+        label: msg("Workspace"),
+        items: pick(role, [
+          { label: msg("General"), href: ws, perm: "organization.read" },
+          { label: msg("Members & roles"), href: `${ws}/members`, perm: "members.read" },
+          { label: msg("API keys"), href: `${ws}/api-keys`, perm: "credentials.read" },
+          { label: msg("Billing & plan"), href: `${ws}/billing`, perm: "billing.read" },
+          { label: msg("Usage"), href: `${ws}/billing#usage`, perm: "billing.read" },
         ]),
       },
       ...(base
         ? [
             {
-              label: "Project",
+              label: msg("Project"),
               items: pick(role, [
-                { label: "General", href: `${base}/settings/project`, perm: "apps.read" },
-                { label: "Environments", href: `${base}/settings/project/environments`, perm: "apps.read" },
-                { label: "Timezone & currency", href: `${base}/settings/project/timezone`, perm: "apps.read" },
-                { label: "Data retention", soon: true, perm: "apps.read" },
-                { label: "Privacy requests", href: `${base}/settings/privacy`, perm: "privacy.manage" },
-                { label: "Consent", href: `${base}/settings/privacy/consent`, perm: "privacy.manage" },
-                { label: "Suppression list", href: `${base}/settings/privacy/suppressions`, perm: "privacy.manage" },
+                { label: msg("General"), href: `${base}/settings/project`, perm: "apps.read" },
+                { label: msg("Environments"), href: `${base}/settings/project/environments`, perm: "apps.read" },
+                { label: msg("Timezone & currency"), href: `${base}/settings/project/timezone`, perm: "apps.read" },
+                { label: msg("Integrations"), href: `${base}/settings/integrations`, perm: "apps.read" },
+                { label: msg("Data retention"), soon: true, perm: "apps.read" },
+                { label: msg("Privacy requests"), href: `${base}/settings/privacy`, perm: "privacy.manage" },
+                { label: msg("Consent"), href: `${base}/settings/privacy/consent`, perm: "privacy.manage" },
+                { label: msg("Suppression list"), href: `${base}/settings/privacy/suppressions`, perm: "privacy.manage" },
               ]),
             },
             {
-              label: "Dev Ops",
+              label: msg("Dev Ops"),
               items: pick(role, [
-                { label: "Get started", href: `${devops}/get-started`, perm: "implementation.read" },
-                { label: "Implementation", href: `${devops}/implementation/plan`, match: `${devops}/implementation`, perm: "implementation.read" },
-                { label: "Events", href: `${devops}/events`, perm: "implementation.read" },
-                { label: "Attributes", href: `${devops}/attributes`, perm: "implementation.read" },
-                { label: "SDK & API keys", href: `${devops}/sdk`, perm: "credentials.read" },
-                { label: "Debugger", href: `${devops}/debugger`, perm: "events.read" },
-                { label: "Webhooks", href: `${devops}/webhooks`, perm: "webhooks.manage" },
-                { label: "Deep link setup", href: `${devops}/deep-links`, perm: "deep_links.read" },
-                { label: "Attribution setup", href: `${devops}/attribution`, perm: "attribution.read" },
-                { label: "Postbacks", href: `${devops}/attribution/postbacks`, sub: true, perm: "attribution.read" },
-                { label: "SKAdNetwork", href: `${devops}/attribution/skan`, sub: true, perm: "attribution.read" },
-                { label: "Messaging channels", href: `${devops}/channels`, perm: "integrations.read" },
+                { label: msg("Get started"), href: `${devops}/get-started`, perm: "implementation.read" },
+                { label: msg("Implementation"), href: `${devops}/implementation/plan`, match: `${devops}/implementation`, perm: "implementation.read" },
+                { label: msg("Events"), href: `${devops}/events`, perm: "implementation.read" },
+                { label: msg("Attributes"), href: `${devops}/attributes`, perm: "implementation.read" },
+                { label: msg("SDK & API keys"), href: `${devops}/sdk`, perm: "credentials.read" },
+                { label: msg("Debugger"), href: `${devops}/debugger`, perm: "events.read" },
+                { label: msg("Webhooks"), href: `${devops}/webhooks`, perm: "webhooks.manage" },
+                { label: msg("Deep link setup"), href: `${devops}/deep-links`, perm: "deep_links.read" },
+                { label: msg("Attribution setup"), href: `${devops}/attribution`, perm: "attribution.read" },
+                { label: msg("Postbacks"), href: `${devops}/attribution/postbacks`, sub: true, perm: "attribution.read" },
+                { label: msg("SKAdNetwork"), href: `${devops}/attribution/skan`, sub: true, perm: "attribution.read" },
+                { label: msg("Messaging channels"), href: `${devops}/channels`, perm: "integrations.read" },
               ]),
             },
           ]
         : []),
       {
-        label: "Security",
+        label: msg("Security"),
         items: pick(role, [
-          { label: "Audit log", href: `${ws}/audit`, perm: "audit.read" },
-          { label: "Sessions", href: "/account#sessions", perm: "organization.read" },
+          { label: msg("Audit log"), href: `${ws}/audit`, perm: "audit.read" },
+          { label: msg("Sessions"), href: `${ws}/profile#sessions`, perm: "organization.read" },
         ]),
       },
     ],

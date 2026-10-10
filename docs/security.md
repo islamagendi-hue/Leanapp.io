@@ -48,6 +48,7 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 - ✓ Deletions run in one transaction under the organization's RLS scope, so a request can't reach another tenant's rows; interrupted jobs are retried by the scheduled worker.
 - ✓ Every export and deletion is recorded in `privacy_requests` and the audit log (who asked, rows deleted per table). The dashboard export is a same-origin form POST, not a GET, because it records a request.
 - ✓ A failed deletion job stores only `internal_error`; the database error goes to the server logs.
+- ✓ Deletions leave tombstones (`privacy_tombstones`: sha256 of environment, id kind and id; no raw id) for the deleted `user_id` and installs, written and committed before the rows are deleted, after which the job waits out in-flight ingestion of the environment (advisory lock). Ingestion drops later events of the deleted user, from offline SDK queues or backends, as `subject_deleted`, so a deletion can't be undone by late events. Tombstones don't expire.
 - ✓ Consent capture: `setConsent({ analytics, marketing, push, attribution })` in the SDK, stored on the device and recorded per environment (`consent_records` history, `consent_state` current). With `consentDefault: "pending"` the SDK keeps events in memory only (never on disk, never sent) until the user answers; on denial it discards them and clears the unsent queue. Consent changes themselves are always sent, with ids and minimal context only.
 - ✓ Server-side enforcement: ingestion drops events of users and installs whose latest analytics decision is "denied" (one primary-key lookup per batch), even from a secret key or an old SDK, and reports them as `consent_denied` in the debugger. Attribution context is stripped where attribution is denied.
 - ✓ Suppression lists per environment (marketing, push, email, whatsapp): automatic from denied marketing / push consent, manual from the dashboard (`privacy.manage`) or a secret key with `privacy:write`. Automation checks `isSuppressed()` before sending.
@@ -63,6 +64,7 @@ Status: controls marked ✓ are built and tested; ○ are planned.
 - ✓ Every request gets an `x-request-id` (kept from the caller when well-formed, echoed in the response) that appears in the server logs.
 - ✓ Server actions are POST-only and origin-checked by Next.js.
 - ✓ All SQL is parameterized; there is no string-built SQL with user input.
+- ✓ Uploaded media ([media](media.md)): the type comes from the file's signature bytes and must match the declared type; only JPEG, PNG, WebP, GIF, MP4/3GP and PDF are stored (never SVG or HTML). Files are served with their stored type, `nosniff` and a `sandbox` CSP, from the authorized route (members with `media.read`) or, when a member turns it on, from an unguessable public link that providers fetch. Storage credentials stay on the server.
 
 ## Secrets and operations
 

@@ -1,6 +1,6 @@
 # Roadmap, current state and gap analysis
 
-_Last updated 2026-10-07._
+_Last updated 2026-10-09._
 
 ## Starting point (before this work)
 
@@ -31,7 +31,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Native SDKs: Android (Kotlin, with Play Install Referrer), iOS (Swift), Flutter (Dart), tested in CI | ✓ (not published: Maven Central, Swift package tag / CocoaPods and pub.dev need the owner's accounts) |
 | Docs, ADRs, OpenAPI, CI (lint, types, unit, integration, migrations, build, browser end-to-end) | ✓ |
 | Production deployment | Workflow, scheduler and runbook ✓; ✗ waits for owner (Supabase projects, Vercel project, DNS, secrets) |
-| Attribution engine (phase 3): tracking links `/l/{code}` with bot/prefetch filtering and rate limits, deterministic install matching (Play referrer, click ids, ad-network click ids), opt-in Android-only probabilistic matching, reinstalls, re-engagement, last-touch conversions and revenue, postback queue with retries, dashboard | ✓ (custom URL postbacks tested; TikTok / Snap / Meta / Google postbacks not verified with the live networks) |
+| Attribution engine (phase 3): tracking links `/l/{code}` with bot/prefetch filtering and rate limits, deterministic install matching (LeanApp click ids from the Play referrer, deep links or context; ad-network click ids recorded on our click), `reported` matches for ad-network click ids / UTM only the install reports, opt-in Android-only probabilistic matching, reinstalls, re-engagement, last-touch conversions and revenue, postback queue with retries, dashboard | ✓ (custom URL postbacks tested; TikTok / Snap / Meta / Google postbacks not verified with the live networks) |
 
 ## Gaps to a sellable product
 
@@ -41,11 +41,11 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | Email provider account | 1.5 | Code is built; needs a Resend API key and leanapp.io verified as a sending domain |
 | Native SDK publishing (Maven Central, Swift package tag / CocoaPods, pub.dev) | 2 | Code and tests are built ([SDK](sdk.md)); needs the owner's Sonatype account and signing key, a public release repository or CocoaPods trunk account, and a pub.dev verified publisher |
 | iOS SKAdNetwork / AdAttributionKit conversion values in the SDK | 3 | Server side built ([attribution](attribution.md#skadnetwork--adattributionkit)): verified postback receiver, per-source reports, conversion value schema and `GET /v1/skan/conversion-schema`. Not built: the iOS SDK applying the schema (`updatePostbackConversionValue`), and serving the well-known paths on the registrable domain (`SKAN_REPORT_DOMAIN`) in production |
-| Analytics: activation reports, revenue by channel/campaign, cohort AND/OR trees, CSV export | 2–3 | Cohorts, revenue, user profiles and saved reports are built ([analytics](analytics.md)); channel/campaign needs the attribution engine |
+| Analytics: activation reports, revenue by campaign, cohort AND/OR trees, CSV export | 2–3 | Cohorts, revenue (with a channel breakdown, ad spend, return and ROAS), user profiles and saved reports are built ([analytics](analytics.md)) |
 | ClickHouse event store, Redis | 2 | When volume requires ([ADR-002](adr/ADR-002-event-store.md)) |
-| Native MMP, MVP: first-class installs and attribution records (first and last touch, confidence, reattribution) stamped on every event; go.leanapp.io links with full campaign metadata and routing; Universal Links, App Links, custom schemes, deferred deep links; Apple Search Ads and Meta Install Referrer; SKAdNetwork / AdAttributionKit as a first-class aggregate model; manual/CSV ad spend; CPI, CAC, ROAS, LTV and retention by source | 3 | In progress. Design: [attribution architecture](attribution-architecture.md). LeanApp does not import AppsFlyer, Adjust or Branch data |
-| Native MMP, later: automatic cost import (Meta, Google Ads, TikTok, Snap APIs), network install claims and view-through (needs certified partner status with each network), impression links, fraud detection, multi-touch models, Android Privacy Sandbox | 3–4 | See [attribution architecture](attribution-architecture.md#5-mvp-vs-later) |
-| Ad-network postbacks verified live (TikTok, Snap, Meta, Google Ads) | 3 | Request code is built behind encrypted per-postback credentials but untested against the networks: needs a customer's TikTok App ID + Events API token, Snap App ID + CAPI token, Meta dataset ID + system user token, Google Ads customer ID, conversion action, developer token and OAuth client + refresh token. Production also needs `INTEGRATIONS_ENCRYPTION_KEY` and `ATTRIBUTION_IP_HASH_SECRET` |
+| Native MMP, MVP: first-class installs and attribution records (first and last touch, confidence, reattribution) stamped on every event; go.leanapp.io links with full campaign metadata and routing; Universal Links, App Links, custom schemes, deferred deep links; Apple Search Ads and Meta Install Referrer; SKAdNetwork / AdAttributionKit as a first-class aggregate model; manual/CSV ad spend; CPI, CAC, ROAS, LTV and retention by source | 3 | In progress. Manual / CSV ad spend is built, and so is import from Meta, Google Ads, TikTok and Snapchat reporting APIs ([integrations](integrations.md), not verified live), with return and ROAS in Revenue by channel ([attribution](attribution.md#ad-spend)), and CAC, observed LTV and LTV:CAC by channel ([attribution](attribution.md#cac-and-ltv-by-channel)); CPI is not. Design: [attribution architecture](attribution-architecture.md). LeanApp does not import AppsFlyer, Adjust or Branch data |
+| Native MMP, later: live verification of cost import, network install claims and view-through (needs certified partner status with each network), impression links, fraud detection, multi-touch models, Android Privacy Sandbox | 3–4 | See [attribution architecture](attribution-architecture.md#5-mvp-vs-later) |
+| Ad-network postbacks verified live (TikTok, Snap, Meta, Google Ads) | 3 | Request code is built behind encrypted per-postback credentials, with consent checks, per-network validation and provider error details (Meta, Snap, TikTok), but untested against the networks: needs a customer's TikTok App ID + Events API token, Snap App ID + CAPI token, Meta dataset ID + system user token, Google Ads customer ID, conversion action, developer token and OAuth client + refresh token. Production also needs `INTEGRATIONS_ENCRYPTION_KEY` and `ATTRIBUTION_IP_HASH_SECRET` |
 | Connect payments (Stripe account, prices, webhook); MENA methods (Mada, SAR invoicing) | 1.5–3 | Code built and tested; waits for the owner's business entity and pricing ([billing](billing.md)) |
 | Live push verification | 4 | FCM and APNs are built and tested against local mocks only. Verifying them needs a Firebase service-account JSON for a test project, an Apple `.p8` key with its Key ID, Team ID and bundle id, and a device token for each |
 | Customer email sending | 4 | Built on the customer's own Resend key; untested against live Resend |
@@ -53,6 +53,7 @@ The owner's only codebase was the Growx Era consultancy website (Next.js 16, Tai
 | SMS channel | 4+ | Not built. Twilio's Messages REST API would fit the WhatsApp pattern (customer's Account SID + auth token, signed status callbacks); needs a provider decision |
 | Email: open/click tracking, bounce and complaint webhooks into suppressions, HTML editor | 4+ | Plain text + generated HTML, templates, sending domain and one-click unsubscribe are built ([messaging](messaging.md)) |
 | Engagement extras | 4+ | Prayer-time quiet hours, Ramadan scheduling, holdout groups, conversion attribution to automations, per-user timezones, real-time audience evaluation, ad-network audience export |
+| Experiments beyond the MVP | 4+ | Built: product experiments ([experiments](experiments.md)). Not built: `getVariant` in the native SDKs, A/B tests of campaign messages with a holdout, sequential testing, variance reduction (CUPED), mutually exclusive layers, significance on revenue |
 | In-app message UI in the SDKs | 2–4 | The API contract is in [SDK](sdk.md#in-app-messages); `sdks/javascript` isn't changed yet |
 | OAuth, MFA, SSO | 2–4 | Schema ready |
 | Privacy: consent for native SDKs; a marketer-level permission for suppression lists; suppression of hashed ids that survives deletion | 2 | JS SDK consent, server enforcement and suppression lists are built ([API](api.md#consent-and-suppression)). Native SDKs must implement the same `setConsent` contract |
@@ -100,3 +101,4 @@ No MMP import or migration (AppsFlyer, Adjust, Branch) is planned; their live ca
 | SMS | ✗ (no provider chosen) |
 | Consent and suppression checked before every message (marketing + medium) | ✓ |
 | Prayer-time quiet hours, Ramadan scheduling, holdouts, conversion attribution | ✗ |
+| Experiments (A/B tests): variants with weights, traffic and audience targeting, deterministic assignment API, exposure events, results with uplift, 95% intervals, z-test and sample ratio check ([experiments](experiments.md)) | ◐ beta: `getVariant` in the JavaScript SDK only; A/B tests of campaign messages not built |

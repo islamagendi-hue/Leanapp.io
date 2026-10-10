@@ -12,6 +12,8 @@
  * Only variable names and reasons are reported, never values.
  */
 import { encryptionKeyProblem } from "@/lib/secret-box";
+import { priceEnvProblems } from "@/modules/billing/plans";
+import { mediaStorageProblems } from "@/modules/media/storage/config";
 
 export type Deployment = "production" | "preview" | "local";
 
@@ -45,6 +47,11 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   const warnings: ConfigIssue[] = [];
   const err = (variable: string, problem: string) => errors.push({ variable, problem });
   const warn = (variable: string, problem: string) => warnings.push({ variable, problem });
+  // A marketing-only deployment serves the public pages only and needs none of the app's settings.
+  if (env.MARKETING_ONLY === "1") {
+    warn("MARKETING_ONLY", "set: only the public pages are served; sign up, sign in and the API are off");
+    return { deployment, errors, warnings };
+  }
 
   const db = env.DATABASE_URL;
   if (!db) err("DATABASE_URL", "not set");
@@ -75,6 +82,8 @@ export function checkConfig(env: Env = process.env): ConfigReport {
   const stripeKey = env.STRIPE_SECRET_KEY ?? "";
   const stripeHook = env.STRIPE_WEBHOOK_SECRET ?? "";
   if (stripeKey && !/^(sk|rk)_(live|test)_/.test(stripeKey)) warn("STRIPE_SECRET_KEY", "does not look like a Stripe secret key (sk_… or rk_…)");
+  // Price ids per plan and interval (STRIPE_PRICE_<PLAN>_<INTERVAL>); unknown plan names are caught by the billing status.
+  for (const p of priceEnvProblems(env, [])) warn(p.variable, p.problem);
   if (stripeHook && !stripeHook.startsWith("whsec_")) warn("STRIPE_WEBHOOK_SECRET", "does not look like a Stripe webhook signing secret (whsec_…)");
   if (Boolean(stripeKey) !== Boolean(stripeHook)) warn(stripeKey ? "STRIPE_WEBHOOK_SECRET" : "STRIPE_SECRET_KEY", "set both STRIPE_SECRET_KEY and STRIPE_WEBHOOK_SECRET; payments stay disconnected until then");
   else if (deployment === "production" && !stripeKey) warn("STRIPE_SECRET_KEY", "not set; payments are not connected and plans can't be bought");
@@ -92,10 +101,20 @@ export function checkConfig(env: Env = process.env): ConfigReport {
     if (url && deployment === "production" && url.protocol !== "https:") err(name, "must use https in production");
   }
 
+  // "Connect with …" OAuth apps for ad reporting (docs/integrations.md): optional, all-or-nothing per provider.
+  for (const vars of [["META_APP_ID", "META_APP_SECRET"], ["GOOGLE_ADS_CLIENT_ID", "GOOGLE_ADS_CLIENT_SECRET", "GOOGLE_ADS_DEVELOPER_TOKEN"], ["TIKTOK_APP_ID", "TIKTOK_APP_SECRET"], ["SNAPCHAT_CLIENT_ID", "SNAPCHAT_CLIENT_SECRET"]]) {
+    const set = vars.filter((v) => env[v]);
+    if (set.length && set.length < vars.length) warn(vars.find((v) => !env[v])!, `set ${vars.join(", ")} together; "Connect with" stays off until then`);
+  }
+  if (env.GOOGLE_ADS_API_VERSION && !/^v\d{1,3}$/.test(env.GOOGLE_ADS_API_VERSION)) warn("GOOGLE_ADS_API_VERSION", "should look like v21");
+
   const encProblem = encryptionKeyProblem(env);
   if (encProblem) err("INTEGRATIONS_ENCRYPTION_KEY", encProblem);
   else if (deployed && !env.INTEGRATIONS_ENCRYPTION_KEY) warn("INTEGRATIONS_ENCRYPTION_KEY", "not set; ad-network, push, messaging and email credentials and webhooks can't be configured");
   if (deployed && !env.ATTRIBUTION_IP_HASH_SECRET) warn("ATTRIBUTION_IP_HASH_SECRET", "not set; clicks are recorded without an IP hash, so probabilistic matching is off");
+
+  // Media library storage (docs/media.md): Postgres by default, S3-compatible when configured.
+  for (const p of mediaStorageProblems(env)) err(p.variable, p.problem);
 
   return { deployment, errors, warnings };
 }

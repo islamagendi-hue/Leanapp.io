@@ -1,10 +1,12 @@
 import "server-only";
 import { z } from "zod";
+import { msg } from "@/i18n/translate";
 import type { Db } from "@/lib/db";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { audit } from "@/modules/audit/service";
+import { fill } from "@/modules/automation/messages";
 import { messagingBlocked } from "@/modules/messaging/consent";
-import { deliverEmail, deliverPush, deliverWhatsApp, type Target } from "@/modules/messaging/deliver";
+import { deliverEmail, deliverMessage, deliverPush, type Target } from "@/modules/messaging/deliver";
 import { loadDeliveryCredentials } from "@/modules/messaging/integrations";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { toE164 } from "@/modules/whatsapp/messages";
@@ -72,8 +74,8 @@ export async function deliveryOfAutomation(db: Db, automationId: string): Promis
 export const TEST_SENDS_PER_HOUR = 20;
 
 const testInput = z.object({
-  channel: z.enum(DELIVERY_CHANNELS, "Choose a channel."),
-  userId: z.string().trim().min(1, "Enter the user ID of a person in this environment.").max(200),
+  channel: z.enum(DELIVERY_CHANNELS, msg("Choose a channel.")),
+  userId: z.string().trim().min(1, msg("Enter the user ID of a person in this environment.")).max(200),
   /** WhatsApp only: an approved template "name|language" and its variables. */
   whatsappTemplate: z.string().optional(),
   whatsappParams: z.array(z.string().trim().max(1024)).max(20).default([]),
@@ -104,9 +106,9 @@ export async function sendTestMessage(ctx: TenantContext, environmentId: string,
             + (select count(*)::int from platform.in_app_messages where environment_id = $1 and automation_id is null and data ? 'test' and created_at > now() - interval '1 hour') as n`,
       [environmentId],
     );
-    if (recent!.n >= TEST_SENDS_PER_HOUR) throw new ValidationError(`At most ${TEST_SENDS_PER_HOUR} test messages an hour per environment. Try again later.`);
+    if (recent!.n >= TEST_SENDS_PER_HOUR) throw new ValidationError(fill(msg("At most {n} test messages an hour per environment. Try again later."), { n: TEST_SENDS_PER_HOUR }));
     const person = await db.one<{ properties: Record<string, unknown> }>("select properties from platform.app_users where environment_id = $1 and external_id = $2", [environmentId, userId]);
-    if (!person) throw new ValidationError(`No person with the user ID "${userId}" in ${env.type}. The app must have identified them first.`);
+    if (!person) throw new ValidationError(fill(msg('No person with the user ID "{id}" in {env}. The app must have identified them first.'), { id: userId, env: env.type }));
 
     const result = await send(db, ctx, environmentId, env.app_id, env.type, channel, userId, person.properties, r.data);
     await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "message.test_sent", targetType: "environment", targetId: environmentId, metadata: { channel, ok: result.ok } });
@@ -119,7 +121,7 @@ async function send(
   input: z.output<typeof testInput>,
 ): Promise<TestResult> {
   const blocked = await messagingBlocked(db, environmentId, userId, channel);
-  if (blocked) return { ok: false, message: `Not sent: this person is ${blocked === "suppressed" ? "on the suppression list" : "opted out (consent denied)"}.` };
+  if (blocked) return { ok: false, message: blocked === "suppressed" ? msg("Not sent: this person is on the suppression list.") : msg("Not sent: this person is opted out (consent denied).") };
   const target: Target = { organizationId: ctx.organizationId, environmentId, userKey: userId, runId: null, step: null };
   const title = "LeanApp test message";
   const body = `This is a test from LeanApp (${envType}). If you can read it, ${channel === "in_app" ? "in-app messages" : "this channel"} works.`;
@@ -130,30 +132,45 @@ async function send(
        values ($1, $2, $3, $4, $5, $6, '{"test": true}', now() + interval '24 hours')`,
       [ctx.organizationId, appId, environmentId, userId, title, body],
     );
-    return { ok: true, message: "Queued. Your app shows it the next time it asks the in-app API for this person's messages (within 24 hours)." };
+    return { ok: true, message: msg("Queued. Your app shows it the next time it asks the in-app API for this person's messages (within 24 hours).") };
   }
   const creds = await loadDeliveryCredentials(db, environmentId);
   if (channel === "push") {
     const p = await deliverPush(db, creds, target, { title, body, data: { test: "true" } });
-    if (!p.devices) return { ok: false, message: "Not sent: this person has no active push token. Open the app on a device with notifications allowed, then try again." };
-    return { ok: p.sent > 0, message: [`Sent to ${p.sent} of ${p.devices} device${p.devices === 1 ? "" : "s"}.`, ...p.problems].join(" ") };
+    if (!p.devices) return { ok: false, message: msg("Not sent: this person has no active push token. Open the app on a device with notifications allowed, then try again.") };
+    return { ok: p.sent > 0, message: [fill(p.devices === 1 ? msg("Sent to {sent} of {devices} device.") : msg("Sent to {sent} of {devices} devices."), { sent: p.sent, devices: p.devices }), ...p.problems].join(" ") };
   }
   if (channel === "email") {
     const to = typeof profile.email === "string" ? profile.email.trim() : "";
-    if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(to)) return { ok: false, message: "Not sent: this person has no valid email user property." };
+    if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(to)) return { ok: false, message: msg("Not sent: this person has no valid email user property.") };
     const e = await deliverEmail(db, creds, target, { to, subject: title, body, templateId: null, tag: "test" });
-    return { ok: e.ok, message: e.ok ? "Sent. Resend accepted the email." : `Not sent: ${e.error}` };
+    return { ok: e.ok, message: e.ok ? msg("Sent. Resend accepted the email.") : fill(msg("Not sent: {message}"), { message: String(e.error) }) };
+  }
+  if (channel === "sms") {
+    const to = toE164(profile[input.phoneProperty]);
+    if (!to) return { ok: false, message: fill(msg("Not sent: no valid E.164 phone number in the {property} user property."), { property: input.phoneProperty }) };
+    const s = await deliverMessage(db, creds, target, "twilio", { kind: "text", channel: "sms", to, text: body });
+    return { ok: s.ok, message: s.ok ? msg("Sent. Twilio accepted the SMS; delivery receipts arrive through the status callback.") : fill(msg("Not sent: {message}"), { message: String(s.error) }) };
   }
   // WhatsApp: only approved templates can start a conversation.
-  const [name, language] = (input.whatsappTemplate ?? "").split("|");
-  const template = name && language ? await findTemplate(db, environmentId, name, language) : null;
-  if (!template) return { ok: false, message: "Choose a synced WhatsApp template." };
-  if (template.status !== "APPROVED") return { ok: false, message: `Not sent: the template ${name} is ${template.status.toLowerCase()}, not approved.` };
+  const [name, language, providerRaw] = (input.whatsappTemplate ?? "").split("|");
+  const provider = providerRaw === "twilio" ? "twilio" : "whatsapp_cloud";
+  const template = name && language ? await findTemplate(db, environmentId, name, language, provider) : null;
+  if (!template) return { ok: false, message: msg("Choose a synced WhatsApp template.") };
+  if (template.status !== "APPROVED") return { ok: false, message: fill(msg("Not sent: the template {name} is {status}, not approved."), { name, status: template.status.toLowerCase() }) };
+  if (template.header_format && template.header_format !== "TEXT") {
+    return { ok: false, message: fill(msg("The template {name} has a media header, which test sends don't attach. Test it from a campaign."), { name }) };
+  }
   if (template.header_params > 0 || template.body_params !== input.whatsappParams.length) {
-    return { ok: false, message: `The template ${name} needs ${template.body_params} variable${template.body_params === 1 ? "" : "s"}${template.header_params ? " and a header variable (not supported in test sends)" : ""}.` };
+    return { ok: false, message: fill(template.header_params
+      ? (template.body_params === 1 ? msg("The template {name} needs {n} variable and a header variable (not supported in test sends).") : msg("The template {name} needs {n} variables and a header variable (not supported in test sends)."))
+      : (template.body_params === 1 ? msg("The template {name} needs {n} variable.") : msg("The template {name} needs {n} variables.")), { name, n: template.body_params }) };
   }
   const to = toE164(profile[input.phoneProperty]);
-  if (!to) return { ok: false, message: `Not sent: no valid E.164 phone number in the ${input.phoneProperty} user property.` };
-  const w = await deliverWhatsApp(db, creds, target, { to, template: name, language, bodyParams: input.whatsappParams.map((p) => p || "-"), headerParams: [] });
-  return { ok: w.ok, message: w.ok ? "Sent. WhatsApp accepted the message; delivery and read receipts arrive through the webhook." : `Not sent: ${w.error}` };
+  if (!to) return { ok: false, message: fill(msg("Not sent: no valid E.164 phone number in the {property} user property."), { property: input.phoneProperty }) };
+  const w = await deliverMessage(db, creds, target, provider, {
+    kind: "template", channel: "whatsapp", to, template: provider === "twilio" ? template.external_id ?? "" : name, language,
+    bodyParams: input.whatsappParams.map((p) => p || "-"), headerParams: [], variableKeys: template.variables ?? [],
+  });
+  return { ok: w.ok, message: w.ok ? msg("Sent. WhatsApp accepted the message; delivery and read receipts arrive through the webhook.") : fill(msg("Not sent: {message}"), { message: String(w.error) }) };
 }

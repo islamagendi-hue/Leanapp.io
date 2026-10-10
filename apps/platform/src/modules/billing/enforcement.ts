@@ -1,8 +1,11 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
+import { withParams } from "@/modules/organizations/messages";
 import { withSystem, type Db } from "@/lib/db";
 import { PlanLimitError } from "@/lib/errors";
 import { asLimit, canAdd, eventHardCap, eventState, LIMIT_FEATURES, usagePeriod, type LimitKey, type LimitState } from "./limits";
 import { envNumber } from "@/lib/env-number";
+import { entitled } from "./plans";
 
 /**
  * Plan-limit enforcement. Limits are data (platform.plan_features); a null or
@@ -30,6 +33,29 @@ export async function planLimit(db: Db, organizationId: string, key: LimitKey): 
   return asLimit(row?.value);
 }
 
+/**
+ * Feature entitlement (plan_features `feature.<name>`): allowed unless the
+ * organization's plan explicitly sets it to false (plans.ts entitled()). Works
+ * in tenant and system transactions. Independent of the payment provider, so
+ * an unconfigured provider never takes a feature away.
+ */
+export async function featureEntitled(db: Db, organizationId: string, feature: string): Promise<boolean> {
+  const row = await db.one<{ value: unknown }>(
+    `select f.value from platform.organizations o
+       join platform.plan_features f on f.plan_id = o.plan_id and f.feature = $2
+      where o.id = $1`,
+    [organizationId, `feature.${feature}`],
+  );
+  return entitled(row ? { [`feature.${feature}`]: row.value } : null, feature);
+}
+
+/** Refuses with plan_limit_exceeded (403) when the plan doesn't include `feature`. */
+export async function assertEntitled(db: Db, organizationId: string, feature: string): Promise<void> {
+  if (!(await featureEntitled(db, organizationId, feature))) {
+    throw new PlanLimitError(msg("Your plan doesn't include this feature. Upgrade the plan to use it."), "feature");
+  }
+}
+
 async function lockOrg(db: Db, what: string, organizationId: string) {
   await db.query("select pg_advisory_xact_lock(hashtextextended($1 || ':' || $2::text, 0))", [what, organizationId]);
 }
@@ -41,7 +67,11 @@ export async function assertCanAddApp(db: Db, organizationId: string): Promise<v
   if (limit === null) return;
   const row = await db.one<{ n: string }>("select count(*) as n from platform.apps where organization_id = $1 and status = 'active'", [organizationId]);
   if (!canAdd(Number(row!.n), limit))
-    throw new PlanLimitError(`Your plan includes ${limit} app${limit === 1 ? "" : "s"}. Upgrade the plan to add another.`, "apps");
+    throw withParams(
+      (m) => new PlanLimitError(m, "apps"),
+      limit === 1 ? msg("Your plan includes {limit} app. Upgrade the plan to add another.") : msg("Your plan includes {limit} apps. Upgrade the plan to add another."),
+      { limit },
+    );
 }
 
 /**
@@ -65,9 +95,16 @@ export async function assertCanInvite(db: Db, organizationId: string): Promise<v
   if (limit === null) return;
   const { members, pending } = await seatsUsed(db, organizationId);
   if (!canAdd(members + pending, limit))
-    throw new PlanLimitError(
-      `Your plan includes ${limit} member${limit === 1 ? "" : "s"} and ${members + pending} ${members + pending === 1 ? "is" : "are"} taken by members and pending invitations. Revoke an invitation or upgrade the plan.`,
-      "seats",
+    throw withParams(
+      (m) => new PlanLimitError(m, "seats"),
+      limit === 1
+        ? members + pending === 1
+          ? msg("Your plan includes {limit} member and {taken} is taken by members and pending invitations. Revoke an invitation or upgrade the plan.")
+          : msg("Your plan includes {limit} member and {taken} are taken by members and pending invitations. Revoke an invitation or upgrade the plan.")
+        : members + pending === 1
+          ? msg("Your plan includes {limit} members and {taken} is taken by members and pending invitations. Revoke an invitation or upgrade the plan.")
+          : msg("Your plan includes {limit} members and {taken} are taken by members and pending invitations. Revoke an invitation or upgrade the plan."),
+      { limit, taken: members + pending },
     );
 }
 
@@ -78,7 +115,7 @@ export async function assertCanJoin(db: Db, organizationId: string): Promise<voi
   if (limit === null) return;
   const { members } = await seatsUsed(db, organizationId);
   if (!canAdd(members, limit))
-    throw new PlanLimitError("This organization has no free seats on its plan. Ask an owner to upgrade the plan or remove a member.", "seats");
+    throw new PlanLimitError(msg("This organization has no free seats on its plan. Ask an owner to upgrade the plan or remove a member."), "seats");
 }
 
 // ── Monthly events ──────────────────────────────────────────────────────────

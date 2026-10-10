@@ -8,12 +8,14 @@ import { encryptionAvailable, encryptSecret, hashIp } from "@/lib/secret-box";
 import { audit } from "@/modules/audit/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 import { DEFAULT_SETTINGS, type AttributionSettings } from "./engine";
-import { NETWORK_SPECS, NETWORKS, type Network } from "./networks";
+import { configProblem, NETWORK_SPECS, NETWORKS, type Network } from "./networks";
 import { destinationFor, isBot, isPrefetch, NETWORK_CLICK_IDS, parseUserAgent, unknownMacros, type LinkDestinations } from "./pure";
+import { CLICK_LOOKBACK_RANGE, CONVERSION_WINDOW_RANGE, parseWindowOverrides, WINDOW_CHANNELS, type WindowOverrides } from "./pure-credit";
 import { assertPostbackUrlShape } from "./url-safety";
 import { envNumber } from "@/lib/env-number";
+import { msg } from "@/i18n/translate";
 
-const issue = (e: z.ZodError) => new ValidationError(e.issues[0]?.message ?? "Invalid input.", Object.fromEntries(e.issues.map((i) => [i.path.join(".") || "form", i.message])));
+const issue = (e: z.ZodError) => new ValidationError(e.issues[0]?.message ?? msg("Invalid input."), Object.fromEntries(e.issues.map((i) => [i.path.join(".") || "form", i.message])));
 
 async function assertEnvironment(db: Db, appId: string, environmentId: string) {
   const env = await db.one<{ id: string }>("select id from platform.environments where id = $1 and app_id = $2", [environmentId, appId]);
@@ -21,49 +23,92 @@ async function assertEnvironment(db: Db, appId: string, environmentId: string) {
 }
 
 // ── Settings ────────────────────────────────────────────────────────────────
-export async function getSettings(ctx: TenantContext, appId: string): Promise<AttributionSettings & { view_lookback_hours: number }> {
+/**
+ * Credit models the reports offer (docs/channels.md, docs/attribution.md):
+ *   last_touch       the latest touch in the window, whatever it was
+ *   first_touch      the earliest touch in the window
+ *   last_non_direct  the latest touch with a known source: direct, organic and unattributed
+ *                    touches never take credit from a known earlier source
+ */
+export const REPORTING_MODELS = ["last_touch", "first_touch", "last_non_direct"] as const;
+export type ReportingModel = (typeof REPORTING_MODELS)[number];
+
+export type AppAttributionSettings = AttributionSettings & { view_lookback_hours: number; reporting_model: ReportingModel };
+
+export async function getSettings(ctx: TenantContext, appId: string): Promise<AppAttributionSettings> {
   return tenantTx(ctx, "attribution.read", async (db) => {
-    const row = await db.one<AttributionSettings & { view_lookback_hours: number }>(
-      `select click_lookback_days, view_lookback_hours, probabilistic_enabled, probabilistic_window_hours, conversion_window_days, reengagement_enabled
+    const row = await db.one<AppAttributionSettings>(
+      `select click_lookback_days, view_lookback_hours, probabilistic_enabled, probabilistic_window_hours, conversion_window_days, reengagement_enabled, reporting_model,
+              window_overrides
          from platform.attribution_settings where app_id = $1`,
       [appId],
     );
-    return row ?? { ...DEFAULT_SETTINGS, view_lookback_hours: 24 };
+    return row ? { ...row, window_overrides: parseWindowOverrides(row.window_overrides) } : { ...DEFAULT_SETTINGS, view_lookback_hours: 24, reporting_model: "last_touch" };
   });
 }
 
 const formBool = z.union([z.boolean(), z.string()]).optional().transform((v) => v === true || v === "on" || v === "true" || v === "1");
 const settingsSchema = z.object({
-  clickLookbackDays: z.coerce.number().int().min(1, "Click lookback is 1–90 days.").max(90, "Click lookback is 1–90 days."),
+  clickLookbackDays: z.coerce.number().int().min(1, msg("Click lookback is 1–90 days.")).max(90, msg("Click lookback is 1–90 days.")),
   probabilisticEnabled: formBool,
-  probabilisticWindowHours: z.coerce.number().int().min(1, "Probabilistic window is 1–168 hours.").max(168, "Probabilistic window is 1–168 hours."),
-  conversionWindowDays: z.coerce.number().int().min(1, "Conversion window is 1–730 days.").max(730, "Conversion window is 1–730 days."),
+  probabilisticWindowHours: z.coerce.number().int().min(1, msg("Probabilistic window is 1–168 hours.")).max(168, msg("Probabilistic window is 1–168 hours.")),
+  conversionWindowDays: z.coerce.number().int().min(1, msg("Conversion window is 1–730 days.")).max(730, msg("Conversion window is 1–730 days.")),
   reengagementEnabled: formBool,
+  reportingModel: z.enum(REPORTING_MODELS, msg("Choose last touch, first touch or last non-direct touch.")).optional(),
+  windowOverrides: z.unknown().optional(),
 });
+
+const blankToUndefined = (v: unknown) => (v === "" || v === null ? undefined : v);
+const overrideSchema = z.record(
+  z.string(),
+  z.object({
+    click_lookback_days: z.preprocess(blankToUndefined, z.coerce.number().int(msg("Click lookback is 1–90 days.")).min(CLICK_LOOKBACK_RANGE.min, msg("Click lookback is 1–90 days.")).max(CLICK_LOOKBACK_RANGE.max, msg("Click lookback is 1–90 days.")).optional()),
+    conversion_window_days: z.preprocess(blankToUndefined, z.coerce.number().int(msg("Conversion window is 1–730 days.")).min(CONVERSION_WINDOW_RANGE.min, msg("Conversion window is 1–730 days.")).max(CONVERSION_WINDOW_RANGE.max, msg("Conversion window is 1–730 days.")).optional()),
+  }),
+);
+
+/**
+ * Windows per channel from the settings form: unknown channels are refused, a
+ * blank field means "use the app-wide window", and out-of-range values are
+ * errors (never clamped). Undefined input keeps the stored overrides.
+ */
+export function validateWindowOverrides(input: unknown): WindowOverrides | undefined {
+  if (input === undefined) return undefined;
+  const r = overrideSchema.safeParse(input);
+  if (!r.success) throw issue(r.error);
+  for (const key of Object.keys(r.data)) if (!WINDOW_CHANNELS.includes(key)) throw new ValidationError(msg("Unknown channel for an attribution window."));
+  return parseWindowOverrides(r.data);
+}
 
 export async function updateSettings(ctx: TenantContext, appId: string, input: unknown): Promise<void> {
   const r = settingsSchema.safeParse(input);
   if (!r.success) throw issue(r.error);
-  const s = r.data;
+  const { windowOverrides: rawOverrides, ...s } = r.data;
+  const overrides = validateWindowOverrides(rawOverrides);
   await tenantTx(ctx, "attribution.manage", async (db) => {
     const app = await db.one("select 1 from platform.apps where id = $1", [appId]);
     if (!app) throw new NotFoundError("App");
     await db.query(
       `insert into platform.attribution_settings (organization_id, app_id, click_lookback_days, probabilistic_enabled, probabilistic_window_hours,
-                                                  conversion_window_days, reengagement_enabled, updated_at)
-       values ($1, $2, $3, $4, $5, $6, $7, now())
+                                                  conversion_window_days, reengagement_enabled, reporting_model, window_overrides, updated_at)
+       values ($1, $2, $3, $4, $5, $6, $7, coalesce($8::text, 'last_touch'), coalesce($9::jsonb, '{}'), now())
        on conflict (app_id) do update set click_lookback_days = excluded.click_lookback_days, probabilistic_enabled = excluded.probabilistic_enabled,
          probabilistic_window_hours = excluded.probabilistic_window_hours, conversion_window_days = excluded.conversion_window_days,
-         reengagement_enabled = excluded.reengagement_enabled, updated_at = now()`,
-      [ctx.organizationId, appId, s.clickLookbackDays, s.probabilisticEnabled, s.probabilisticWindowHours, s.conversionWindowDays, s.reengagementEnabled],
+         reengagement_enabled = excluded.reengagement_enabled, reporting_model = coalesce($8::text, platform.attribution_settings.reporting_model),
+         window_overrides = coalesce($9::jsonb, platform.attribution_settings.window_overrides), updated_at = now()`,
+      [ctx.organizationId, appId, s.clickLookbackDays, s.probabilisticEnabled, s.probabilisticWindowHours, s.conversionWindowDays, s.reengagementEnabled, s.reportingModel ?? null,
+       overrides === undefined ? null : JSON.stringify(overrides)],
     );
-    await audit(db, { organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "attribution.settings_updated", targetType: "app", targetId: appId, metadata: s });
+    await audit(db, {
+      organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "attribution.settings_updated", targetType: "app", targetId: appId,
+      metadata: overrides === undefined ? s : { ...s, windowOverrides: overrides },
+    });
   });
 }
 
 // ── Links ───────────────────────────────────────────────────────────────────
 const opt = (max: number) => z.string().trim().max(max).optional().transform((v) => v || null);
-const httpsUrl = (label: string) =>
+const httpsUrl = (message: string) =>
   z.string().trim().max(2000).optional().transform((v) => v || null)
     .refine((v) => {
       if (!v) return true;
@@ -73,23 +118,23 @@ const httpsUrl = (label: string) =>
       } catch {
         return false;
       }
-    }, `${label} must be an https:// URL.`);
+    }, message);
 
 const linkSchema = z
   .object({
-    environmentId: z.string().uuid("Choose an environment."),
-    name: z.string().trim().min(1, "Name the link.").max(120),
-    source: z.string().trim().min(1, "Source is required (e.g. tiktok, snapchat, google, instagram).").max(100),
+    environmentId: z.string().uuid(msg("Choose an environment.")),
+    name: z.string().trim().min(1, msg("Name the link.")).max(120),
+    source: z.string().trim().min(1, msg("Source is required (e.g. tiktok, snapchat, google, instagram).")).max(100),
     medium: opt(100),
     campaign: opt(100),
     adGroup: opt(100),
     creative: opt(100),
-    iosUrl: httpsUrl("App Store URL"),
-    androidUrl: httpsUrl("Play Store URL"),
-    webUrl: httpsUrl("Web fallback URL"),
-    deepLinkPath: opt(500).refine((v) => !v || (/^(\/|[a-z][a-z0-9+.-]*:\/\/)/i.test(v) && !/^(javascript|data|vbscript):/i.test(v)), "Deep link must be a path (/product/123) or an app URL (myapp://…)."),
+    iosUrl: httpsUrl(msg("App Store URL must be an https:// URL.")),
+    androidUrl: httpsUrl(msg("Play Store URL must be an https:// URL.")),
+    webUrl: httpsUrl(msg("Web fallback URL must be an https:// URL.")),
+    deepLinkPath: opt(500).refine((v) => !v || (/^(\/|[a-z][a-z0-9+.-]*:\/\/)/i.test(v) && !/^(javascript|data|vbscript):/i.test(v)), msg("Deep link must be a path (/product/123) or an app URL (myapp://…).")),
   })
-  .refine((l) => l.iosUrl || l.androidUrl || l.webUrl, { message: "Add at least one destination.", path: ["iosUrl"] });
+  .refine((l) => l.iosUrl || l.androidUrl || l.webUrl, { message: msg("Add at least one destination."), path: ["iosUrl"] });
 
 export interface LinkRow extends LinkDestinations {
   id: string;
@@ -130,7 +175,7 @@ export async function createLink(ctx: TenantContext, appId: string, input: unkno
 }
 
 export async function setLinkStatus(ctx: TenantContext, appId: string, linkId: string, status: "active" | "paused"): Promise<void> {
-  if (!z.string().uuid().safeParse(linkId).success || !["active", "paused"].includes(status)) throw new ValidationError("Invalid link.");
+  if (!z.string().uuid().safeParse(linkId).success || !["active", "paused"].includes(status)) throw new ValidationError(msg("Invalid link."));
   await tenantTx(ctx, "attribution.manage", async (db) => {
     const row = await db.one("update platform.attribution_links set status = $3 where id = $1 and app_id = $2 returning id", [linkId, appId, status]);
     if (!row) throw new NotFoundError("Link");
@@ -246,11 +291,11 @@ const list = (max: number) =>
   );
 
 const postbackSchema = z.object({
-  environmentId: z.string().uuid("Choose an environment."),
-  network: z.enum(NETWORKS, "Choose a network."),
-  name: z.string().trim().min(1, "Name the postback.").max(120),
-  events: list(50).refine((v) => v.length > 0, "List at least one event (install, re_engagement, or a conversion event name).")
-    .refine((v) => v.every((e) => EVENT_NAME.test(e)), "Event names are lowercase snake_case (e.g. install, purchase_completed)."),
+  environmentId: z.string().uuid(msg("Choose an environment.")),
+  network: z.enum(NETWORKS, msg("Choose a network.")),
+  name: z.string().trim().min(1, msg("Name the postback.")).max(120),
+  events: list(50).refine((v) => v.length > 0, msg("List at least one event (install, re_engagement, or a conversion event name)."))
+    .refine((v) => v.every((e) => EVENT_NAME.test(e)), msg("Event names are lowercase snake_case (e.g. install, purchase_completed).")),
   sources: list(20).transform((v) => v.map((s) => s.toLowerCase().slice(0, 100))),
   includeOrganic: formBool,
   urlTemplate: z.string().trim().max(2000).optional().transform((v) => v || null),
@@ -285,9 +330,12 @@ export async function createPostback(ctx: TenantContext, appId: string, input: u
   const config: Record<string, string> = {};
   for (const f of spec.config) {
     const v = p.config[f.key]?.trim();
+    if (v && f.options && !f.options.some((o) => o.value === v)) throw new ValidationError(`${f.label}: ${msg("choose one of the listed values.")}`);
     if (v) config[f.key] = v;
     else if (f.required) throw new ValidationError(`${f.label} is required for ${spec.label}.`);
   }
+  const problem = configProblem(p.network, config);
+  if (problem) throw new ValidationError(problem);
   const credentials: Record<string, string> = {};
   for (const f of spec.credentials) {
     const v = p.credentials[f.key]?.trim();
@@ -295,15 +343,15 @@ export async function createPostback(ctx: TenantContext, appId: string, input: u
     else if (f.required) throw new ValidationError(`${f.label} is required for ${spec.label}.`);
   }
   if (p.network === "custom") {
-    if (!p.urlTemplate) throw new ValidationError("Enter the postback URL template.");
+    if (!p.urlTemplate) throw new ValidationError(msg("Enter the postback URL template."));
     const unknown = unknownMacros(p.urlTemplate);
     if (unknown.length) throw new ValidationError(`Unknown macro: {${unknown[0]}}.`);
     assertPostbackUrlShape(p.urlTemplate.replace(/\{[a-z_]+\}/g, "x"));
   } else if (p.includeOrganic) {
-    throw new ValidationError("Ad networks only receive installs they drove; organic events can go to a custom postback.");
+    throw new ValidationError(msg("Ad networks only receive installs they drove; organic events can go to a custom postback."));
   }
   if (Object.keys(credentials).length && !encryptionAvailable()) {
-    throw new ValidationError("Credentials can't be stored: the server has no INTEGRATIONS_ENCRYPTION_KEY configured. Ask your LeanApp administrator.");
+    throw new ValidationError(msg("Credentials can't be stored: the server has no INTEGRATIONS_ENCRYPTION_KEY configured. Ask your LeanApp administrator."));
   }
   const enc = Object.keys(credentials).length ? encryptSecret(JSON.stringify(credentials)) : null;
   return tenantTx(ctx, "attribution.manage", async (db) => {
@@ -325,7 +373,7 @@ export async function createPostback(ctx: TenantContext, appId: string, input: u
 }
 
 export async function setPostbackStatus(ctx: TenantContext, appId: string, id: string, status: "active" | "paused" | "deleted"): Promise<void> {
-  if (!z.string().uuid().safeParse(id).success || !["active", "paused", "deleted"].includes(status)) throw new ValidationError("Invalid postback.");
+  if (!z.string().uuid().safeParse(id).success || !["active", "paused", "deleted"].includes(status)) throw new ValidationError(msg("Invalid postback."));
   await tenantTx(ctx, "attribution.manage", async (db) => {
     const row = status === "deleted"
       ? await db.one("delete from platform.attribution_postbacks where id = $1 and app_id = $2 returning id", [id, appId])
@@ -350,6 +398,10 @@ export interface DeliveryRow {
   next_attempt_at: Date;
   delivered_at: Date | null;
   created_at: Date;
+  /** Why it was not sent (consent_denied, no_match_key, invalid_payload). */
+  skip_reason: string | null;
+  provider_error_code: string | null;
+  provider_trace_id: string | null;
 }
 
 export async function listPostbacks(ctx: TenantContext, appId: string, environmentId: string): Promise<{ postbacks: (PostbackRow & { pending: number; succeeded: number; failed: number })[]; deliveries: DeliveryRow[] }> {
@@ -367,7 +419,7 @@ export async function listPostbacks(ctx: TenantContext, appId: string, environme
     );
     const deliveries = await db.query<DeliveryRow>(
       `select d.id, d.postback_id, p.name as postback_name, d.event_name, d.status, d.attempts, d.last_status_code, d.last_error,
-              d.next_attempt_at, d.delivered_at, d.created_at
+              d.next_attempt_at, d.delivered_at, d.created_at, d.skip_reason, d.provider_error_code, d.provider_trace_id
          from platform.attribution_postback_deliveries d
          join platform.attribution_postbacks p on p.id = d.postback_id
         where p.app_id = $1 and d.environment_id = $2

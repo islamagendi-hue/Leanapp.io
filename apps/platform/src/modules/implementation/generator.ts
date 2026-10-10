@@ -6,6 +6,7 @@
  * An LLM-assisted generator can propose additions later, but its output must
  * pass through the same schema and human approval (docs/implementation-engine.md).
  */
+import { msg } from "@/i18n/translate";
 import { classifyBusiness, type Classification } from "./classifier";
 import { EVENT_LIBRARY, type EventCategory, type EventDefinition, type EventSource, type Priority } from "./catalog/events";
 import {
@@ -89,11 +90,11 @@ export function generatePlan(answers: Answers, appPlatforms: string[]): Generate
   };
 
   // 1. Lifecycle: every mobile app.
-  for (const n of ["app_installed", "app_opened", "app_updated", "screen_viewed"]) add(n, "Captured for every app.");
+  for (const n of ["app_installed", "app_opened", "app_updated", "screen_viewed"]) add(n, msg("Captured for every app."));
 
   // 2. Account and onboarding.
-  if (answers["app.has_signup"] === true) for (const n of ["signup_started", "signup_completed", "login_completed"]) add(n, "Users create accounts.");
-  if (answers["app.has_onboarding"] === true) for (const n of FEATURE_EVENTS.onboarding) add(n, "You have an onboarding flow.");
+  if (answers["app.has_signup"] === true) for (const n of ["signup_started", "signup_completed", "login_completed"]) add(n, msg("Users create accounts."));
+  if (answers["app.has_onboarding"] === true) for (const n of FEATURE_EVENTS.onboarding) add(n, msg("You have an onboarding flow."));
 
   // 3. Business model(s).
   for (const n of model.events) add(n, `Core ${MODEL_LABELS[c.primary]} event.`);
@@ -112,14 +113,14 @@ export function generatePlan(answers: Answers, appPlatforms: string[]): Generate
   const streams = arr(answers["monetization.streams"]);
   const monetized = streams.length > 0 && !streams.includes("none");
   if (streams.includes("subscriptions")) {
-    for (const n of FEATURE_EVENTS.subscriptions) add(n, "You charge subscriptions.");
-    if (answers["monetization.has_trial"] === true) add("trial_started", "You offer a free trial.");
+    for (const n of FEATURE_EVENTS.subscriptions) add(n, msg("You charge subscriptions."));
+    if (answers["monetization.has_trial"] === true) add("trial_started", msg("You offer a free trial."));
   }
-  if (streams.includes("iap")) add("in_app_purchase_completed", "You sell in-app purchases.");
-  if (streams.includes("ads")) add("ad_impression", "You earn from advertising.");
-  if (streams.includes("leads")) for (const n of ["lead_submitted", "lead_qualified"]) add(n, "You earn from leads.");
-  if (answers["monetization.has_refunds"] === true) add("refund_completed", "You issue refunds, so net revenue needs them.");
-  if (model.revenueEvent && monetized) add(model.revenueEvent, "Your revenue event.");
+  if (streams.includes("iap")) add("in_app_purchase_completed", msg("You sell in-app purchases."));
+  if (streams.includes("ads")) add("ad_impression", msg("You earn from advertising."));
+  if (streams.includes("leads")) for (const n of ["lead_submitted", "lead_qualified"]) add(n, msg("You earn from leads."));
+  if (answers["monetization.has_refunds"] === true) add("refund_completed", msg("You issue refunds, so net revenue needs them."));
+  if (model.revenueEvent && monetized) add(model.revenueEvent, msg("Your revenue event."));
 
   // 6. Revenue event: the model's when present; otherwise the first revenue-bearing event.
   const included = () => order.filter((n) => reasons.has(n));
@@ -221,7 +222,7 @@ export function generatePlan(answers: Answers, appPlatforms: string[]): Generate
       userProperties.push({
         ...USER_PROPERTY_LIBRARY.user_type,
         description: types.length ? `One of: ${types.join(", ")}.` : USER_PROPERTY_LIBRARY.user_type.description,
-        reason: "You have several user types; every funnel and audience can be split by it.",
+        reason: msg("You have several user types; every funnel and audience can be split by it."),
       });
     }
   }
@@ -249,14 +250,14 @@ export function generatePlan(answers: Answers, appPlatforms: string[]): Generate
 
   // 12. Warnings.
   if (answers["monetization.payment_confirmation"] === "client_only") {
-    warnings.push("Payments are only confirmed in the app. Revenue events are recommended from the backend; until you have a server confirmation, revenue numbers can include failed or fraudulent payments.");
+    warnings.push(msg("Payments are only confirmed in the app. Revenue events are recommended from the backend; until you have a server confirmation, revenue numbers can include failed or fraudulent payments."));
   }
   if (answers["monetization.payment_confirmation"] === "store") {
-    warnings.push("Store billing: confirm purchases and renewals with App Store Server Notifications and Google Play Real-time Developer Notifications, then send the events from your backend.");
+    warnings.push(msg("Store billing: confirm purchases and renewals with App Store Server Notifications and Google Play Real-time Developer Notifications, then send the events from your backend."));
   }
-  if (arr(answers["business.currencies"]).length > 1) warnings.push("You take several currencies: always send `currency` with amounts so revenue can be converted to your default currency.");
-  if (!channels.size) warnings.push("No acquisition channels selected, so no attribution rules were generated.");
-  if (!monetized) warnings.push("Not monetised yet: no revenue event is required. Add one when you start charging.");
+  if (arr(answers["business.currencies"]).length > 1) warnings.push(msg("You take several currencies: always send `currency` with amounts so revenue can be converted to your default currency."));
+  if (!channels.size) warnings.push(msg("No acquisition channels selected, so no attribution rules were generated."));
+  if (!monetized) warnings.push(msg("Not monetised yet: no revenue event is required. Add one when you start charging."));
   if (mmp) warnings.push(`You use ${mmp}. Keep it: its attribution can flow into this platform (adapter not built yet, see the attribution roadmap).`);
 
   return {
@@ -294,7 +295,7 @@ function customEvent(name: string, role: "activation" | "north star"): PlannedEv
   const display = name.split("_").map((w) => w[0].toUpperCase() + w.slice(1)).join(" ");
   return {
     event_name: name, display_name: display, description: `Custom ${role} event you defined.`, category: "custom",
-    trigger: "Define when this fires with your team.", source: "mobile_sdk", priority: "critical", required: true,
+    trigger: msg("Define when this fires with your team."), source: "mobile_sdk", priority: "critical", required: true,
     activation_relevance: role === "activation", conversion_relevance: true, revenue_relevance: false,
     attribution_relevance: true, automation_relevance: true, platforms: [],
     reason: `You named ${name} as your ${role} event. Add its properties before approving.`, source_note: null, properties: [],

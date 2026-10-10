@@ -1,3 +1,4 @@
+import { msg } from "@/i18n/translate";
 /**
  * The single source of truth for roles and permissions.
  *
@@ -46,6 +47,8 @@ export const PERMISSIONS = {
   "webhooks.manage": "Configure webhooks",
   "privacy.manage": "Handle data export and deletion requests",
   "audit.read": "View the audit log",
+  "media.read": "View the media library",
+  "media.manage": "Upload, replace, publish and delete media",
 } as const;
 
 export type Permission = keyof typeof PERMISSIONS;
@@ -55,12 +58,12 @@ export const ROLES = ["owner", "admin", "developer", "analyst", "marketer", "vie
 export type Role = (typeof ROLES)[number];
 
 export const ROLE_INFO: Record<Role, { name: string; description: string; rank: number }> = {
-  owner: { name: "Owner", description: "Full access including billing, members and deletion.", rank: 100 },
-  admin: { name: "Admin", description: "Full operational access except billing changes and deleting the organization.", rank: 80 },
-  developer: { name: "Developer", description: "Apps, environments, SDK, keys, events, integrations and webhooks.", rank: 50 },
-  analyst: { name: "Analyst", description: "Analytics, funnels, retention, audiences, attribution and users.", rank: 30 },
-  marketer: { name: "Marketer", description: "Audiences, automations, campaigns, analytics, users and attribution.", rank: 30 },
-  viewer: { name: "Viewer", description: "Read-only access to analytics, activation, audiences and users.", rank: 10 },
+  owner: { name: msg("Owner"), description: msg("Full access, including billing, members and deleting the organization."), rank: 100 },
+  admin: { name: msg("Admin"), description: msg("Full operational access except billing changes and deleting the organization."), rank: 80 },
+  developer: { name: msg("Developer"), description: msg("Apps, environments, SDK, keys, events, integrations and webhooks."), rank: 50 },
+  analyst: { name: msg("Analyst"), description: msg("Analytics, funnels, retention, audiences, attribution and user profiles."), rank: 30 },
+  marketer: { name: msg("Marketer"), description: msg("Audiences, automations, campaigns, analytics, users and attribution."), rank: 30 },
+  viewer: { name: msg("Viewer"), description: msg("Read-only access to analytics, activation, acquisition, attribution, audiences and user profiles."), rank: 10 },
 };
 
 const read: Permission[] = ["organization.read", "members.read", "apps.read", "implementation.read"];
@@ -87,6 +90,8 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "webhooks.manage",
     "deep_links.read",
     "deep_links.manage",
+    "media.read",
+    "media.manage",
   ],
   analyst: [...read, "events.read", "analytics.read", "analytics.write", "growth.read", "users.read", "attribution.read", "audiences.read", "audiences.manage", "deep_links.read"],
   marketer: [
@@ -103,9 +108,13 @@ export const ROLE_PERMISSIONS: Record<Role, readonly Permission[]> = {
     "automations.read",
     "automations.manage",
     "integrations.read",
+    "media.read",
+    "media.manage",
   ],
-  // Read-only: sees reports and people, changes nothing and sees no keys, members or configuration.
-  viewer: ["organization.read", "apps.read", "analytics.read", "growth.read", "users.read", "audiences.read"],
+  // Read-only: sees reports (acquisition and attribution included) and people, changes nothing and sees no
+  // keys or members. deep_links.read lets the Deep links and Tracking links pages show the real link
+  // domain and what works; attribution and deep link setup pages are view-only without the manage permissions.
+  viewer: ["organization.read", "apps.read", "analytics.read", "growth.read", "users.read", "audiences.read", "attribution.read", "deep_links.read"],
 };
 
 export const isRole = (v: unknown): v is Role => typeof v === "string" && (ROLES as readonly string[]).includes(v);

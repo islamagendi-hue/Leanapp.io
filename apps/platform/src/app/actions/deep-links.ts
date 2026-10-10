@@ -2,10 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { createLink } from "@/modules/attribution/service";
-import { CHANNEL_PRESETS, linkUrl } from "@/modules/deeplinks/pure";
+import { linkPreset } from "@/modules/channels/registry";
+import { linkUrl } from "@/modules/deeplinks/pure";
 import { checkWellKnown, configLinkBase, getConfig, saveConfig } from "@/modules/deeplinks/service";
 import { toActionError, type ActionState } from "@/server/action-result";
 import { loadApp } from "@/server/session";
+import { getT } from "@/i18n/server";
+import { msg } from "@/i18n/translate";
 
 const text = (form: FormData, k: string) => (typeof form.get(k) === "string" ? (form.get(k) as string) : undefined);
 
@@ -27,7 +30,7 @@ export async function saveDeepLinkConfigAction(orgSlug: string, appSlug: string,
       interstitialEnabled: text(form, "interstitialEnabled"),
     });
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/deep-links`);
-    return { ok: true, message: "Saved. The association files are updated now; press Test to check them from outside." };
+    return { ok: true, message: msg("Saved. The association files are updated now; press Test to check them from outside.") };
   } catch (err) {
     return toActionError(err);
   }
@@ -39,18 +42,19 @@ export async function checkWellKnownAction(orgSlug: string, appSlug: string, env
     const results = await checkWellKnown(ctx, app.id, environmentId);
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/settings/dev-ops/deep-links`);
     const failed = results.filter((r) => !r.ok && !r.warning);
-    if (!results.length) return { error: "Nothing to test yet: add the iOS or Android settings first." };
-    return failed.length ? { error: `${failed.length} check(s) failed: see the results below.` } : { ok: true, message: "Both files are served correctly." };
+    if (!results.length) return { error: msg("Nothing to test yet: add the iOS or Android settings first.") };
+    const t = await getT();
+    return failed.length ? { error: t("{n} check(s) failed: see the results below.", { n: failed.length }) } : { ok: true, message: msg("Both files are served correctly.") };
   } catch (err) {
     return toActionError(err);
   }
 }
 
-/** Creates a tracking link for a non-ad channel with the channel's source / medium preset. */
+/** Creates a tracking link for a channel with the channel's source / medium preset. */
 export async function createChannelLinkAction(orgSlug: string, appSlug: string, _: ActionState, form: FormData): Promise<ActionState> {
   try {
     const { ctx, app } = await loadApp(orgSlug, appSlug);
-    const preset = CHANNEL_PRESETS.find((p) => p.id === text(form, "channel"));
+    const preset = linkPreset(text(form, "channel"));
     const environmentId = text(form, "environmentId") ?? "";
     const link = await createLink(ctx, app.id, {
       environmentId,
@@ -68,7 +72,8 @@ export async function createChannelLinkAction(orgSlug: string, appSlug: string, 
     const config = await getConfig(ctx, app.id, environmentId).catch(() => null);
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition/deep-links`);
     revalidatePath(`/o/${orgSlug}/apps/${appSlug}/acquisition/links`);
-    return { ok: true, message: `Link created: ${linkUrl(configLinkBase(config), link.code, config?.link_prefix ?? null)}` };
+    const t = await getT();
+    return { ok: true, message: t("Link created: {url}", { url: linkUrl(configLinkBase(config), link.code, config?.link_prefix ?? null) }) };
   } catch (err) {
     return toActionError(err);
   }

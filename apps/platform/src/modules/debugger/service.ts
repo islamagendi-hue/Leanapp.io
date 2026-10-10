@@ -1,6 +1,9 @@
 import "server-only";
 import { loadPublishedPlan } from "@/modules/implementation/plan-store";
 import { validateEvent, type ValidationResult } from "@/modules/implementation/validate";
+import { NotFoundError } from "@/lib/errors";
+import { scrub } from "@/lib/monitoring";
+import { audit } from "@/modules/audit/service";
 import { tenantTx, type TenantContext } from "@/modules/tenancy/context";
 
 export interface DebugEvent {
@@ -114,5 +117,89 @@ export function connectionHealth(ctx: TenantContext, environmentId: string): Pro
       platforms: platforms.map((r) => ({ platform: r.k, events: Number(r.n) })),
       appVersions: versions.map((r) => ({ app_version: r.k, events: Number(r.n) })),
     };
+  });
+}
+
+// ── Failed events ────────────────────────────────────────────────────────────
+//
+// An event whose processing failed for good (a non-transient error, or a
+// transient one MAX_PROCESSING_ATTEMPTS times) is marked processed with its
+// processing_error, so it drops out of every report (analytics COUNTED_EVENTS).
+// The debugger lists them and can put them back in the processing queue.
+
+/** How far back the debugger looks for failed events; also the scope of a retry. */
+export const FAILED_WINDOW_DAYS = 7;
+/** Most events one "retry all" puts back in the queue; press again for more. */
+export const RETRY_BATCH_MAX = 1000;
+const FAILED_LIST_MAX = 50;
+/** Processing errors are database / engine messages: scrubbed and kept short before they reach the page. */
+const ERROR_MAX = 200;
+
+const FAILED = `processed_at is not null and processing_error is not null and received_at > now() - make_interval(days => ${FAILED_WINDOW_DAYS})`;
+
+export interface FailedEvent {
+  id: string;
+  event_name: string;
+  type: string;
+  received_at: string;
+  failed_at: string;
+  attempts: number;
+  /** Scrubbed of secrets and personal data, at most ERROR_MAX characters. */
+  error: string;
+}
+
+/** The environment's failed events in the last FAILED_WINDOW_DAYS: how many, and the newest few. */
+export function failedEvents(ctx: TenantContext, environmentId: string, opts: { limit?: number } = {}): Promise<{ total: number; events: FailedEvent[] }> {
+  return tenantTx(ctx, "events.read", async (db) => {
+    const n = await db.one<{ n: string }>(`select count(*) as n from platform.events where environment_id = $1 and ${FAILED}`, [environmentId]);
+    const rows = await db.query<{
+      id: string; event_name: string; type: string; received_at: Date; processed_at: Date; processing_attempts: number; processing_error: string;
+    }>(
+      `select id, event_name, type, received_at, processed_at, processing_attempts, processing_error
+         from platform.events where environment_id = $1 and ${FAILED}
+        order by received_at desc, id desc limit $2`,
+      [environmentId, Math.min(opts.limit ?? FAILED_LIST_MAX, 200)],
+    );
+    return {
+      total: Number(n?.n ?? 0),
+      events: rows.map((r) => ({
+        id: String(r.id), event_name: r.event_name, type: r.type,
+        received_at: new Date(r.received_at).toISOString(), failed_at: new Date(r.processed_at).toISOString(),
+        attempts: Number(r.processing_attempts), error: scrub(r.processing_error, ERROR_MAX),
+      })),
+    };
+  });
+}
+
+/**
+ * Puts failed events back in the processing queue: one event (`eventId`), or
+ * up to RETRY_BATCH_MAX of the environment's failed events in the window,
+ * oldest first. The worker processes them on its next run. A failed attempt
+ * left no partial changes (each event runs in its own savepoint), so a retry
+ * is safe; one that fails again is marked failed again.
+ */
+export function retryFailedEvents(ctx: TenantContext, environmentId: string, eventId?: string): Promise<{ retried: number }> {
+  return tenantTx(ctx, "implementation.edit", async (db) => {
+    const env = await db.one<{ id: string }>("select id from platform.environments where id = $1", [environmentId]);
+    if (!env) throw new NotFoundError("Environment");
+    if (eventId !== undefined && !/^\d{1,18}$/.test(eventId)) throw new NotFoundError("Event");
+    const rows = await db.query<{ id: string }>(
+      `update platform.events set processed_at = null, processing_error = null, processing_attempts = 0
+        where id in (
+          select id from platform.events
+           where environment_id = $1 and ${FAILED} and ($2::bigint is null or id = $2::bigint)
+           order by id limit $3
+           for update skip locked)
+       returning id`,
+      [environmentId, eventId ?? null, RETRY_BATCH_MAX],
+    );
+    if (eventId !== undefined && rows.length === 0) throw new NotFoundError("Event");
+    if (rows.length > 0) {
+      await audit(db, {
+        organizationId: ctx.organizationId, actorUserId: ctx.userId, action: "events.retried", targetType: "environment", targetId: environmentId,
+        metadata: eventId !== undefined ? { count: rows.length, event_id: eventId } : { count: rows.length },
+      });
+    }
+    return { retried: rows.length };
   });
 }

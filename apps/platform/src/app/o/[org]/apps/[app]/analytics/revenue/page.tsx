@@ -1,74 +1,154 @@
 import Link from "next/link";
-import { AnalyticsHeader, param } from "@/components/AnalyticsHeader";
+import { AutoApply } from "@/components/AutoApply";
+import { AnalyticsHeader, param, rich } from "@/components/AnalyticsHeader";
+import { getLang, getT } from "@/i18n/server";
+import { msg, type T } from "@/i18n/translate";
 import { CohortSelect } from "@/components/CohortSelect";
-import { Delta, ReportRangeFields } from "@/components/ReportRange";
+import { CompareFields, Delta, MoreFilters, ReportRangeFields } from "@/components/ReportRange";
 import { SaveReport } from "@/components/SaveReport";
+import { CountUp } from "@/components/CountUp";
 import { TrendChart } from "@/components/TrendChart";
-import { NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport } from "@/modules/analytics/revenue";
+import { Stat as Tile } from "@/components/Stat";
+import { CHANNEL_KEY_LABELS, NO_CURRENCY, REVENUE_BREAKDOWNS, revenueReport, type BreakdownRow } from "@/modules/analytics/revenue";
 import { FALLBACK_PROPERTY } from "@/modules/analytics/revenue-rules";
+import { rangeLabel, rangePhrase } from "@/modules/analytics/range";
 import { rangeFromParams, toSearch } from "@/modules/analytics/report-params";
 import { ReportFreshness } from "@/components/ReportFreshness";
 import { cohortFilter, reportRunner } from "@/server/analytics-page";
 import { can } from "@/modules/rbac/authorize";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
-export const metadata = { title: "Revenue" };
+export async function generateMetadata() {
+  const t = await getT();
+  return { title: t("Revenue") };
+}
 
-const BREAKDOWN_LABELS: Record<string, string> = { platform: "Platform", event: "Event" };
+const BREAKDOWN_LABELS: Record<string, string> = { platform: msg("Platform"), event: msg("Event"), channel: msg("Channel") };
+const CHANNEL_LABELS = CHANNEL_KEY_LABELS;
+const INTERVAL_NAMES: Record<string, string> = { day: msg("day"), week: msg("week"), month: msg("month") };
 const money = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const cur = (c: string) => (c === NO_CURRENCY ? "No currency" : c);
+const cur = (t: T, c: string) => (c === NO_CURRENCY ? t("No currency") : c);
+const round2 = (n: number) => Math.round(n * 100) / 100;
+const signed = (n: number) => (n < 0 ? `−${money(-n)}` : money(n));
+/** Spend, Return and ROAS cells of a channel row (blank without spend). Each column stands alone so one can be dropped. */
+const SPEND_COLUMNS: { label: string; cell: (g: BreakdownRow) => string }[] = [
+  { label: msg("Spend"), cell: (g) => (g.spend == null ? "" : money(g.spend)) },
+  { label: msg("Return"), cell: (g) => (g.return == null ? "" : signed(g.return)) },
+  { label: "ROAS", cell: (g) => (g.roas == null ? "" : `${g.roas.toFixed(2)}×`) },
+];
 
 export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/analytics/revenue">) {
   const { org, app } = await props.params;
   const sp = await props.searchParams;
   const { ctx, app: a, environments } = await loadApp(org, app);
   requirePermission(ctx, "analytics.read");
+  const [t, lang] = await Promise.all([getT(), getLang()]);
   const env = await pickEnvironment(environments, sp.env);
   const range = rangeFromParams(toSearch(sp));
-  const by = param(sp.by);
-  const property = param(sp.property)?.trim();
-  const breakdown = by === "property" && property ? `property:${property}` : by || undefined;
+  // `by=property:<name>` from the picker; `by=property&property=<name>` from older saved links.
+  const rawBy = param(sp.by);
+  const property = rawBy?.startsWith("property:") ? rawBy.slice("property:".length).trim() : rawBy === "property" ? param(sp.property)?.trim() : undefined;
+  const by = property ? `property:${property}` : rawBy === "property" ? undefined : rawBy;
+  const breakdown = by || undefined;
   const cf = await cohortFilter(ctx, env.id, sp.cohort);
   const scope = { environmentId: env.id, timezone: a.timezone };
   const reports = reportRunner(ctx, scope, sp);
   const revenueInput = { ...range, interval: param(sp.interval), breakdown, cohortId: cf.cohortId };
   const r = await reports.run("revenue", revenueInput, () => revenueReport(ctx, scope, revenueInput));
+  const spendColumns = r.breakdownBy === "channel" && r.spendIncluded ? SPEND_COLUMNS : [];
+
+  const spendLink = can(ctx.role, "attribution.read")
+    ? <Link className="underline" href={`/o/${org}/apps/${app}/acquisition/spend?env=${env.type}`}>{t("Ad spend")}</Link>
+    : <>{t("Ad spend")}</>;
 
   return (
     <div className="space-y-6">
       <AnalyticsHeader
-        title="Revenue"
-        description="Revenue from your revenue events, per currency, with refunds subtracted. Days are in the app's timezone." env={env.type}
+        title={t("Revenue")}
+        description={t("Revenue from your revenue events, per currency, with refunds subtracted. Days are in the app's timezone.")} env={env.type}
       />
-      <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/revenue`} sp={sp} />
-
-      <form method="get" className="card flex flex-wrap items-end gap-3">
+      <form method="get" className="filters">
         <input type="hidden" name="env" value={env.type} />
-        <label><span className="label">Break down by</span>
+        <AutoApply />
+        <label><span className="label">{t("Break down by")}</span>
           <select name="by" className="input" defaultValue={by ?? ""}>
-            <option value="">Nothing</option>
-            {REVENUE_BREAKDOWNS.map((b) => <option key={b} value={b}>{BREAKDOWN_LABELS[b]}</option>)}
-            <option value="property">Event property…</option>
+            <option value="">{t("Nothing")}</option>
+            {REVENUE_BREAKDOWNS.map((b) => <option key={b} value={b}>{t(BREAKDOWN_LABELS[b])}</option>)}
+            <optgroup label={t("Event property")}>
+              {[...new Set([...(property ? [property] : []), ...r.properties])].map((name) => <option key={name} value={`property:${name}`}>{name}</option>)}
+              {r.properties.length === 0 && !property && <option disabled value="property:">{t("No properties on revenue events yet")}</option>}
+            </optgroup>
           </select>
         </label>
-        <label><span className="label">Property</span><input name="property" className="input w-40" defaultValue={property ?? ""} placeholder="e.g. product_id" maxLength={64} /></label>
-        <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
-        <ReportRangeFields range={r.range} interval={r.interval} />
-        <button className="btn" type="submit">Show</button>
+        <ReportRangeFields range={r.range} interval={r.interval} compare={false} />
+        <MoreFilters open={Boolean(param(sp.compare) || cf.cohortId)}>
+          <CompareFields range={r.range} />
+          <CohortSelect cohorts={cf.cohorts} value={cf.cohortId} />
+        </MoreFilters>
+        <button className="btn" type="submit" data-apply>{t("Show")}</button>
+        <ReportFreshness info={reports.info} path={`/o/${org}/apps/${app}/analytics/revenue`} sp={sp} className="filters-end" />
       </form>
 
-      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">That audience is archived or no longer exists in this environment, so the report shows everyone.</p>}
+      {cf.missing && <p className="rounded-lg bg-warn-soft px-3 py-2 text-sm text-warn">{t("That audience is archived or no longer exists in this environment, so the report shows everyone.")}</p>}
 
       <p className="rounded-lg bg-paper-2 px-3 py-2 text-sm text-ink-2">
-        Amounts are shown in the currency each event was sent in. There is no currency conversion, so each currency is totalled separately and never added to another.
+        {t("Amounts are shown in the currency each event was sent in. There is no currency conversion, so each currency is totalled separately and never added to another.")}
       </p>
+
+      <section className="card space-y-4" aria-labelledby="mrr-title" data-testid="mrr">
+        <div className="space-y-1">
+          <h2 id="mrr-title" className="h2">MRR <span className="text-xs font-normal text-ink-3">{t("Monthly recurring revenue")}</span></h2>
+          <p className="text-sm text-ink-3">{t("Active subscriptions at the end of the range, each price turned into a monthly amount.")}</p>
+        </div>
+        {r.mrr.length === 0 ? (
+          <p className="text-sm text-ink-2">
+            {rich(t("No active subscriptions yet. MRR comes from {started} and {renewed} with a {price} and a {period}."), {
+              started: <span className="font-mono" dir="ltr">subscription_started</span>,
+              renewed: <span className="font-mono" dir="ltr">subscription_renewed</span>,
+              price: <span className="font-mono" dir="ltr">price</span>,
+              period: <span className="font-mono" dir="ltr">billing_period</span>,
+            })}
+          </p>
+        ) : (
+          r.mrr.map((m) => (
+            <div key={m.currency} className="space-y-4">
+              <div className="stat-grid">
+                <Tile label={t("MRR in {currency}", { currency: cur(t, m.currency) })} value={money(m.mrr)} note={t("At the start: {value}", { value: money(m.startMrr) })} />
+                <Tile label="ARR" value={money(m.mrr * 12)} note={t("MRR × 12")} />
+                <Tile label={t("Active subscriptions")} value={m.activeSubscriptions.toLocaleString("en-US")} />
+                <Tile label={t("Change in the range")} value={signed(round2(m.mrr - m.startMrr))} />
+              </div>
+              <TrendChart days={r.days} series={[{ key: m.currency, counts: m.series }]} label={t("{currency} MRR at the end of each {interval}", { currency: cur(t, m.currency), interval: t(INTERVAL_NAMES[r.interval] ?? r.interval) })} />
+              {m.plans.length > 0 && (
+                <div className="table-scroll">
+                  <table className="table">
+                    <thead><tr><th className="text-start">{t("Plan")}</th><th className="text-end">{t("Subscriptions")}</th><th className="text-end">MRR</th></tr></thead>
+                    <tbody>
+                      {m.plans.map((pl) => (
+                        <tr key={pl.plan}><td className="font-mono text-sm">{pl.plan === "(none)" ? t("(none)") : pl.plan}</td><td className="text-end tabular-nums">{pl.subscriptions.toLocaleString("en-US")}</td><td className="text-end tabular-nums">{money(pl.mrr)}</td></tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          ))
+        )}
+        <p className="text-xs text-ink-3">{t("A subscription counts until its paid period ends, plus 3 days for a late renewal, or until subscription_expired. Cancelling only stops the renewal. Lifetime plans are left out.")}</p>
+      </section>
 
       {r.currencies.length === 0 ? (
         <div className="card space-y-1">
-          <p>No revenue {cf.cohortName ? `from the audience ${cf.cohortName}` : "in this environment"} in {r.range.preset ? `the ${r.range.label.toLowerCase()}` : r.range.label}.</p>
+          <p>{cf.cohortName
+            ? t("No revenue from the audience {audience} in {range}.", { audience: cf.cohortName, range: rangePhrase(r.range, t, lang) })
+            : t("No revenue in this environment in {range}.", { range: rangePhrase(r.range, t, lang) })}</p>
           <p className="text-sm text-ink-3">
-            Revenue comes from events like <span className="font-mono">purchase_completed</span> with a <span className="font-mono">revenue</span> and a <span className="font-mono">currency</span> property, sent from your backend once payment is confirmed.
-            {can(ctx.role, "implementation.read") && <>See the <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/implementation/plan`}>tracking plan</Link>.</>}
+            {rich(t("Revenue comes from events like {event} with a {revenue} and a {currency} property, sent from your backend once payment is confirmed."), {
+              event: <span className="font-mono" dir="ltr">purchase_completed</span>,
+              revenue: <span className="font-mono" dir="ltr">revenue</span>,
+              currency: <span className="font-mono" dir="ltr">currency</span>,
+            })}
+            {can(ctx.role, "implementation.read") && rich(t("See the {plan}."), { plan: <Link className="underline" href={`/o/${org}/apps/${app}/settings/dev-ops/implementation/plan`}>{t("tracking plan")}</Link> })}
           </p>
         </div>
       ) : (
@@ -76,47 +156,59 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
           {r.currencies.map((c) => (
             <section key={c.currency} className="card space-y-4">
               <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h2 className="h2">{cur(c.currency)} <span className="text-xs font-normal text-ink-3">{r.range.label}</span></h2>
-                {c.currency === NO_CURRENCY && <span className="text-xs text-warn">These events had no valid ISO 4217 currency code.</span>}
+                <h2 className="h2">{cur(t, c.currency)} <span className="text-xs font-normal text-ink-3">{rangeLabel(r.range, t, lang)}</span></h2>
+                {c.currency === NO_CURRENCY && <span className="text-xs text-warn">{t("These events had no valid ISO 4217 currency code.")}</span>}
               </div>
               <dl className="grid grid-cols-2 gap-4 sm:grid-cols-4 lg:grid-cols-7">
-                <Stat label="Net revenue" value={money(c.net)} strong delta={<Delta value={c.net} previous={r.previous ? (r.previous.find((x) => x.currency === c.currency)?.net ?? 0) : null} range={r.range} format={money} />} />
-                <Stat label="Gross" value={money(c.gross)} />
-                <Stat label="Refunds" value={c.refunds ? `−${money(c.refunds)}` : "0.00"} hint={c.refundCount ? `${c.refundCount} refunds` : undefined} />
-                <Stat label="Transactions" value={c.transactions.toLocaleString("en-US")} />
-                <Stat label="Paying people" value={c.payingUsers.toLocaleString("en-US")} />
-                <Stat label="ARPPU" value={money(c.arppu)} hint="Net per paying person" />
-                <Stat label="ARPU" value={money(c.arpu)} hint={`Net per active person (${r.activeUsers.toLocaleString("en-US")})`} />
+                <Stat label={t("Net revenue")} value={money(c.net)} strong delta={<Delta value={c.net} previous={r.previous ? (r.previous.find((x) => x.currency === c.currency)?.net ?? 0) : null} range={r.range} format={money} />} />
+                <Stat label={t("Gross")} value={money(c.gross)} />
+                <Stat label={t("Refunds")} value={c.refunds ? `−${money(c.refunds)}` : "0.00"} hint={c.refundCount ? t("{n} refunds", { n: c.refundCount }) : undefined} />
+                <Stat label={t("Transactions")} value={c.transactions.toLocaleString("en-US")} />
+                <Stat label={t("Paying people")} value={c.payingUsers.toLocaleString("en-US")} />
+                <Stat label="ARPPU" value={money(c.arppu)} hint={t("Net per paying person")} />
+                <Stat label="ARPU" value={money(c.arpu)} hint={t("Net per active person ({n})", { n: r.activeUsers.toLocaleString("en-US") })} />
               </dl>
               {r.daily.find((d) => d.key === c.currency) && (
-                <TrendChart days={r.days} series={[r.daily.find((d) => d.key === c.currency)!]} label={`Net ${cur(c.currency)} revenue per ${r.interval}`} />
+                <TrendChart days={r.days} series={[r.daily.find((d) => d.key === c.currency)!]} label={t("Net {currency} revenue per {interval}", { currency: cur(t, c.currency), interval: t(INTERVAL_NAMES[r.interval] ?? r.interval) })} />
               )}
             </section>
           ))}
 
           {r.breakdown && (
             <section className="card overflow-x-auto p-0">
+              {r.breakdownBy === "channel" && (
+                <p className="px-5 pt-4 text-sm text-ink-3">{t("Channel is where each paying person came from: the source of their latest install before the purchase, as in Acquisition.")}</p>
+              )}
               <table className="table">
                 <thead>
                   <tr>
-                    <th className="text-start">{r.breakdownBy?.startsWith("property:") ? r.breakdownBy.slice(9) : BREAKDOWN_LABELS[r.breakdownBy ?? ""]}</th>
-                    <th className="text-start">Currency</th>
-                    <th className="text-end">Gross</th><th className="text-end">Refunds</th><th className="text-end">Net</th><th className="text-end">Paying people</th>
+                    <th className="text-start">{r.breakdownBy?.startsWith("property:") ? r.breakdownBy.slice(9) : t(BREAKDOWN_LABELS[r.breakdownBy ?? ""] ?? "")}</th>
+                    <th className="text-start">{t("Currency")}</th>
+                    <th className="text-end">{t("Gross")}</th><th className="text-end">{t("Refunds")}</th><th className="text-end">{t("Net")}</th><th className="text-end">{t("Paying people")}</th>
+                    {spendColumns.map((c) => <th key={c.label} className="text-end">{t(c.label)}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {r.breakdown.map((g) => (
                     <tr key={`${g.currency}-${g.key}`}>
-                      <td className="font-mono text-sm">{g.key}</td>
-                      <td>{cur(g.currency)}</td>
+                      <td className="font-mono text-sm">{g.key === "(none)" ? t("(none)") : r.breakdownBy === "channel" && CHANNEL_LABELS[g.key] ? t(CHANNEL_LABELS[g.key]) : g.key}</td>
+                      <td>{cur(t, g.currency)}</td>
                       <td className="text-end tabular-nums">{money(g.gross)}</td>
                       <td className="text-end tabular-nums">{g.refunds ? `−${money(g.refunds)}` : ""}</td>
                       <td className="text-end tabular-nums font-medium">{money(g.net)}</td>
                       <td className="text-end tabular-nums">{g.payingUsers.toLocaleString("en-US")}</td>
+                      {spendColumns.map((c) => <td key={c.label} className="text-end tabular-nums" dir="ltr">{c.cell(g)}</td>)}
                     </tr>
                   ))}
                 </tbody>
               </table>
+              {r.breakdownBy === "channel" && (
+                <p className="px-5 pb-4 pt-3 text-sm text-ink-3" data-testid="revenue-spend-note">
+                  {r.spendIncluded
+                    ? rich(t("Spend is entered on the {page} page. Return is gross minus spend; ROAS is gross ÷ spend."), { page: spendLink })
+                    : rich(t("Spend from the {page} page isn't shown with an audience filter, as it can't be split by audience."), { page: spendLink })}
+                </p>
+              )}
             </section>
           )}
           {cf.canSave && <SaveReport org={org} app={app} environmentId={env.id} kind="revenue" query={sp} />}
@@ -124,22 +216,22 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
       )}
 
       <details className="card text-sm">
-        <summary className="cursor-pointer font-medium">What counts as revenue</summary>
+        <summary className="cursor-pointer font-medium">{t("What counts as revenue")}</summary>
         <div className="mt-3 space-y-3 text-ink-2">
           <p>
-            Events your published tracking plan marks as revenue, then the standard revenue events below, then any other event with a numeric <span className="font-mono">{FALLBACK_PROPERTY}</span> property.
-            A transaction is counted once per event and <span className="font-mono">transaction_id</span>. Refunds are subtracted on the day they happen, in their own currency. Weeks start on Monday.
-            Paying people did at least one revenue event in the range; ARPU divides net revenue by everyone active in the range.
+            {rich(t("Events your published tracking plan marks as revenue, then the standard revenue events below, then any other event with a numeric {property} property."), { property: <span className="font-mono" dir="ltr">{FALLBACK_PROPERTY}</span> })}{" "}
+            {rich(t("A transaction is counted once per event and {id}. Refunds are subtracted on the day they happen, in their own currency. Weeks start on Monday."), { id: <span className="font-mono" dir="ltr">transaction_id</span> })}{" "}
+            {t("Paying people did at least one revenue event in the range; ARPU divides net revenue by everyone active in the range.")}
           </p>
           <table className="table">
-            <thead><tr><th className="text-start">Event</th><th className="text-start">Amount property</th><th className="text-start">Counts as</th><th className="text-start">From</th></tr></thead>
+            <thead><tr><th className="text-start">{t("Event")}</th><th className="text-start">{t("Amount property")}</th><th className="text-start">{t("Counts as")}</th><th className="text-start">{t("From")}</th></tr></thead>
             <tbody>
               {r.rules.map((rule) => (
                 <tr key={rule.event}>
                   <td className="font-mono">{rule.event}</td>
                   <td className="font-mono">{rule.property}</td>
-                  <td>{rule.kind === "refund" ? "Refund (subtracted)" : "Revenue"}</td>
-                  <td className="text-ink-3">{rule.source === "plan" ? "Your tracking plan" : "Standard catalog"}</td>
+                  <td>{rule.kind === "refund" ? t("Refund (subtracted)") : t("Revenue")}</td>
+                  <td className="text-ink-3">{rule.source === "plan" ? t("Your tracking plan") : t("Standard catalog")}</td>
                 </tr>
               ))}
             </tbody>
@@ -153,8 +245,8 @@ export default async function RevenuePage(props: PageProps<"/o/[org]/apps/[app]/
 function Stat({ label, value, hint, strong, delta }: { label: string; value: string; hint?: string; strong?: boolean; delta?: React.ReactNode }) {
   return (
     <div>
-      <dt className="text-xs text-ink-3">{label}</dt>
-      <dd className={`tabular-nums ${strong ? "text-xl font-bold" : "text-lg"}`}>{value}</dd>
+      <dt className="stat-label">{label}</dt>
+      <dd className={`tabular-nums ${strong ? "text-xl font-bold sm:text-2xl" : "text-lg font-medium"}`}><CountUp value={value} /></dd>
       {delta && <dd>{delta}</dd>}
       {hint && <dd className="text-xs text-ink-3">{hint}</dd>}
     </div>
