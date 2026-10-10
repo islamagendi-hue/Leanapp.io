@@ -49,7 +49,10 @@ export type CapabilityId =
   | "email_delivery"
   | "whatsapp_delivery"
   | "webhook_delivery"
-  | "plan_billing";
+  | "plan_billing"
+  | "clarity_identity_bridge"
+  | "clarity_metrics_import"
+  | "clarity_profile_link";
 
 export type Direction = "inbound" | "outbound";
 
@@ -206,6 +209,30 @@ export const PROVIDERS: ProviderDescriptor[] = [
       requirements: [msg("An SDK key in the app or a secret key on the server")], providerPermissions: [],
       setupPath: "settings/dev-ops/sdk", perm: "credentials.read",
     }],
+  },
+  {
+    id: "microsoft_clarity", name: "Microsoft Clarity", category: "analytics", implementation: "built",
+    docsUrl: "https://learn.microsoft.com/en-us/clarity/setup-and-installation/clarity-data-export-api",
+    capabilities: [
+      {
+        id: "clarity_identity_bridge", direction: "outbound", title: msg("Clarity identity bridge (web SDK)"),
+        description: msg("On your website, the LeanApp web SDK tells Clarity's tag the LeanApp user id (or anonymous id) and sets the custom tag leanapp_anonymous_id, only with analytics consent. It never loads Clarity itself."),
+        requirements: [msg("Clarity's tag installed on your website"), msg("clarity: { enabled: true } in the web SDK options"), msg("Clarity's own consent signal (Clarity Consent API) in the EEA, UK and Switzerland")],
+        providerPermissions: [], setupPath: "settings/integrations/microsoft_clarity", perm: "integrations.read",
+      },
+      {
+        id: "clarity_metrics_import", direction: "inbound", title: msg("Clarity metrics import"),
+        description: msg("Once a day, imports Clarity's aggregate metrics (sessions, scroll depth, engagement time, dead and rage clicks, quickbacks, excessive scrolling, script errors) by page URL, device and source, within Clarity's limit of 10 requests per project per day."),
+        requirements: [msg("Clarity Data Export API token (Settings → Data Export in Clarity)")],
+        providerPermissions: [msg("Data Export API token")], setupPath: "settings/integrations/microsoft_clarity", perm: "integrations.read",
+      },
+      {
+        id: "clarity_profile_link", direction: "outbound", title: msg("Open Clarity from a user profile"),
+        description: msg("User profiles link to your Clarity project, where recordings can be filtered by the custom tag leanapp_anonymous_id."),
+        requirements: [msg("Clarity project ID")], providerPermissions: [],
+        setupPath: "settings/integrations/microsoft_clarity", perm: "integrations.read",
+      },
+    ],
   },
   { id: "ga4", name: "Google Analytics 4", category: "analytics", implementation: "descriptor", docsUrl: "https://developers.google.com/analytics/devguides/collection/protocol/ga4", capabilities: [], note: msg("Not built in LeanApp.") },
 

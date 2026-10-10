@@ -7,6 +7,7 @@ import { sendUsageNotices } from "@/modules/billing/notices";
 import { applyEventRetention, purgeOperationalData } from "@/modules/maintenance/retention";
 import { purgeDeletedMedia } from "@/modules/media/service";
 import { runAttributionJobs } from "@/modules/attribution/delivery";
+import { runClaritySyncJobs } from "@/modules/integrations/clarity-service";
 import { runAdSyncJobs } from "@/modules/integrations/sync";
 import { runEngagement } from "@/modules/automation/worker";
 import { demoEnabled, ensureDemo } from "@/modules/marketing/demo";
@@ -110,6 +111,10 @@ export async function GET(req: Request) {
   const adSync = Date.now() < started + AD_SYNC_START_MS
     ? await step(errors, "ad_sync", () => runAdSyncJobs({ deadline: started + ATTRIBUTION_BUDGET_MS, limit: 5, http: { timeoutMs: 8_000 } }))
     : null;
+  // Microsoft Clarity metrics: one import a day per connection (Clarity allows 10 requests per project per day), only while time is left.
+  const claritySync = Date.now() < started + AD_SYNC_START_MS
+    ? await step(errors, "clarity_sync", () => runClaritySyncJobs({ deadline: started + ATTRIBUTION_BUDGET_MS, limit: 5, http: { timeoutMs: 8_000 } }))
+    : null;
   // Engagement: audiences, automation triggers and steps, webhook deliveries, only while time is left.
   const engagement = Date.now() < started + ENGAGEMENT_BUDGET_MS ? await step(errors, "engagement", () => runEngagement({ deadline: started + ENGAGEMENT_BUDGET_MS })) : { skipped: "time budget" };
   // The public demo's sample data, re-sent a few times a day so its reports stay current.
@@ -135,6 +140,7 @@ export async function GET(req: Request) {
     usage_notices: usageNotices,
     attribution,
     ad_sync: adSync,
+    clarity_sync: claritySync,
     engagement,
     demo,
     errors,

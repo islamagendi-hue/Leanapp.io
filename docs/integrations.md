@@ -108,9 +108,13 @@ The iOS SDK sends `AAAttribution.attributionToken()` (iOS 14.3+) once as `contex
 
 This is provider-reported data. The lookup itself decides nothing: an `attributed` answer is handed to the attribution engine (`applyAdServicesAttribution`), which upgrades the matching unattributed iOS install to provider-reported Apple Search Ads and re-credits its conversions, never overriding a LeanApp click match ([attribution](attribution.md#apple-search-ads-adservices-provider-reported-installs-migration-0039b)). `adServicesAttributionFor(db, environmentId, anonymousId)` reads the stored answer.
 
+## Microsoft Clarity
+
+Provider `microsoft_clarity` (category Analytics and Event Sources) has three capabilities with separate status: `clarity_identity_bridge` (web SDK option `clarity: { enabled: true }` calls Clarity's `identify` / `set` with analytics consent; never loads Clarity or sends Clarity consent), `clarity_metrics_import` (daily Data Export API import of aggregate metrics by URL, device and source into `clarity_insights`, three requests per import within Clarity's 10 per project per day, migration 0042), and `clarity_profile_link` (user profiles link to the Clarity project). The token is encrypted like every connection credential. The bridge and the link never show Verified: the bridge runs in browsers and the link isn't checked with Clarity. Details, budget rules, the parts of the response shape that are not verified, and owner actions: [clarity-integration.md](clarity-integration.md).
+
 ## Simulated vs live
 
-Everything above is tested with local fakes (`src/modules/integrations/**/*.test.ts`, `src/modules/attribution/conversions.test.ts`, `adservices.test.ts`, `test/integrations.int.test.ts`, `test/provider-connectors.int.test.ts`): request shapes, paging, parsing, retries, error classification, status transitions, spend import, OAuth state handling, consent skipping, Meta website events, hashing and Enhanced Conversions, AdServices lookups. **None of it has been run against Meta, Google, TikTok, Snap or Apple**: no account or app exists yet. Endpoint paths follow each provider's published documentation; the Meta Graph default version (`v23.0`) and the Google Ads version you enter must be checked against the providers' current release notes. A capability turns `verified` only after a real call succeeds in production.
+Everything above is tested with local fakes (`src/modules/integrations/**/*.test.ts`, `src/modules/attribution/conversions.test.ts`, `adservices.test.ts`, `test/integrations.int.test.ts`, `test/provider-connectors.int.test.ts`, `test/clarity.int.test.ts`): request shapes, paging, parsing, retries, error classification, status transitions, spend import, OAuth state handling, consent skipping, Meta website events, hashing and Enhanced Conversions, AdServices lookups. **None of it has been run against Meta, Google, TikTok, Snap, Apple or Microsoft Clarity**: no account or app exists yet. Endpoint paths follow each provider's published documentation; the Meta Graph default version (`v23.0`) and the Google Ads version you enter must be checked against the providers' current release notes. A capability turns `verified` only after a real call succeeds in production.
 
 ## Owner actions
 
@@ -124,7 +128,8 @@ Everything above is tested with local fakes (`src/modules/integrations/**/*.test
 4. Meta website events: follow [meta-integration.md](meta-integration.md) (dataset / Pixel, system user token, Test events code, Event Match Quality, Pixel `eventID` deduplication).
 5. Google Enhanced Conversions: in Google Ads, turn on enhanced conversions for the conversion action (and accept the customer data terms) before setting `send_user_data`; upload a test conversion and check the conversion action's diagnostics. For EEA traffic, make sure the app records `attribution` consent so `adUserData` can be sent as granted.
 6. Apple Search Ads: run an Apple Search Ads campaign for the iOS app with the SDK sending the token; confirm an `attributed` row in `adservices_attributions` matches the campaign id in the Apple Search Ads UI. No Apple credentials are needed for the lookup itself.
-7. Then update the "not verified" notes here and in [attribution](attribution.md).
+7. Microsoft Clarity: Data Export token, project ID, a live import and the website consent setup, as listed in [clarity-integration.md](clarity-integration.md#owner-actions).
+8. Then update the "not verified" notes here and in [attribution](attribution.md).
 
 ## Hooks for other workstreams
 

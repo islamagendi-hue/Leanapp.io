@@ -274,7 +274,7 @@ export const COMPARE_AR: CompareRow[] = COMPARE_CELLS.map((cells, i) => ({ need:
  * The "Works with" logo row: only services LeanApp really connects to today,
  * each tied to its entry in the integrations catalog (modules/integrations/catalog.ts).
  * landing.test.ts checks every one exists there and is not marked "soon".
- * Planned ones (Microsoft Clarity) stay out of the row.
+ * Microsoft Clarity (beta) is named in the note under the row, not shown as a logo.
  */
 export const WORKS_WITH = [
   { id: "meta", name: "Meta", integration: "meta" },
@@ -328,7 +328,7 @@ const EN = {
   },
   worksWith: {
     title: "Works with",
-    note: "Ad network and messaging connections are in beta. Microsoft Clarity is coming next. Names and logos belong to their owners.",
+    note: "Ad network, messaging and Microsoft Clarity connections are in beta. Names and logos belong to their owners.",
   },
   how: {
     title: "How we work",
@@ -443,7 +443,7 @@ const AR: typeof EN = {
   },
   worksWith: {
     title: "يعمل مع",
-    note: "الربط مع شبكات الإعلانات وقنوات الرسائل تجريبي. ويأتي Microsoft Clarity قريبًا. الأسماء والشعارات ملك لأصحابها.",
+    note: "الربط مع شبكات الإعلانات وقنوات الرسائل وMicrosoft Clarity تجريبي. الأسماء والشعارات ملك لأصحابها.",
   },
   how: {
     title: "طريقة عملنا",

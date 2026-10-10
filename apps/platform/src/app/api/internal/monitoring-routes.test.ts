@@ -19,6 +19,7 @@ vi.mock("@/modules/maintenance/retention", () => ({ purgeOperationalData: async 
 vi.mock("@/modules/billing/notices", () => ({ sendUsageNotices: async () => ({ notices: 0, emails: 0 }) }));
 vi.mock("@/modules/attribution/delivery", () => ({ runAttributionJobs: async () => null }));
 vi.mock("@/modules/integrations/sync", () => ({ runAdSyncJobs: async () => null }));
+vi.mock("@/modules/integrations/clarity-service", () => ({ runClaritySyncJobs: async () => null }));
 const runEngagement = vi.fn(async (..._args: unknown[]): Promise<unknown> => ({}));
 vi.mock("@/modules/automation/worker", () => ({ runEngagement }));
 vi.mock("@/modules/media/service", () => ({ purgeDeletedMedia: async () => ({ purged: 0, kept: 0, failed: 0 }) }));

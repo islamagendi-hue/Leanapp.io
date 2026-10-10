@@ -33,7 +33,7 @@ export default async function IntegrationsPage(props: PageProps<"/o/[org]/apps/[
   const card = (p: ProviderDescriptor) => {
     const roles = providerRoles(p);
     return (
-      <li key={p.id} aria-label={t(p.name)} className="card flex flex-col gap-3">
+      <li key={p.id} aria-label={t(p.name)} className="card flex min-w-0 flex-col gap-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="font-medium">{t(p.name)}</span>
           <span className="flex flex-wrap gap-1">
@@ -62,7 +62,7 @@ export default async function IntegrationsPage(props: PageProps<"/o/[org]/apps/[
                     {s.lastSuccessAt && (<><dt className="text-ink-3">{t("Last success")}</dt><dd>{when(s.lastSuccessAt, lang)}</dd></>)}
                     {fresh && (<><dt className="text-ink-3">{t("Data through")}</dt><dd className={fresh.state === "stale" ? "text-warn" : ""}>{s.freshThrough}{fresh.state === "stale" ? ` · ${t("{n} days behind", { n: fresh.lagDays ?? 0 })}` : ""}</dd></>)}
                     {c.requirements.length > 0 && (<><dt className="text-ink-3">{t("Needs")}</dt><dd>{c.requirements.map((r) => t(r)).join(" · ")}</dd></>)}
-                    {c.providerPermissions.length > 0 && (<><dt className="text-ink-3">{t("Provider permissions")}</dt><dd className="font-mono" dir="ltr">{c.providerPermissions.map((r) => t(r)).join(", ")}</dd></>)}
+                    {c.providerPermissions.length > 0 && (<><dt className="text-ink-3">{t("Provider permissions")}</dt><dd className="font-mono break-all" dir="ltr">{c.providerPermissions.map((r) => t(r)).join(", ")}</dd></>)}
                   </dl>
                   {s.errors.length > 0 && (
                     <ul className="mt-2 space-y-1 text-xs text-alert" aria-label={t("Recent errors")}>

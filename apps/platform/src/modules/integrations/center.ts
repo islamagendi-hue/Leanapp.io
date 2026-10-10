@@ -23,6 +23,8 @@ export interface CapabilityState {
 export interface CenterInput {
   connections: {
     provider: string;
+    /** Non-secret settings (e.g. Clarity's project_id). Optional for callers that predate it. */
+    config?: Record<string, string>;
     capabilities: { capability: string; status: CapabilityStatus; status_detail: string | null; last_success_at: Date | null; last_error_at: Date | null; last_error: string | null; data_fresh_through: string | null }[];
   }[];
   postbacks: Record<string, { postbacks: number; active: number; withCredentials: number; lastSuccessAt: Date | null; lastFailureAt: Date | null; recentErrors: { at: Date; error: string; code: string | null }[]; skipped: number }> | null;
@@ -66,7 +68,8 @@ function bySuccessAndFailure(lastSuccess: Date | null, lastFailure: Date | null,
 export function capabilityState(provider: ProviderDescriptor, cap: CapabilityDescriptor, d: CenterInput): CapabilityState {
   switch (cap.id) {
     case "ad_reporting":
-    case "spend_import": {
+    case "spend_import":
+    case "clarity_metrics_import": {
       const row = d.connections.find((c) => c.provider === provider.id)?.capabilities.find((c) => c.capability === cap.id);
       if (!row) return empty("not_configured");
       return {
@@ -125,6 +128,18 @@ export function capabilityState(provider: ProviderDescriptor, cap: CapabilityDes
       if (!d.webhooks) return empty(null);
       if (!d.webhooks.total) return empty("not_configured");
       return bySuccessAndFailure(d.webhooks.lastSuccessAt, d.webhooks.lastFailureAt, d.webhooks.lastError);
+    case "clarity_identity_bridge": {
+      // Runs in the visitor's browser between the LeanApp SDK and Clarity's tag: LeanApp's servers can't observe it.
+      const conn = d.connections.find((c) => c.provider === provider.id);
+      return conn
+        ? empty("unverified", msg("Turned on in your website code. LeanApp's servers can't see whether Clarity received the ids: check a recording's custom tags in Clarity."))
+        : empty("not_configured", msg("Turned on in your website code, with clarity: { enabled: true } in the web SDK options."));
+    }
+    case "clarity_profile_link": {
+      const conn = d.connections.find((c) => c.provider === provider.id);
+      if (!conn?.config?.project_id) return empty("not_configured");
+      return empty("unverified", msg("Links to your Clarity project. LeanApp doesn't check the project ID with Clarity."));
+    }
     case "plan_billing":
       if (d.paymentsConnected === null) return empty(null);
       // Configured by server keys; LeanApp doesn't call Stripe just to show this page.

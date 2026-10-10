@@ -8,6 +8,8 @@ import { NotFoundError, ValidationError } from "@/lib/errors";
 import { eventLabels } from "@/modules/analytics/labels";
 import { getProfile, profileTimeline, type PersonRef, type Profile } from "@/modules/analytics/profiles";
 import { NO_CURRENCY } from "@/modules/analytics/revenue";
+import { CLARITY_ANONYMOUS_TAG } from "@/modules/integrations/clarity";
+import { clarityProfileLink } from "@/modules/integrations/clarity-service";
 import { loadApp, pickEnvironment, requirePermission } from "@/server/session";
 
 export async function generateMetadata() {
@@ -41,6 +43,7 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
     if (e instanceof NotFoundError || e instanceof ValidationError) notFound();
     throw e;
   }
+  const clarity = await clarityProfileLink(ctx, a.id, env.id);
   const timeline = await profileTimeline(ctx, { environmentId: env.id }, ref, { cursor: param(sp.before) });
   const when = (d: Date | null) => (d ? new Date(d).toLocaleString(dateLocale(lang), { dateStyle: "medium", timeStyle: "medium", timeZone: a.timezone }) : "–");
   const self: Record<string, string> = userId ? { user: userId } : { anon: anonymousId! };
@@ -94,6 +97,14 @@ export default async function ProfilePage(props: PageProps<"/o/[org]/apps/[app]/
                 )),
               })}
             </p>
+          )}
+          {clarity && (
+            <div className="space-y-1 border-t border-line pt-3 text-sm">
+              <a href={clarity.url} target="_blank" rel="noreferrer" className="font-medium text-accent-ink underline">{t("Open Microsoft Clarity")}</a>
+              <p className="text-xs text-ink-3">
+                {t("Opens your Clarity project. To find this person's recordings, use Clarity's filters: custom user ID with this user's LeanApp user ID (or anonymous ID), or the custom tag {tag} with one of the anonymous IDs above. Recordings exist only for website visits where Clarity's tag and the LeanApp Clarity bridge ran with consent.", { tag: CLARITY_ANONYMOUS_TAG })}
+              </p>
+            </div>
           )}
         </section>
 
