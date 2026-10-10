@@ -1,4 +1,5 @@
 import { landingUrl, metaBrowserIds, parseAttribution, pixelBrowserIds, webTouch, type Attribution } from "./attribution.js";
+import { ClarityBridge, type ClarityOptions } from "./clarity.js";
 import { localStorageAdapter, memoryStorage, type StorageAdapter } from "./storage.js";
 
 export const SDK_NAME = "leanapp-js";
@@ -93,6 +94,13 @@ export interface AnalyticsOptions {
   deferredDeepLinks?: boolean;
   /** Called once per install with LeanApp's answer from /v1/deep-links/deferred (match_type "none" when nothing matched). */
   onDeferredDeepLink?: (result: DeferredDeepLink) => void;
+  /**
+   * Browsers: Microsoft Clarity identity bridge. With `{ enabled: true }` and analytics consent granted,
+   * when the page has Clarity's tag (window.clarity) the SDK calls clarity("identify", user id or anonymous id)
+   * and clarity("set", "leanapp_anonymous_id", anonymous id). It never loads Clarity or sends Clarity consent.
+   * Default off. See docs/clarity-integration.md.
+   */
+  clarity?: ClarityOptions;
   debug?: boolean;
   fetch?: typeof fetch;
   now?: () => number;
@@ -302,6 +310,7 @@ export class LeanAppClient {
       | "snapBrowserId"
       | "deferredDeepLinks"
       | "onDeferredDeepLink"
+      | "clarity"
     >
   > & {
     platform: Platform;
@@ -343,6 +352,7 @@ export class LeanAppClient {
   private readonly pixelIds: { tiktok: boolean; snap: boolean };
   private readonly deferredEnabled: boolean;
   private readonly onDeferred?: (result: DeferredDeepLink) => void;
+  private readonly clarity: ClarityBridge;
   /** Browsers: the page URL and referrer when the client was created, captured once storage loaded. */
   private startPage: { url: string; referrer: string; at: number } | null = null;
   /** The deferred deep link answer of this launch (null when not asked: already asked before, not allowed, or failed). */
@@ -386,6 +396,7 @@ export class LeanAppClient {
     this.pixelIds = { tiktok: options.tiktokBrowserId ?? true, snap: options.snapBrowserId ?? true };
     this.deferredEnabled = options.deferredDeepLinks ?? platform === "react_native";
     this.onDeferred = options.onDeferredDeepLink;
+    this.clarity = new ClarityBridge(options.clarity?.enabled === true);
     if (platform === "web" && options.autoCapture !== false) {
       const g = globalThis as { location?: { href?: string }; document?: { referrer?: string } };
       if (typeof g.location?.href === "string") this.startPage = { url: g.location.href, referrer: g.document?.referrer ?? "", at: this.o.now() };
@@ -428,6 +439,7 @@ export class LeanAppClient {
     // Consent given on this device follows the user who signs in on it.
     this.whenLoaded(() => {
       if (changed) this.resendConsent();
+      this.syncClarity();
     });
   }
 
@@ -443,7 +455,10 @@ export class LeanAppClient {
       this.persistState();
       return { type: "alias", previous_id: prev };
     });
-    this.whenLoaded(() => this.resendConsent());
+    this.whenLoaded(() => {
+      this.resendConsent();
+      this.syncClarity();
+    });
   }
 
   registerPushToken(token: string, provider: "fcm" | "apns", permission: "granted" | "denied" | "provisional" | "unknown" = "unknown"): void {
@@ -499,6 +514,7 @@ export class LeanAppClient {
       // The change goes first, then whatever it releases.
       this.pushConsent(changes, at);
       this.applyConsent();
+      this.syncClarity();
     });
   }
 
@@ -579,6 +595,7 @@ export class LeanAppClient {
       };
       this.persistState();
       this.resendConsent();
+      this.syncClarity();
     });
   }
 
@@ -660,6 +677,7 @@ export class LeanAppClient {
       if (touch) this.recordTouch(touch, at, true);
     }
     this.maybeFetchDeferred();
+    this.syncClarity();
     const fns = this.pending;
     this.pending = [];
     for (const fn of fns) fn();
@@ -710,6 +728,11 @@ export class LeanAppClient {
     void this.sendBatch(true, true);
   }
 
+  /** Clarity identity bridge (opt-in, browsers, analytics consent): cheap when nothing changed. */
+  private syncClarity() {
+    this.clarity.sync({ platform: this.o.platform, analytics: this.consentFor("analytics"), anonymousId: this.state.anonymousId, userId: this.state.userId });
+  }
+
   private whenLoaded(fn: () => void) {
     if (this.ready) fn();
     else this.pending.push(fn);
@@ -723,6 +746,7 @@ export class LeanAppClient {
     // Timestamp is taken at call time, not when storage finishes loading.
     const at = options.timestamp?.getTime() ?? this.o.now();
     this.whenLoaded(() => {
+      this.syncClarity();
       try {
         const partial = build();
         const status = this.consentFor(purpose);

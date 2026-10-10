@@ -55,6 +55,12 @@ export const INTEGRATIONS: IntegrationGroup[] = [
     ],
   },
   {
+    title: msg("Analytics"),
+    items: [
+      { id: "clarity", name: "Microsoft Clarity", what: msg("Open session recordings and heatmaps for the same users you find in your reports, and import Clarity's daily behaviour metrics."), state: "beta", path: "settings/integrations/microsoft_clarity", perm: "integrations.read" },
+    ],
+  },
+  {
     title: msg("Developers"),
     items: [
       { id: "api", name: msg("REST API and SDKs"), what: msg("Send events from your servers and apps, and read reports from your own tools."), state: "live", path: "settings/dev-ops/sdk", perm: "credentials.read" },
@@ -64,7 +70,6 @@ export const INTEGRATIONS: IntegrationGroup[] = [
   {
     title: msg("Coming next"),
     items: [
-      { id: "clarity", name: "Microsoft Clarity", what: msg("Open session recordings and heatmaps for the same users you find in your reports."), state: "soon" },
       { id: "ga4", name: "Google Analytics 4", what: msg("Send your events to GA4 as well."), state: "soon" },
       { id: "warehouse", name: msg("Data warehouse export"), what: msg("Copy your raw events to BigQuery or Snowflake."), state: "soon" },
     ],

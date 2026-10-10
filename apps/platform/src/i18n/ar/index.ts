@@ -8,6 +8,7 @@ import acquisition from "./acquisition";
 import acquisitionDashboard from "./acquisition-dashboard";
 import analytics from "./analytics";
 import attribution from "./attribution";
+import clarity from "./clarity";
 import common from "./common";
 import dashboards from "./dashboards";
 import devops from "./devops";
@@ -22,4 +23,4 @@ import retention from "./retention";
 import support from "./support";
 
 // Later files win; common comes last so the shared glossary is never overridden.
-export const AR: Record<string, string> = { ...account, ...acquisition, ...acquisitionDashboard, ...analytics, ...attribution, ...dashboards, ...devops, ...flows, ...integrations, ...messaging, ...engage, ...experiments, ...media, ...project, ...retention, ...support, ...common };
+export const AR: Record<string, string> = { ...account, ...acquisition, ...acquisitionDashboard, ...analytics, ...attribution, ...clarity, ...dashboards, ...devops, ...flows, ...integrations, ...messaging, ...engage, ...experiments, ...media, ...project, ...retention, ...support, ...common };

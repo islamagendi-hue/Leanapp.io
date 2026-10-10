@@ -13,6 +13,7 @@ export { LeanAppClient, CONSENT_PURPOSES, DEFAULT_ENDPOINT, EXPOSURE_EVENT, LAND
 export type { AnalyticsOptions, AppStateLike, ConsentInput, ExperimentAssignment, ConsentPurpose, ConsentState, ConsentStatus, DeferredDeepLink, FlushResult, Platform, Properties, WireEvent } from "./client.js";
 export { ATTRIBUTION_PARAMS, CAMPAIGN_ID_PARAMS, CLICK_ID_PARAMS, UTM_PARAMS, externalReferrer, landingUrl, parseAttribution, webTouch, type Attribution } from "./attribution.js";
 export { asyncStorageAdapter, localStorageAdapter, memoryStorage, type StorageAdapter } from "./storage.js";
+export { CLARITY_ANONYMOUS_TAG, type ClarityOptions } from "./clarity.js";
 
 let instance: LeanAppClient | null = null;
 let warned = false;
